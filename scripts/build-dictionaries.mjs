@@ -150,17 +150,30 @@ async function loadWordNetIndex(pos) {
 // has at least one all-lowercase occurrence across its senses (even a word
 // like "cat" that also happens to be an acronym in one rare sense). This
 // builds a lemma -> "has a lowercase sense" map from one data file.
-// Returns both the aggregate hasLowercaseSense map (does this lemma have
-// ANY lowercase sense at all) and, per lemma, exactly WHICH synset offsets
-// used a lowercase form — needed later to pick a definition, since a word
-// like "gore" has both a common-noun sense (lowercase, "an unpleasant
+// Returns the aggregate hasLowercaseSense map (does this lemma have ANY
+// lowercase sense at all), per lemma exactly WHICH synset offsets used a
+// lowercase form — needed later to pick a definition, since a word like
+// "gore" has both a common-noun sense (lowercase, "an unpleasant
 // application of violence") and a proper-noun sense (capitalized, the
 // politician "Gore") and only the former should ever be shown as its
-// definition, even though the word as a whole correctly counts as real.
+// definition, even though the word as a whole correctly counts as real —
+// and (data.adj only) a hasPrenominalSense map: does this lemma have at
+// least one adjective sense usable directly before a noun? data.adj tags
+// some adjectives with a syntactic-position marker suffixed directly onto
+// the word token: "(p)" predicate-only (usable only after a linking verb,
+// e.g. "instinct" only in "words instinct with love", never "an instinct
+// dog"), "(ip)" immediately-postnominal-only (e.g. "elect" only in
+// "president elect", never "an elect president"), or "(a)"/no marker for
+// attributive-capable (usable directly before a noun — exactly how this
+// app uses a modifier). A lemma whose every sense is marked (p)/(ip) reads
+// as ungrammatical or just odd jammed in front of a noun the way this app
+// pairs modifier+core words, even though WordNet correctly calls it an
+// adjective.
 async function loadCasingMap(pos) {
   const raw = await readFile(path.join(WORDNET_DIR, `data.${pos}`), "utf8");
   const hasLowercaseSense = new Map();
   const lowercaseOffsets = new Map();
+  const hasPrenominalSense = new Map();
   for (const line of raw.split("\n")) {
     if (!line || line.startsWith("  ")) continue;
     const parts = line.split(" ");
@@ -168,8 +181,10 @@ async function loadCasingMap(pos) {
     const wordCount = parseInt(parts[3], 16);
     if (!Number.isFinite(wordCount)) continue;
     for (let i = 0; i < wordCount; i++) {
-      const word = parts[4 + i * 2];
-      if (!word) continue;
+      const token = parts[4 + i * 2];
+      if (!token) continue;
+      const marker = /\((a|p|ip)\)$/.exec(token)?.[1];
+      const word = marker ? token.slice(0, -(marker.length + 2)) : token;
       const lemma = word.toLowerCase().replace(/_/g, "");
       const isLowercase = word === word.toLowerCase();
       hasLowercaseSense.set(lemma, isLowercase || (hasLowercaseSense.get(lemma) ?? false));
@@ -177,9 +192,11 @@ async function loadCasingMap(pos) {
         if (!lowercaseOffsets.has(lemma)) lowercaseOffsets.set(lemma, new Set());
         lowercaseOffsets.get(lemma).add(offset);
       }
+      const prenominalOk = marker !== "p" && marker !== "ip";
+      hasPrenominalSense.set(lemma, prenominalOk || (hasPrenominalSense.get(lemma) ?? false));
     }
   }
-  return { hasLowercaseSense, lowercaseOffsets };
+  return { hasLowercaseSense, lowercaseOffsets, hasPrenominalSense };
 }
 
 // Same index.noun/index.adj files as loadWordNetIndex, but keeping each
@@ -248,7 +265,12 @@ async function main() {
   console.log(`  -> ${english.size} words (2-8 letters)`);
 
   const englishModifiers = new Set(
-    [...english].filter((w) => adjectives.has(w) && !MODIFIER_STOPWORDS.has(w))
+    [...english].filter(
+      (w) =>
+        adjectives.has(w) &&
+        !MODIFIER_STOPWORDS.has(w) &&
+        (adjCasing.hasPrenominalSense.get(w) ?? true)
+    )
   );
   console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
 

@@ -42,13 +42,12 @@ describe("runDiscovery", () => {
     expect(new Set(foundDomains).size).toBe(foundDomains.length);
   });
 
-  it("stops around the target count and reports completion", async () => {
-    // Every candidate resolves "available" near-instantly here, so with
-    // several concurrent workers all racing the same claimIndex() check,
-    // foundCount can briefly overshoot the target before a worker observes
-    // the updated value — a deliberate, documented tradeoff (see
-    // claimIndex/worker in discovery.ts), not a bug. So this asserts
-    // "stopped at or shortly after the target", not exact equality.
+  it("stops at exactly the target count and reports completion", async () => {
+    // Every candidate resolves "available" near-instantly here, so several
+    // concurrent workers race past the top-of-loop foundCount check before
+    // any of them increments it. The synchronous re-check right before the
+    // increment in the worker (no `await` in between) closes that race, so
+    // this can assert exact equality rather than "around" the target.
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false },
       { word: "dog", langs: ["english"], definition: "", common: false },
@@ -63,10 +62,9 @@ describe("runDiscovery", () => {
 
     const found = events.filter((e) => e.type === "found");
     const complete = events.find((e) => e.type === "complete");
-    expect(found.length).toBeGreaterThanOrEqual(2);
-    expect(found.length).toBeLessThanOrEqual(pool.length * pool.length);
+    expect(found.length).toBe(2);
     expect(complete).toBeDefined();
-    if (complete?.type === "complete") expect(complete.foundCount).toBe(found.length);
+    if (complete?.type === "complete") expect(complete.foundCount).toBe(2);
   });
 
   it("emits 'stopped' instead of 'complete' when aborted", async () => {

@@ -165,6 +165,14 @@ export async function runDiscovery(
         checkedCount++;
 
         if (status === "available") {
+          // Re-check right here, with no `await` before the increment: the
+          // guard at the top of this loop only catches workers that hadn't
+          // yet started an in-flight RDAP/whois check when the target was
+          // reached. Without this second, synchronous check, several
+          // concurrent workers can all pass that guard while foundCount is
+          // still under target, then all resolve "available" and all
+          // increment — overshooting by up to CONCURRENCY-1 results.
+          if (foundCount >= targetCount) continue;
           foundCount++;
           onEvent({ type: "found", domain, meaning, checkedCount, foundCount });
         } else {
