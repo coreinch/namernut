@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Domain Finder",
   description:
-    "Combines English, Latin, and Esperanto dictionary words to find an available domain.",
+    "Combines English dictionary words to find an available domain.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

@@ -2,16 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
-type Lang = "english" | "latin" | "esperanto" | "french" | "spanish";
-const LANGS: Lang[] = ["english", "latin", "esperanto", "french", "spanish"];
-
-const LANG_LABELS: Record<Lang, string> = {
-  english: "English",
-  latin: "Latin",
-  esperanto: "Esperanto",
-  french: "French",
-  spanish: "Spanish",
-};
+// English only — Latin/Esperanto/French/Spanish were dropped (no
+// WordNet-equivalent lexicon source existed for them). Kept as a Lang
+// union/array of one, matching the shape src/lib/dictionary.ts and
+// src/lib/modifiers.ts use, rather than special-casing a bare string.
+type Lang = "english";
+const LANGS: Lang[] = ["english"];
 
 // Kept as a small local literal (not imported from the server-side lib)
 // so this client bundle doesn't pull in the dictionary data file. Ordered
@@ -55,7 +51,7 @@ interface LogEntry {
 interface FoundEntry {
   id: string;
   domain: string;
-  origin: string;
+  meaning: string;
   checkedCount: number;
   runId: string;
 }
@@ -73,10 +69,6 @@ const STORAGE_KEY = "domain-finder:state:v1";
 
 interface DictionaryStats {
   english: number;
-  latin: number;
-  esperanto: number;
-  french: number;
-  spanish: number;
   combinedUnique: number;
   totalCombinations: number;
 }
@@ -130,7 +122,6 @@ export default function Home() {
 
   const abortRef = useRef<AbortController | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
-  const mainRef = useRef<HTMLElement | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   const [showPreviousResults, setShowPreviousResults] = useState(false);
@@ -153,14 +144,6 @@ export default function Home() {
   const effectiveShowMoreTlds =
     showMoreTlds || TLDS.slice(PRIMARY_TLD_COUNT).some((t) => enabledTlds[t]);
   const visibleTlds = effectiveShowMoreTlds ? TLDS : TLDS.slice(0, PRIMARY_TLD_COUNT);
-
-  const toggleLang = useCallback((lang: Lang) => {
-    setEnabledLangs((prev) => {
-      const activeCount = Object.values(prev).filter(Boolean).length;
-      if (prev[lang] && activeCount <= 1) return prev; // keep at least one selected
-      return { ...prev, [lang]: !prev[lang] };
-    });
-  }, []);
 
   const toggleTld = useCallback((tld: Tld) => {
     setEnabledTlds((prev) => {
@@ -323,7 +306,7 @@ export default function Home() {
                 // same millisecond, and Date.now() alone isn't fine-grained
                 // enough to keep them apart — that previously produced
                 // duplicate React keys.
-                { id: crypto.randomUUID(), domain: event.domain, origin: event.origin, checkedCount: event.checkedCount, runId },
+                { id: crypto.randomUUID(), domain: event.domain, meaning: event.meaning, checkedCount: event.checkedCount, runId },
                 ...prev,
               ]);
               resolveLog(event.domain, "available");
@@ -333,9 +316,6 @@ export default function Home() {
               setRunStatus("found");
               setCheckedCount(event.checkedCount);
               setCurrentRunFound(event.foundCount);
-              // Bring the results grid into view in case the user had
-              // scrolled down into the log while the search was running.
-              mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
               break;
             case "stopped":
               setRunStatus("stopped");
@@ -430,7 +410,13 @@ export default function Home() {
     : runStatus === "idle"
       ? "Start discovery"
       : "Search again";
-  const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId);
+  // foundHistory is stored newest-first (new finds are prepended, so
+  // Favorites/Previous-results archives read newest-first). But within the
+  // *current* run's grid, that ordering made each new find jump to the
+  // front and push earlier ones down/right. Reverse just this slice so
+  // finds render in discovery order — first found stays put, each new one
+  // appends after it — instead of reshuffling the whole grid every find.
+  const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
   const previousResults = foundHistory.filter((e) => e.runId !== activeRunId);
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
 
@@ -453,45 +439,31 @@ export default function Home() {
 
       {/* Scrollable content */}
       <main
-        ref={mainRef}
         className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
       >
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
           {/* 1. SEARCH CONFIGURATION — the primary, most-used control
               surface, grouped as one cohesive card instead of loose
-              independently-bordered widgets. Dictionaries always form an
-              even 2-row grid (5 languages + "Selected pool" = 6 = a clean
-              3x2), not a flex-wrap that ragged-wraps 4-then-2. */}
+              independently-bordered widgets. Just the English dictionary
+              now (Latin/Esperanto/French/Spanish were dropped — no
+              WordNet-equivalent lexicon existed for them), so there's
+              nothing to pick between; the pool size is shown as a plain
+              stat rather than a now-pointless single-item toggle. */}
           {!stats && (
             <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15" aria-hidden="true">
-              <div className="grid grid-cols-3 gap-2.5">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-14 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
-                ))}
-              </div>
+              <div className="h-4 w-32 animate-pulse rounded bg-black/5 dark:bg-white/5" />
               <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
               <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
             </section>
           )}
           {stats && (
             <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15">
-              <div className="flex flex-col gap-2">
-                <div className="grid grid-cols-3 gap-2.5">
-                  {LANGS.map((lang) => (
-                    <StatCard
-                      key={lang}
-                      label={LANG_LABELS[lang]}
-                      value={formatNumber(stats[lang])}
-                      active={enabledLangs[lang]}
-                      onClick={() => toggleLang(lang)}
-                    />
-                  ))}
-                  <StatCard label="Selected pool" value={formatNumber(stats.combinedUnique)} />
-                </div>
-                <p className="text-xs text-black/55 dark:text-white/55">
-                  Tap a dictionary to include or exclude it.
-                </p>
-              </div>
+              <p className="text-xs text-black/55 dark:text-white/55">
+                <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
+                  {formatNumber(stats.combinedUnique)}
+                </span>{" "}
+                English dictionary words in the pool
+              </p>
 
               <div className="flex rounded-xl border border-black/15 p-1 dark:border-white/15">
                 <SegmentButton active={!shortOnly} onClick={() => setShortOnly(false)}>
@@ -782,7 +754,7 @@ function ResultCard({
           {favorited ? "★" : "☆"}
         </button>
       </div>
-      <span className="truncate text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.origin}</span>
+      <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
       <button
         onClick={onCopy}
         className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
@@ -821,42 +793,6 @@ function SegmentButton({
       }`}
     >
       {children}
-    </button>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: string;
-  active?: boolean;
-  onClick?: () => void;
-}) {
-  const interactive = onClick !== undefined;
-  const inactive = interactive && !active;
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!interactive}
-      aria-pressed={interactive ? active : undefined}
-      className={`min-h-14 w-full rounded-xl border px-3 py-2 text-left transition-all active:scale-[0.97] ${FOCUS_RING} ${
-        interactive ? "cursor-pointer" : "cursor-default"
-      } ${
-        inactive
-          ? "border-black/15 opacity-60 dark:border-white/15"
-          : interactive
-            ? "border-emerald-500/40 dark:border-emerald-500/40"
-            : "border-black/15 dark:border-white/15"
-      }`}
-    >
-      <div className="truncate text-lg font-semibold tabular-nums">{value}</div>
-      <div className="truncate text-xs text-black/65 dark:text-white/65">{label}</div>
     </button>
   );
 }

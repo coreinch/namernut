@@ -1,170 +1,231 @@
 #!/usr/bin/env node
-// Downloads the source word lists and filters each down to plain 3-4 letter
-// words, writing the result to src/data/dictionaries.json. Re-run this
-// script any time to refresh the bundled word lists; the app itself never
-// hits these URLs at runtime.
-import { writeFile, mkdir } from "node:fs/promises";
+// Builds src/data/dictionaries.json directly from Open English Wordnet
+// 2025's noun and adjective files (index.noun/data.noun, index.adj/data.adj,
+// classic Princeton WNDB format), vendored locally in scripts/oewn-2025/
+// (see the README there for provenance/license). That dictionary itself is
+// the source here, not a cross-check against some other word list. Nothing
+// in this script touches the network; re-run it any time (e.g. after
+// updating the vendored files) to refresh the bundled word list.
+//
+// Previously used WordNet 3.1 (Princeton, last updated ~2011) via the
+// wordnet-db npm package. Switched to Open English Wordnet — an actively
+// maintained continuation of the same lexicon in the same file format, so
+// no parsing changes were needed — since it picks up newer vocabulary
+// (e.g. "vape", "vlog", "smol", "weeb") that predates-WordNet-3.1's cutoff.
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, "..", "src", "data", "dictionaries.json");
-
-const SOURCES = {
-  // dwyl/english-words: largest freely available plain English word list (~370k words).
-  english:
-    "https://raw.githubusercontent.com/dwyl/english-words/master/words_dictionary.json",
-  // titoBouzout/Dictionaries: Hunspell Latin lexicon (~129k stems), the
-  // largest plain-text Latin word list readily available.
-  latin:
-    "https://raw.githubusercontent.com/titoBouzout/Dictionaries/master/la.dic",
-  // hermitdave/FrequencyWords: Esperanto word frequency list derived from
-  // OpenSubtitles (~36k unique words), the largest plain Esperanto list found.
-  esperanto:
-    "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/eo/eo_full.txt",
-  // titoBouzout/Dictionaries again (same repo as Latin): Hunspell French
-  // and Spanish lexicons. Tried the FrequencyWords/OpenSubtitles corpus
-  // approach first (like Esperanto), but even frequency-capped it was
-  // dominated by subtitle character names (carl, kent, suzy, mack...) —
-  // a curated spell-check dictionary doesn't have that problem.
-  french: "https://raw.githubusercontent.com/titoBouzout/Dictionaries/master/French.dic",
-  spanish: "https://raw.githubusercontent.com/titoBouzout/Dictionaries/master/Spanish.dic",
-};
-
-const ESPERANTO_TRANSLITERATION = {
-  ĉ: "c",
-  ĝ: "g",
-  ĥ: "h",
-  ĵ: "j",
-  ŝ: "s",
-  ŭ: "u",
-};
-
-async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: { "User-Agent": "domain-finder-dictionary-builder" },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-  return res.text();
-}
+const WORDNET_DIR = path.join(__dirname, "oewn-2025");
 
 // Matches any valid Roman numeral (1-3999) spelled with standard
-// subtractive notation, e.g. "xiv", "lxvi", "mmxi".
-const ROMAN_NUMERAL_RE =
-  /^m{0,4}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
+// subtractive notation, e.g. "xiv", "lxvi", "mmxi" — WordNet's indexes
+// include these as valid "words" (they're indexed as numeral entries).
+const ROMAN_NUMERAL_RE = /^m{0,4}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
 
-// Raw source lists mix in abbreviations, unit symbols, and Roman-numeral
-// fragments (e.g. "ccw", "twp", "bldg", "lxv", "xiv") alongside real words.
-// A real word in each of these languages always contains a vowel, so
-// requiring one is a cheap, effective filter for that category of junk. We
-// also reject words that are just one letter repeated (e.g. "sss", "mmmm"),
-// another common abbreviation/interjection pattern in these source lists,
-// and words that are entirely valid Roman numerals.
-function isValidWord(word, vowels) {
+// A real word always contains a vowel, so requiring one is a cheap filter
+// for the rare unit-symbol-like WordNet entry. Also reject words that are
+// just one letter repeated and words that are entirely valid Roman
+// numerals.
+function isValidWord(word) {
   if (!/^[a-z]{3,4}$/.test(word)) return false;
-  if (!new RegExp(`[${vowels}]`).test(word)) return false;
+  if (!/[aeiouy]/.test(word)) return false;
   if (/^(.)\1*$/.test(word)) return false;
   if (ROMAN_NUMERAL_RE.test(word)) return false;
   return true;
 }
 
-function parseEnglish(raw) {
-  const dict = JSON.parse(raw);
-  const words = new Set();
-  for (const key of Object.keys(dict)) {
-    const w = key.toLowerCase();
-    if (isValidWord(w, "aeiouy")) words.add(w);
-  }
-  return words;
-}
+// Profanity, slurs, and a few ethnicity/religion group-names unsuitable as
+// generated-brand-name fodder — not structurally distinguishable from
+// ordinary common words the way abbreviations/proper nouns are (see
+// isJunkByCasing below), so this still needs an explicit list.
+const SAFETY_DENYLIST = new Set([
+  "fuck", "cunt", "cock", "twat", "tits", "piss", "shag", "slut", "turd",
+  "porn", "orgy", "poof", "nip", "meth", "pimp", "arse", "butt", "boob",
+  "fags", "gays", "wank", "smut", "putz", "anal",
+  "jap", "klan", "gook", "nig", "spic", "wog", "wop", "dink", "mong", "gyp", "mick",
+  "jew", "jews", "turk", "arab", "huns", "gay",
+  "nazi", "mdma", "cum", "perv", "weeb",
+]);
 
-function parseLatin(raw) {
-  const words = new Set();
+// WordNet's index.adj follows an older grammatical scheme that files
+// determiners/quantifiers under "adjective" synsets (e.g. "any", "some").
+// These are real WordNet adjective entries, not junk, but they're function
+// words rather than descriptive adjectives, so they read badly as a
+// generated brand-name modifier (e.g. "somecat.com"). Excluded here as a
+// correction to the POS category itself, not a taste judgment on the
+// (much larger) set of genuine adjectives WordNet returns.
+const MODIFIER_STOPWORDS = new Set([
+  "all", "any", "both", "few", "less", "more", "most", "much", "only", "own",
+  "some", "such", "very", "away", "nigh", "well", "then",
+]);
+
+// index.noun/index.adj list every lemma WordNet knows for that part of
+// speech (one per line, "<lemma> <pos> ..."), always lowercased regardless
+// of how the word is actually written.
+async function loadWordNetIndex(pos) {
+  const raw = await readFile(path.join(WORDNET_DIR, `index.${pos}`), "utf8");
+  const lemmas = new Set();
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const word = trimmed.split("/")[0].toLowerCase();
-    if (isValidWord(word, "aeiouy")) words.add(word);
+    // The file opens with ~29 lines of copyright header, each indented
+    // with two spaces before a line number; real entries start at column 0.
+    if (!line || line.startsWith("  ")) continue;
+    const lemma = line.split(" ")[0];
+    if (lemma) lemmas.add(lemma);
   }
-  return words;
+  return lemmas;
 }
 
-function parseEsperanto(raw) {
-  const words = new Set();
+// data.noun/data.adj list every synset WordNet knows for that part of
+// speech, one per line: synset_offset, lex_filenum, ss_type, word_count
+// (hex), then that many (word, lex_id) pairs — and unlike the index files,
+// these preserve the word's real casing (data.noun literally contains the
+// entry "09609728 18 n 01 Adam 0 ..."). That's a structural, WordNet-native
+// signal for exactly the junk index.noun/index.adj otherwise let through:
+// abbreviations are always ALL-CAPS ("AARP", "ADHD") and proper nouns are
+// always Title-case ("Adam", "Agra"), while a genuine common word always
+// has at least one all-lowercase occurrence across its senses (even a word
+// like "cat" that also happens to be an acronym in one rare sense). This
+// builds a lemma -> "has a lowercase sense" map from one data file.
+// Returns both the aggregate hasLowercaseSense map (does this lemma have
+// ANY lowercase sense at all) and, per lemma, exactly WHICH synset offsets
+// used a lowercase form — needed later to pick a definition, since a word
+// like "gore" has both a common-noun sense (lowercase, "an unpleasant
+// application of violence") and a proper-noun sense (capitalized, the
+// politician "Gore") and only the former should ever be shown as its
+// definition, even though the word as a whole correctly counts as real.
+async function loadCasingMap(pos) {
+  const raw = await readFile(path.join(WORDNET_DIR, `data.${pos}`), "utf8");
+  const hasLowercaseSense = new Map();
+  const lowercaseOffsets = new Map();
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let token = trimmed.split(/\s+/)[0].toLowerCase();
-
-    // The corpus mixes actual Unicode diacritics with the plain-ASCII
-    // "x-system" convention (ĉ=cx, ĝ=gx, ĥ=hx, ĵ=jx, ŝ=sx, ŭ=ux). Collapse
-    // the digraphs to the same base letter our Unicode map below produces,
-    // e.g. "cxi" (ĉi) -> "ci", consistent with how ĉi itself would resolve.
-    token = token.replace(/([cghjsu])x/g, "$1");
-
-    const transliterated = [...token]
-      .map((ch) => ESPERANTO_TRANSLITERATION[ch] ?? ch)
-      .join("");
-
-    // The Esperanto alphabet has no q, w, x, or y at all. Since the source
-    // corpus is subtitle text, entries containing any of them are foreign
-    // words or names that leaked in (e.g. "away", "wolf", "lucy", "york"),
-    // not real Esperanto — and 'x' specifically is also what's left over
-    // after collapsing the digraphs above (e.g. "marx", "alex", "rex").
-    if (/[qwxy]/.test(transliterated)) continue;
-
-    if (isValidWord(transliterated, "aeiou")) words.add(transliterated);
+    if (!line || line.startsWith("  ")) continue;
+    const parts = line.split(" ");
+    const offset = parts[0];
+    const wordCount = parseInt(parts[3], 16);
+    if (!Number.isFinite(wordCount)) continue;
+    for (let i = 0; i < wordCount; i++) {
+      const word = parts[4 + i * 2];
+      if (!word) continue;
+      const lemma = word.toLowerCase().replace(/_/g, "");
+      const isLowercase = word === word.toLowerCase();
+      hasLowercaseSense.set(lemma, isLowercase || (hasLowercaseSense.get(lemma) ?? false));
+      if (isLowercase) {
+        if (!lowercaseOffsets.has(lemma)) lowercaseOffsets.set(lemma, new Set());
+        lowercaseOffsets.get(lemma).add(offset);
+      }
+    }
   }
-  return words;
+  return { hasLowercaseSense, lowercaseOffsets };
 }
 
-// Standard Latin-script accent stripping via Unicode NFD decomposition
-// (é -> e + combining acute -> "e"), plus the two ligatures that don't
-// decompose that way. Good enough for French/Spanish; Esperanto needs its
-// own handling above because ĉ/ĝ/ĥ/ĵ/ŝ/ŭ carry an x-system ASCII spelling
-// in that corpus that this wouldn't catch.
-function stripDiacritics(word) {
-  return word
-    .replace(/œ/g, "oe")
-    .replace(/æ/g, "ae")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-// Same Hunspell .dic format as Latin (word/FLAGS, one per line, an initial
-// count-only header line), plus accent stripping for the accented Latin
-// scripts (French, Spanish) that Latin itself doesn't need.
-function parseHunspellDic(raw, vowels) {
-  const words = new Set();
+// Same index.noun/index.adj files as loadWordNetIndex, but keeping each
+// lemma's synset offsets (the last synset_cnt whitespace-separated tokens
+// on its line) instead of just recording that the lemma exists — needed to
+// look up that lemma's gloss (definition) in data.noun/data.adj below.
+// Uses trim()+split(/\s+/) rather than split(" ") specifically so a
+// trailing space before the newline (present on every line in these files)
+// doesn't become a bogus empty last token that'd throw off "last N tokens
+// are the offsets".
+async function loadWordNetOffsets(pos) {
+  const raw = await readFile(path.join(WORDNET_DIR, `index.${pos}`), "utf8");
+  const offsetsByLemma = new Map();
   for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const word = stripDiacritics(trimmed.split(/\s+/)[0].split("/")[0].toLowerCase());
-    if (isValidWord(word, vowels)) words.add(word);
+    if (!line || line.startsWith("  ")) continue;
+    const parts = line.trim().split(/\s+/);
+    const synsetCount = parseInt(parts[2], 10);
+    offsetsByLemma.set(parts[0], parts.slice(-synsetCount));
   }
-  return words;
+  return offsetsByLemma;
+}
+
+// data.noun/data.adj list each synset's gloss (definition, plus usually
+// quoted usage examples) after a "| " on the same line as its offset and
+// word list.
+async function loadGlossesByOffset(pos) {
+  const raw = await readFile(path.join(WORDNET_DIR, `data.${pos}`), "utf8");
+  const glossByOffset = new Map();
+  for (const line of raw.split("\n")) {
+    if (!line || line.startsWith("  ")) continue;
+    const gloss = line.split("| ")[1];
+    if (gloss) glossByOffset.set(line.slice(0, 8), gloss.trim());
+  }
+  return glossByOffset;
+}
+
+// WordNet glosses are "definition; "example one"; "example two"" — this
+// keeps just the definition, for use as a short one-line UI subtitle.
+function shortenGloss(gloss) {
+  return gloss.split(/;\s*"/)[0].replace(/;\s*$/, "").trim();
 }
 
 async function main() {
-  console.log("Fetching English word list...");
-  const english = parseEnglish(await fetchText(SOURCES.english));
+  console.log("Loading WordNet noun/adjective data...");
+  const [nouns, adjectives, nounCasing, adjCasing] = await Promise.all([
+    loadWordNetIndex("noun"),
+    loadWordNetIndex("adj"),
+    loadCasingMap("noun"),
+    loadCasingMap("adj"),
+  ]);
+
+  // A lemma is junk (an abbreviation or a proper noun/demonym, e.g. "AARP",
+  // "Adam", "American") if every synset it appears in — across both noun
+  // and adjective senses — used a capitalized form. A word with even one
+  // genuine lowercase sense (like "cat", which has both common and acronym
+  // senses) is kept.
+  const hasLowercaseSense = (lemma) =>
+    (nounCasing.hasLowercaseSense.get(lemma) ?? false) || (adjCasing.hasLowercaseSense.get(lemma) ?? false);
+
+  const allLemmas = new Set([...nouns, ...adjectives]);
+  const english = new Set(
+    [...allLemmas].filter(
+      (w) => isValidWord(w) && !SAFETY_DENYLIST.has(w) && hasLowercaseSense(w)
+    )
+  );
   console.log(`  -> ${english.size} words (3-4 letters)`);
 
-  console.log("Fetching Latin word list...");
-  const latin = parseLatin(await fetchText(SOURCES.latin));
-  console.log(`  -> ${latin.size} words (3-4 letters)`);
+  const englishModifiers = new Set(
+    [...english].filter((w) => adjectives.has(w) && !MODIFIER_STOPWORDS.has(w))
+  );
+  console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
 
-  console.log("Fetching Esperanto word list...");
-  const esperanto = parseEsperanto(await fetchText(SOURCES.esperanto));
-  console.log(`  -> ${esperanto.size} words (3-4 letters)`);
+  console.log("Extracting definitions...");
+  const [nounOffsets, adjOffsets, nounGlosses, adjGlosses] = await Promise.all([
+    loadWordNetOffsets("noun"),
+    loadWordNetOffsets("adj"),
+    loadGlossesByOffset("noun"),
+    loadGlossesByOffset("adj"),
+  ]);
+  // Picks the definition for word `w` from a specific POS's offsets/glosses/
+  // lowercase-offsets, preferring the first sense that's genuinely lowercase
+  // (skipping any that are only proper-noun/capitalized senses of that same
+  // word, e.g. "gore" the substance vs. "Gore" the politician) — falling
+  // back to the first sense at all only if somehow none qualify.
+  function definitionFor(w, offsets, glosses, lowercaseOffsetSet) {
+    const wordOffsets = offsets.get(w);
+    if (!wordOffsets) return undefined;
+    const offset = wordOffsets.find((o) => lowercaseOffsetSet.has(o)) ?? wordOffsets[0];
+    return glosses.get(offset);
+  }
 
-  console.log("Fetching French word list...");
-  const french = parseHunspellDic(await fetchText(SOURCES.french), "aeiouy");
-  console.log(`  -> ${french.size} words (3-4 letters)`);
-
-  console.log("Fetching Spanish word list...");
-  const spanish = parseHunspellDic(await fetchText(SOURCES.spanish), "aeiou");
-  console.log(`  -> ${spanish.size} words (3-4 letters)`);
+  // A word tagged as a modifier is shown as an adjective in the UI, so its
+  // definition should come from its adjective sense if it has one; every
+  // other word is shown as the "core" (noun) half of a pairing, so its noun
+  // sense is what's relevant — falling back to whichever sense actually
+  // exists, since a word doesn't have to have both.
+  const englishDefinitions = Object.fromEntries(
+    [...english].map((w) => {
+      const isModifierWord = englishModifiers.has(w);
+      const gloss = isModifierWord
+        ? (definitionFor(w, adjOffsets, adjGlosses, adjCasing.lowercaseOffsets.get(w) ?? new Set()) ??
+          definitionFor(w, nounOffsets, nounGlosses, nounCasing.lowercaseOffsets.get(w) ?? new Set()))
+        : (definitionFor(w, nounOffsets, nounGlosses, nounCasing.lowercaseOffsets.get(w) ?? new Set()) ??
+          definitionFor(w, adjOffsets, adjGlosses, adjCasing.lowercaseOffsets.get(w) ?? new Set()));
+      return [w, gloss ? shortenGloss(gloss) : ""];
+    })
+  );
 
   await mkdir(path.dirname(OUT_PATH), { recursive: true });
   await writeFile(
@@ -172,12 +233,18 @@ async function main() {
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
-        sources: SOURCES,
+        source: "WordNet 3.1 (via the wordnet-db package), index.noun/adj + data.noun/adj — no external fetch",
         english: [...english].sort(),
-        latin: [...latin].sort(),
-        esperanto: [...esperanto].sort(),
-        french: [...french].sort(),
-        spanish: [...spanish].sort(),
+        // Subset of `english` that WordNet's index.adj lists as having an
+        // adjective sense — used to bias candidate generation toward
+        // modifier+noun pairs (see src/lib/modifiers.ts and candidates.ts)
+        // instead of two arbitrary nouns jammed together.
+        englishModifiers: [...englishModifiers].sort(),
+        // word -> short WordNet gloss (first relevant sense's definition,
+        // usage examples stripped). Shown in the UI under each result
+        // instead of the (now pointless, English-only) "English + English"
+        // origin label. See src/lib/definitions.ts.
+        englishDefinitions,
       },
       null,
       2

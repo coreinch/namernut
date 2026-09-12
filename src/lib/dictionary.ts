@@ -1,18 +1,19 @@
 import data from "@/data/dictionaries.json";
 
-export type Lang = "english" | "latin" | "esperanto" | "french" | "spanish";
+// A single-entry union (rather than a plain string) so WordEntry/isModifier
+// keep the same shape they'd have with multiple languages — English is the
+// only language the app supports (Latin/Esperanto/French/Spanish were
+// dropped: none of them had a WordNet-equivalent lexicon source, only
+// corpus-derived word lists of much lower, unfixable quality).
+export type Lang = "english";
 
-export const ALL_LANGS: Lang[] = ["english", "latin", "esperanto", "french", "spanish"];
+export const ALL_LANGS: Lang[] = ["english"];
 
 export const LANG_LABELS: Record<Lang, string> = {
   english: "English",
-  latin: "Latin",
-  esperanto: "Esperanto",
-  french: "French",
-  spanish: "Spanish",
 };
 
-/** Formats a word's contributing language(s) for display, e.g. "English/Latin". */
+/** Formats a word's contributing language(s) for display, e.g. "English". */
 export function formatLangs(langs: Lang[]): string {
   return langs.map((l) => LANG_LABELS[l]).join("/");
 }
@@ -20,6 +21,8 @@ export function formatLangs(langs: Lang[]): string {
 export interface WordEntry {
   word: string;
   langs: Lang[];
+  /** Short WordNet gloss for this word (see src/lib/definitions.ts), or "" if none was found. */
+  definition: string;
 }
 
 let cachedPool: WordEntry[] | null = null;
@@ -38,7 +41,11 @@ export function getWordPool(): WordEntry[] {
 
   cachedPool = [...byWord.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([word, langs]) => ({ word, langs: [...langs] }));
+    .map(([word, langs]) => ({
+      word,
+      langs: [...langs],
+      definition: (data.englishDefinitions as Record<string, string>)[word] ?? "",
+    }));
 
   return cachedPool;
 }
@@ -75,10 +82,6 @@ export function getDictionaryStats(langs: Lang[] = ALL_LANGS, shortOnly = false)
   const combined = getSelectedPool(langs, shortOnly).length;
   return {
     english: data.english.length,
-    latin: data.latin.length,
-    esperanto: data.esperanto.length,
-    french: data.french.length,
-    spanish: data.spanish.length,
     combinedUnique: combined,
     totalCombinations: combined * combined,
     generatedAt: data.generatedAt,

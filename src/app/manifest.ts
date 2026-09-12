@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Domain Finder",
     short_name: "DomainFinder",
     description:
-      "Combines English, Latin, and Esperanto dictionary words to find an available domain.",
+      "Combines English dictionary words to find an available domain.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0a",

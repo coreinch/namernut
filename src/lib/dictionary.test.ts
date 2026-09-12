@@ -10,12 +10,8 @@ import {
 } from "./dictionary";
 
 describe("formatLangs", () => {
-  it("formats a single language", () => {
+  it("formats a language", () => {
     expect(formatLangs(["english"])).toBe("English");
-  });
-
-  it("joins multiple languages with '/'", () => {
-    expect(formatLangs(["english", "latin"])).toBe("English/Latin");
   });
 });
 
@@ -26,7 +22,7 @@ describe("parseLangs", () => {
   });
 
   it("filters to only recognized languages", () => {
-    expect(parseLangs("english,klingon,latin")).toEqual(["english", "latin"]);
+    expect(parseLangs("english,klingon")).toEqual(["english"]);
   });
 
   it("falls back to ALL_LANGS if nothing valid survives", () => {
@@ -34,7 +30,7 @@ describe("parseLangs", () => {
   });
 
   it("dedupes and lowercases", () => {
-    expect(parseLangs("ENGLISH,english,Latin")).toEqual(["english", "latin"]);
+    expect(parseLangs("ENGLISH,english")).toEqual(["english"]);
   });
 });
 
@@ -94,17 +90,12 @@ describe("getSelectedPool", () => {
   it("selecting all languages returns the full pool", () => {
     expect(getSelectedPool(ALL_LANGS).length).toBe(getWordPool().length);
   });
-
-  it("selecting fewer languages never returns more words than the full pool", () => {
-    const subset = getSelectedPool(["latin"]);
-    expect(subset.length).toBeLessThanOrEqual(getWordPool().length);
-  });
 });
 
 describe("getDictionaryStats", () => {
   it("combinedUnique matches getSelectedPool's length for the same filters", () => {
-    const stats = getDictionaryStats(["english", "latin"], false);
-    expect(stats.combinedUnique).toBe(getSelectedPool(["english", "latin"], false).length);
+    const stats = getDictionaryStats(["english"], false);
+    expect(stats.combinedUnique).toBe(getSelectedPool(["english"], false).length);
   });
 
   it("totalCombinations is combinedUnique squared", () => {
@@ -115,9 +106,5 @@ describe("getDictionaryStats", () => {
   it("per-language counts are all positive", () => {
     const stats = getDictionaryStats();
     expect(stats.english).toBeGreaterThan(0);
-    expect(stats.latin).toBeGreaterThan(0);
-    expect(stats.esperanto).toBeGreaterThan(0);
-    expect(stats.french).toBeGreaterThan(0);
-    expect(stats.spanish).toBeGreaterThan(0);
   });
 });

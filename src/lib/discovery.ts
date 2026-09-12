@@ -10,7 +10,7 @@ export type DiscoveryEvent =
   | { type: "checking"; name: string; checkedCount: number }
   | { type: "taken"; name: string; checkedCount: number }
   | { type: "unknown"; name: string; checkedCount: number }
-  | { type: "found"; domain: string; origin: string; checkedCount: number; foundCount: number }
+  | { type: "found"; domain: string; meaning: string; checkedCount: number; foundCount: number }
   | { type: "complete"; checkedCount: number; foundCount: number }
   | { type: "stopped"; checkedCount: number }
   | { type: "error"; message: string };
@@ -123,7 +123,7 @@ export async function runDiscovery(
       const idx = claimIndex();
       if (idx === null) return;
 
-      const { name, origin } = space.candidateAt(range.at(idx));
+      const { name, meaning } = space.candidateAt(range.at(idx));
       // Synchronous check-then-add, no `await` in between, so concurrent
       // workers can't both slip past this for the same name.
       if (seenNames.has(name)) continue;
@@ -144,7 +144,7 @@ export async function runDiscovery(
 
         if (status === "available") {
           foundCount++;
-          onEvent({ type: "found", domain, origin, checkedCount, foundCount });
+          onEvent({ type: "found", domain, meaning, checkedCount, foundCount });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }

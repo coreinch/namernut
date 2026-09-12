@@ -1,4 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { WordEntry } from "./dictionary";
+
+// Decouple this test from the real, regenerable modifiers list (src/data/
+// dictionaries.json) — a dictionary rebuild can shuffle which words are
+// tagged as modifiers (e.g. a word gaining/losing a cross-language
+// collision), which would otherwise make this file's expectations flaky.
+// A fixed two-word modifier set keeps "no modifiers in pool" vs. "pool has
+// modifiers" deterministic regardless of what the real data looks like.
+// (vi.mock calls are hoisted above imports by Vitest's transform, so the
+// static import below correctly receives this mock.)
+vi.mock("./modifiers", () => ({
+  isModifier: (word: string) => word === "wild" || word === "sad",
+}));
+
 import {
   buildCandidateSpace,
   parseCount,
@@ -6,15 +20,14 @@ import {
   parseTlds,
   SUPPORTED_TLDS,
 } from "./candidates";
-import type { WordEntry } from "./dictionary";
 
 const pool: WordEntry[] = [
-  { word: "cat", langs: ["english"] },
-  { word: "dog", langs: ["english"] },
-  { word: "rex", langs: ["latin"] },
+  { word: "cat", langs: ["english"], definition: "a small domesticated animal" },
+  { word: "dog", langs: ["english"], definition: "a domesticated animal" },
+  { word: "rex", langs: ["english"], definition: "a king" },
 ];
 
-describe("buildCandidateSpace (no keyword)", () => {
+describe("buildCandidateSpace (no keyword, no modifiers in pool -> unrestricted fallback)", () => {
   const space = buildCandidateSpace(pool);
 
   it("has pool.length^2 total candidates", () => {
@@ -33,11 +46,48 @@ describe("buildCandidateSpace (no keyword)", () => {
     );
   });
 
-  it("labels the origin with each half's contributing language(s)", () => {
-    // index 0 -> i1=0 (cat/english), i2=0 (cat/english)
-    expect(space.candidateAt(0)).toEqual({ name: "catcat", origin: "English + English" });
-    // index 2 -> i1=0 (cat/english), i2=2 (rex/latin)
-    expect(space.candidateAt(2)).toEqual({ name: "catrex", origin: "English + Latin" });
+  it("labels the meaning with each half's word and definition", () => {
+    // index 0 -> i1=0 (cat), i2=0 (cat)
+    expect(space.candidateAt(0)).toEqual({
+      name: "catcat",
+      meaning: "cat: a small domesticated animal · cat: a small domesticated animal",
+    });
+    // index 2 -> i1=0 (cat), i2=2 (rex)
+    expect(space.candidateAt(2)).toEqual({
+      name: "catrex",
+      meaning: "cat: a small domesticated animal · rex: a king",
+    });
+  });
+});
+
+describe("buildCandidateSpace (no keyword, pool has modifiers -> modifier+core pairing)", () => {
+  // "wild" and "sad" are in ENGLISH_MODIFIERS; "cat", "dog", "rex" aren't —
+  // so this pool has 2 modifiers and 3 core words.
+  const modPool: WordEntry[] = [
+    { word: "wild", langs: ["english"], definition: "not tamed" },
+    { word: "sad", langs: ["english"], definition: "unhappy" },
+    { word: "cat", langs: ["english"], definition: "a small domesticated animal" },
+    { word: "dog", langs: ["english"], definition: "a domesticated animal" },
+    { word: "rex", langs: ["english"], definition: "a king" },
+  ];
+  const space = buildCandidateSpace(modPool);
+
+  it("has modifiers * core total candidates, not pool.length^2", () => {
+    expect(space.total).toBe(2 * 3);
+    expect(space.total).not.toBe(modPool.length * modPool.length);
+  });
+
+  it("only ever pairs a modifier followed by a core word, never the reverse", () => {
+    const names = new Set<string>();
+    for (let i = 0; i < space.total; i++) names.add(space.candidateAt(i).name);
+    expect(names).toEqual(
+      new Set(["wildcat", "wilddog", "wildrex", "sadcat", "saddog", "sadrex"])
+    );
+    // Never core+modifier, modifier+modifier, or core+core.
+    expect(names.has("catwild")).toBe(false);
+    expect(names.has("wildsad")).toBe(false);
+    expect(names.has("sadwild")).toBe(false);
+    expect(names.has("catdog")).toBe(false);
   });
 });
 
@@ -56,9 +106,15 @@ describe("buildCandidateSpace (with keyword)", () => {
     );
   });
 
-  it("labels the keyword side of the origin as 'Keyword'", () => {
-    expect(space.candidateAt(0)).toEqual({ name: "novacat", origin: "Keyword + English" });
-    expect(space.candidateAt(pool.length)).toEqual({ name: "catnova", origin: "English + Keyword" });
+  it("labels the keyword side of the meaning as the bare keyword (it has no definition)", () => {
+    expect(space.candidateAt(0)).toEqual({
+      name: "novacat",
+      meaning: "nova · cat: a small domesticated animal",
+    });
+    expect(space.candidateAt(pool.length)).toEqual({
+      name: "catnova",
+      meaning: "cat: a small domesticated animal · nova",
+    });
   });
 });
 

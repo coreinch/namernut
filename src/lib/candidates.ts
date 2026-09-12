@@ -1,31 +1,64 @@
 import type { WordEntry } from "@/lib/dictionary";
-import { formatLangs } from "@/lib/dictionary";
+import { isModifier } from "@/lib/modifiers";
 
 export interface Candidate {
   name: string;
-  /** Human-readable label of which dictionary/dictionaries each half came from, e.g. "English + Latin". */
-  origin: string;
+  /** Each half's word plus its short WordNet definition (or just the bare word for a user-supplied keyword, which has none), e.g. "swift: moving fast · fox: a carnivorous mammal". */
+  meaning: string;
 }
 
 export interface CandidateSpace {
   total: number;
-  /** Maps a shuffled index in [0, total) to a candidate domain name (no TLD) plus its origin label. */
+  /** Maps a shuffled index in [0, total) to a candidate domain name (no TLD) plus its meaning label. */
   candidateAt(shuffledIndex: number): Candidate;
+}
+
+/** "word: definition", or just "word" if it has no definition (e.g. a user-supplied keyword). */
+function describe(word: string, definition?: string): string {
+  return definition ? `${word}: ${definition}` : word;
 }
 
 /**
  * Builds the space of candidate names to search.
  *
- * With no keyword, every ordered pair of pool words is a candidate
- * (pool.length^2 combinations). With a keyword, every candidate pairs the
- * keyword with one pool word, in both orders (keyword+word, word+keyword) —
- * 2 * pool.length combinations — so every result relates to that keyword,
- * the way "include a word" filters work in commercial name generators.
+ * With no keyword: if the pool has both modifiers (short adjectives, e.g.
+ * "swift") and core words (everything else, e.g. "fox"), every candidate
+ * pairs a modifier followed by a core word, in that order only
+ * (modifiers.length * core.length combinations) — "swiftfox" reads as an
+ * intentional brand name the way "foxswift" doesn't, since adjective+noun
+ * is the order that actually sounds like English. See lib/modifiers.ts for
+ * how a word is tagged as a modifier. A pool that happens to be all
+ * modifiers or all core words (rare) falls back to pairing every ordered
+ * pair of pool words (pool.length^2 combinations) so the search still works.
+ *
+ * With a keyword, every candidate pairs the keyword with one pool word, in
+ * both orders (keyword+word, word+keyword) — 2 * pool.length combinations —
+ * so every result relates to that keyword, the way "include a word" filters
+ * work in commercial name generators.
  */
 export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
   const L = pool.length;
 
   if (!keyword) {
+    const modifiers = pool.filter((w) => isModifier(w.word, w.langs));
+    const core = pool.filter((w) => !isModifier(w.word, w.langs));
+    const M = modifiers.length;
+    const C = core.length;
+
+    if (M > 0 && C > 0) {
+      return {
+        total: M * C,
+        candidateAt(shuffled) {
+          const m = modifiers[Math.floor(shuffled / C)];
+          const c = core[shuffled % C];
+          return {
+            name: `${m.word}${c.word}`,
+            meaning: `${describe(m.word, m.definition)} · ${describe(c.word, c.definition)}`,
+          };
+        },
+      };
+    }
+
     return {
       total: L * L,
       candidateAt(shuffled) {
@@ -35,7 +68,7 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
         const w2 = pool[i2];
         return {
           name: `${w1.word}${w2.word}`,
-          origin: `${formatLangs(w1.langs)} + ${formatLangs(w2.langs)}`,
+          meaning: `${describe(w1.word, w1.definition)} · ${describe(w2.word, w2.definition)}`,
         };
       },
     };
@@ -46,10 +79,10 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
     candidateAt(shuffled) {
       if (shuffled < L) {
         const w = pool[shuffled];
-        return { name: `${keyword}${w.word}`, origin: `Keyword + ${formatLangs(w.langs)}` };
+        return { name: `${keyword}${w.word}`, meaning: `${keyword} · ${describe(w.word, w.definition)}` };
       }
       const w = pool[shuffled - L];
-      return { name: `${w.word}${keyword}`, origin: `${formatLangs(w.langs)} + Keyword` };
+      return { name: `${w.word}${keyword}`, meaning: `${describe(w.word, w.definition)} · ${keyword}` };
     },
   };
 }
