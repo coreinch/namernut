@@ -15,10 +15,10 @@ describe("runDiscovery", () => {
     // same candidate name. Without dedup this fires two "checking"/"found"
     // events for the same domain and produces a duplicate React key.
     const pool: WordEntry[] = [
-      { word: "ab", langs: ["english"], definition: "" },
-      { word: "cde", langs: ["english"], definition: "" },
-      { word: "abc", langs: ["english"], definition: "" },
-      { word: "de", langs: ["english"], definition: "" },
+      { word: "ab", langs: ["english"], definition: "", common: false },
+      { word: "cde", langs: ["english"], definition: "", common: false },
+      { word: "abc", langs: ["english"], definition: "", common: false },
+      { word: "de", langs: ["english"], definition: "", common: false },
     ];
 
     vi.mocked(checkDomain).mockResolvedValue("available");
@@ -29,7 +29,7 @@ describe("runDiscovery", () => {
 
     // Large enough target that every non-colliding candidate in this tiny
     // 4x4 pool gets visited, so the collision would surface if not deduped.
-    await runDiscovery(pool, undefined, ["com"], 100, (e) => events.push(e), controller.signal);
+    await runDiscovery(pool, undefined, ["com"], 100, (e) => events.push(e), controller.signal, 20);
 
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     const checkingNames = events.filter((e) => e.type === "checking").map((e) => e.name);
@@ -50,16 +50,16 @@ describe("runDiscovery", () => {
     // claimIndex/worker in discovery.ts), not a bug. So this asserts
     // "stopped at or shortly after the target", not exact equality.
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "" },
-      { word: "dog", langs: ["english"], definition: "" },
-      { word: "fox", langs: ["english"], definition: "" },
+      { word: "cat", langs: ["english"], definition: "", common: false },
+      { word: "dog", langs: ["english"], definition: "", common: false },
+      { word: "fox", langs: ["english"], definition: "", common: false },
     ];
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal);
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20);
 
     const found = events.filter((e) => e.type === "found");
     const complete = events.find((e) => e.type === "complete");
@@ -71,8 +71,8 @@ describe("runDiscovery", () => {
 
   it("emits 'stopped' instead of 'complete' when aborted", async () => {
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "" },
-      { word: "dog", langs: ["english"], definition: "" },
+      { word: "cat", langs: ["english"], definition: "", common: false },
+      { word: "dog", langs: ["english"], definition: "", common: false },
     ];
     vi.mocked(checkDomain).mockResolvedValue("taken");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
@@ -80,7 +80,7 @@ describe("runDiscovery", () => {
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
     controller.abort();
-    await runDiscovery(pool, undefined, ["com"], 10, (e) => events.push(e), controller.signal);
+    await runDiscovery(pool, undefined, ["com"], 10, (e) => events.push(e), controller.signal, 20);
 
     expect(events.some((e) => e.type === "stopped")).toBe(true);
     expect(events.some((e) => e.type === "complete")).toBe(false);

@@ -3,15 +3,17 @@
 // 2025's noun and adjective files (index.noun/data.noun, index.adj/data.adj,
 // classic Princeton WNDB format), vendored locally in scripts/oewn-2025/
 // (see the README there for provenance/license). That dictionary itself is
-// the source here, not a cross-check against some other word list. Nothing
-// in this script touches the network; re-run it any time (e.g. after
-// updating the vendored files) to refresh the bundled word list.
+// the source here, not a cross-check against some other word list.
 //
 // Previously used WordNet 3.1 (Princeton, last updated ~2011) via the
 // wordnet-db npm package. Switched to Open English Wordnet — an actively
 // maintained continuation of the same lexicon in the same file format, so
 // no parsing changes were needed — since it picks up newer vocabulary
 // (e.g. "vape", "vlog", "smol", "weeb") that predates-WordNet-3.1's cutoff.
+//
+// One network fetch: an English word-frequency list, used only to tag
+// which dictionary words are common enough to prioritize in search (see
+// englishCommon below) — everything else here is fully offline.
 import { writeFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,17 +22,53 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = path.join(__dirname, "..", "src", "data", "dictionaries.json");
 const WORDNET_DIR = path.join(__dirname, "oewn-2025");
 
+// hermitdave/FrequencyWords: English word-frequency list derived from
+// OpenSubtitles dialogue — used only to rank words by how commonly they're
+// actually used, not as a word source (WordNet is still the dictionary;
+// this never adds a word WordNet doesn't already have).
+const FREQUENCY_LIST_URL =
+  "https://raw.githubusercontent.com/hermitdave/FrequencyWords/master/content/2018/en/en_50k.txt";
+
+// How far down the frequency list (by rank, 0 = most frequent) a word may
+// sit and still count as "common" — i.e. worth prioritizing in search
+// results over the long tail of real-but-obscure WordNet entries. Chosen
+// empirically: high enough to include everyday adjectives and nouns
+// ("blue", "ice"), low enough to exclude rare/technical vocabulary.
+const COMMON_WORD_RANK_CUTOFF = 10000;
+
+async function fetchText(url) {
+  const res = await fetch(url, { headers: { "User-Agent": "domain-finder-dictionary-builder" } });
+  if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  return res.text();
+}
+
+function loadFrequencyRanks(raw) {
+  const rank = new Map();
+  const lines = raw.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const word = lines[i].trim().split(/\s+/)[0]?.toLowerCase();
+    if (word && !rank.has(word)) rank.set(word, i);
+  }
+  return rank;
+}
+
 // Matches any valid Roman numeral (1-3999) spelled with standard
 // subtractive notation, e.g. "xiv", "lxvi", "mmxi" — WordNet's indexes
 // include these as valid "words" (they're indexed as numeral entries).
 const ROMAN_NUMERAL_RE = /^m{0,4}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
 
-// A real word always contains a vowel, so requiring one is a cheap filter
-// for the rare unit-symbol-like WordNet entry. Also reject words that are
-// just one letter repeated and words that are entirely valid Roman
-// numerals.
+// 2-8 letters — no longer capped at 3-4: since the app now limits the
+// combined *output* length via a slider instead of restricting each word's
+// own length, the dictionary itself can hold a wider range of word lengths
+// (more variety to draw shorter or longer combinations from), down to
+// genuine 2-letter words ("ox", "id", "pi"). A real word always contains a
+// vowel, so requiring one is a cheap filter for the rare unit-symbol-like
+// WordNet entry (this also naturally excludes 2-letter non-words like
+// abbreviations with no vowel). Also reject words that are just one letter
+// repeated (e.g. "aa") and words that are entirely valid Roman numerals
+// (e.g. "ix", "iv" — meaningful at 2 letters too now).
 function isValidWord(word) {
-  if (!/^[a-z]{3,4}$/.test(word)) return false;
+  if (!/^[a-z]{2,8}$/.test(word)) return false;
   if (!/[aeiouy]/.test(word)) return false;
   if (/^(.)\1*$/.test(word)) return false;
   if (ROMAN_NUMERAL_RE.test(word)) return false;
@@ -48,6 +86,29 @@ const SAFETY_DENYLIST = new Set([
   "jap", "klan", "gook", "nig", "spic", "wog", "wop", "dink", "mong", "gyp", "mick",
   "jew", "jews", "turk", "arab", "huns", "gay",
   "nazi", "mdma", "cum", "perv", "weeb",
+  // found while reviewing the newly-allowed 2-letter words: crude slang
+  // ("ho"), and a handful of lowercase-cased entries the casing filter
+  // can't catch since they're not abbreviations or proper nouns in the
+  // ALL-CAPS/Title-case sense — just obscure jargon (measurement units,
+  // a chemistry term), foreign-alphabet letter names, or WordNet's
+  // number-as-word entries ("ic" = 108, "il" = 49).
+  "ho", "ic", "il", "yr", "eq", "at", "ar", "pe", "ki", "he",
+  // found via a broad profanity/slur sweep against the built dictionary,
+  // prompted by "shit" turning up in a live search sample. Same standard as
+  // the entries above: dominant real-world usage is crude/vulgar/a slur, not
+  // a word we're excluding just because it *also* has an edgy sense (e.g.
+  // "cracker", "slave", "weed", "kill" stay in — their dominant usage is an
+  // ordinary common word, unlike these).
+  "shit", "shitty", "bastard", "whore", "bitch", "dick", "pussy", "prick",
+  "douche", "tit", "ass", "asshole", "hooker",
+  "fag", "faggot", "dyke", "retard", "coon", "chink", "kike", "squaw",
+  "negro", "negress", "darkie", "darky", "honky", "wetback", "beaner",
+  "orgasm", "climax", "erotica", "erotic", "nude", "nudity", "fetish",
+  "bondage", "horny",
+  "heroin", "cocaine",
+  "rape", "rapist", "incest",
+  "wanker", "tosser",
+  "skank", "slag", "harlot", "strumpet", "wench", "hussy",
 ]);
 
 // WordNet's index.adj follows an older grammatical scheme that files
@@ -184,12 +245,19 @@ async function main() {
       (w) => isValidWord(w) && !SAFETY_DENYLIST.has(w) && hasLowercaseSense(w)
     )
   );
-  console.log(`  -> ${english.size} words (3-4 letters)`);
+  console.log(`  -> ${english.size} words (2-8 letters)`);
 
   const englishModifiers = new Set(
     [...english].filter((w) => adjectives.has(w) && !MODIFIER_STOPWORDS.has(w))
   );
   console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
+
+  console.log("Fetching English word-frequency list...");
+  const frequencyRank = loadFrequencyRanks(await fetchText(FREQUENCY_LIST_URL));
+  const englishCommon = new Set(
+    [...english].filter((w) => (frequencyRank.get(w) ?? Infinity) < COMMON_WORD_RANK_CUTOFF)
+  );
+  console.log(`  -> ${englishCommon.size} of ${english.size} words are common (tagged for search priority)`);
 
   console.log("Extracting definitions...");
   const [nounOffsets, adjOffsets, nounGlosses, adjGlosses] = await Promise.all([
@@ -233,13 +301,20 @@ async function main() {
     JSON.stringify(
       {
         generatedAt: new Date().toISOString(),
-        source: "WordNet 3.1 (via the wordnet-db package), index.noun/adj + data.noun/adj — no external fetch",
+        source:
+          "Open English Wordnet 2025 (index.noun/adj + data.noun/adj, vendored in scripts/oewn-2025/) " +
+          "+ hermitdave/FrequencyWords (English frequency ranking, fetched at build time)",
         english: [...english].sort(),
         // Subset of `english` that WordNet's index.adj lists as having an
         // adjective sense — used to bias candidate generation toward
         // modifier+noun pairs (see src/lib/modifiers.ts and candidates.ts)
         // instead of two arbitrary nouns jammed together.
         englishModifiers: [...englishModifiers].sort(),
+        // Subset of `english` common enough (by usage frequency) to
+        // prioritize in search — see src/lib/dictionary.ts/candidates.ts.
+        // Not a hard filter: everything else in `english` is still
+        // reachable, just tried second.
+        englishCommon: [...englishCommon].sort(),
         // word -> short WordNet gloss (first relevant sense's definition,
         // usage examples stripped). Shown in the UI under each result
         // instead of the (now pointless, English-only) "English + English"

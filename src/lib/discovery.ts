@@ -84,7 +84,10 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
  * until the caller aborts). Each call gets its own random seed and local
  * counters — nothing here is shared across callers, so concurrent searches
  * (e.g. from separate browser tabs) never interfere with each other or
- * resume one another's progress.
+ * resume one another's progress. `maxLength` caps the combined candidate
+ * name's length (e.g. modifier+core, or keyword+word) — the dictionary
+ * itself spans a range of word lengths, so this is what actually limits
+ * how long a result can be, not any per-word restriction.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -92,42 +95,61 @@ export async function runDiscovery(
   tlds: string[],
   targetCount: number,
   onEvent: (event: DiscoveryEvent) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  maxLength: number
 ) {
   const space = buildCandidateSpace(pool, keyword);
   const seed = crypto.randomInt(0, 2 ** 31);
-  const range = new ShuffledRange(space.total, seed);
+  // One independently-shuffled walk per tier (e.g. common+common word pairs,
+  // then the full pool) — each tier gets its own derived seed so the walks
+  // aren't correlated, but everything is still deterministic given the
+  // master seed. A tier with total 0 (e.g. no common words at all) gets no
+  // range — never claimed, since claimCandidate skips straight past it.
+  const tierRanges = space.tiers.map((tier, i) =>
+    tier.total > 0 ? new ShuffledRange(tier.total, (seed + i) >>> 0) : null
+  );
 
-  let nextIndex = 0;
+  let tierIndex = 0;
+  let nextIndexInTier = 0;
   let checkedCount = 0;
   let foundCount = 0;
   // Word concatenation has no separator, so two different underlying word
   // pairs can occasionally produce the identical candidate string (e.g. a
-  // 3+4 split landing on the same characters as a different 4+3 split).
-  // The shuffled index space guarantees no *index* repeats, but not that
-  // every resulting *name* is unique — dedupe those so we never check (or
-  // report as found) the same domain twice in one run.
+  // 3+4 split landing on the same characters as a different 4+3 split) —
+  // and now, the same pair can also legitimately appear in more than one
+  // tier (a common+common pair is also part of the full-pool tier).
+  // Dedupe by name so we never check (or report as found) the same domain
+  // twice in one run.
   const seenNames = new Set<string>();
 
   // Synchronous claim (no `await` before the mutation), so concurrent
-  // workers never race over the same index or overshoot the target.
-  function claimIndex(): number | null {
+  // workers never race over the same (tier, index) pair or overshoot the
+  // target. Advances past exhausted or empty tiers to the next one.
+  function claimCandidate(): { name: string; meaning: string } | null {
     if (signal.aborted) return null;
-    if (nextIndex >= space.total) return null;
     if (foundCount >= targetCount) return null;
-    return nextIndex++;
+    while (tierIndex < space.tiers.length && nextIndexInTier >= space.tiers[tierIndex].total) {
+      tierIndex++;
+      nextIndexInTier = 0;
+    }
+    if (tierIndex >= space.tiers.length) return null;
+    const tier = space.tiers[tierIndex];
+    const range = tierRanges[tierIndex]!;
+    const idx = nextIndexInTier++;
+    return tier.candidateAt(range.at(idx));
   }
 
   async function worker() {
     for (;;) {
-      const idx = claimIndex();
-      if (idx === null) return;
+      const candidate = claimCandidate();
+      if (candidate === null) return;
 
-      const { name, meaning } = space.candidateAt(range.at(idx));
+      const { name, meaning } = candidate;
       // Synchronous check-then-add, no `await` in between, so concurrent
       // workers can't both slip past this for the same name.
       if (seenNames.has(name)) continue;
       seenNames.add(name);
+      if (name.length > maxLength) continue;
       if (!isPronounceable(name)) continue;
 
       for (const tld of tlds) {

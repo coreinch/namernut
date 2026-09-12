@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // English only — Latin/Esperanto/French/Spanish were dropped (no
 // WordNet-equivalent lexicon source existed for them). Kept as a Lang
@@ -40,6 +40,15 @@ const TLDS = [
 type Tld = (typeof TLDS)[number];
 const PRIMARY_TLD_COUNT = 6;
 
+// Must stay in sync with MIN/MAX_COMBINED_LENGTH in src/lib/dictionary.ts
+// (same reasoning as TLDS above: duplicated locally rather than imported,
+// so this client bundle doesn't pull in the dictionary data file). The
+// dictionary spans 2-8 letter words, so the shortest possible pairing is
+// two 2-letter words (4) and the longest accounts for the keyword path
+// (a 15-char keyword plus an 8-letter word, rounded up to 24).
+const MIN_COMBINED_LENGTH = 4;
+const MAX_COMBINED_LENGTH = 24;
+
 type LogStatus = "checking" | "taken" | "unknown" | "available";
 
 interface LogEntry {
@@ -61,7 +70,7 @@ interface PersistedState {
   favorites: FoundEntry[];
   enabledLangs: Record<Lang, boolean>;
   enabledTlds: Record<Tld, boolean>;
-  shortOnly: boolean;
+  maxLength: number;
   keywordInput: string;
 }
 
@@ -102,14 +111,13 @@ export default function Home() {
   const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [enabledLangs, setEnabledLangs] = useState<Record<Lang, boolean>>(() =>
     Object.fromEntries(LANGS.map((l) => [l, true])) as Record<Lang, boolean>
   );
   const [enabledTlds, setEnabledTlds] = useState<Record<Tld, boolean>>(() =>
     Object.fromEntries(TLDS.map((t) => [t, t === "com"])) as Record<Tld, boolean>
   );
-  const [shortOnly, setShortOnly] = useState(false);
+  const [maxLength, setMaxLength] = useState(MAX_COMBINED_LENGTH);
   const [keywordInput, setKeywordInput] = useState("");
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results
@@ -131,7 +139,6 @@ export default function Home() {
     [enabledLangs]
   );
   const langsParam = selectedLangs.join(",");
-  const lenParam = shortOnly ? "3" : "3-4";
   const selectedTlds = useMemo(
     () => TLDS.filter((t) => enabledTlds[t]),
     [enabledTlds]
@@ -162,14 +169,14 @@ export default function Home() {
     // the stale, unfiltered pool size. Aborting means only the latest
     // request's response can ever reach setStats.
     const controller = new AbortController();
-    fetch(`/api/stats?langs=${encodeURIComponent(langsParam)}&len=${lenParam}`, {
+    fetch(`/api/stats?langs=${encodeURIComponent(langsParam)}`, {
       signal: controller.signal,
     })
       .then((r) => r.json())
       .then(setStats)
       .catch(() => {});
     return () => controller.abort();
-  }, [langsParam, lenParam]);
+  }, [langsParam]);
 
   // Restore results, favorites, and filters on load. localStorage means
   // this survives closing the browser and is shared across tabs of this
@@ -187,7 +194,9 @@ export default function Home() {
       if (parsed.favorites) setFavorites(parsed.favorites);
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
       if (parsed.enabledTlds) setEnabledTlds(parsed.enabledTlds);
-      if (typeof parsed.shortOnly === "boolean") setShortOnly(parsed.shortOnly);
+      if (typeof parsed.maxLength === "number") {
+        setMaxLength(Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, parsed.maxLength)));
+      }
       if (typeof parsed.keywordInput === "string") setKeywordInput(parsed.keywordInput);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
@@ -211,14 +220,14 @@ export default function Home() {
         favorites,
         enabledLangs,
         enabledTlds,
-        shortOnly,
+        maxLength,
         keywordInput,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // ignore write failures — persistence is a nice-to-have
     }
-  }, [hasHydrated, foundHistory, favorites, enabledLangs, enabledTlds, shortOnly, keywordInput]);
+  }, [hasHydrated, foundHistory, favorites, enabledLangs, enabledTlds, maxLength, keywordInput]);
 
   useEffect(() => {
     // Scroll only the log's own internal scrollbox to its latest entry —
@@ -259,7 +268,7 @@ export default function Home() {
 
     try {
       const res = await fetch(
-        `/api/discover?langs=${encodeURIComponent(langsParam)}&len=${lenParam}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}`,
+        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}`,
         { signal: controller.signal }
       );
       if (!res.body) throw new Error("No response stream");
@@ -334,7 +343,7 @@ export default function Home() {
     } finally {
       abortRef.current = null;
     }
-  }, [addChecking, resolveLog, langsParam, lenParam, keywordParam, tldsParam]);
+  }, [addChecking, resolveLog, langsParam, maxLength, keywordParam, tldsParam]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -342,11 +351,13 @@ export default function Home() {
     setRunStatus("stopped");
   }, []);
 
-  const copyDomain = useCallback((entry: FoundEntry) => {
-    navigator.clipboard?.writeText(entry.domain).then(() => {
-      setCopiedId(entry.id);
-      setTimeout(() => setCopiedId((cur) => (cur === entry.id ? null : cur)), 1500);
-    });
+  const searchDomain = useCallback((entry: FoundEntry) => {
+    // Search the bare name, not the TLD (e.g. "swiftfox", not "swiftfox.com") —
+    // domain here is always name + "." + tld, no subdomains, so splitting on
+    // the first "." reliably strips it.
+    const name = entry.domain.split(".")[0];
+    const url = `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
   const toggleFavorite = useCallback((entry: FoundEntry) => {
@@ -465,13 +476,23 @@ export default function Home() {
                 English dictionary words in the pool
               </p>
 
-              <div className="flex rounded-xl border border-black/15 p-1 dark:border-white/15">
-                <SegmentButton active={!shortOnly} onClick={() => setShortOnly(false)}>
-                  3-4 letter words
-                </SegmentButton>
-                <SegmentButton active={shortOnly} onClick={() => setShortOnly(true)}>
-                  3 letters only
-                </SegmentButton>
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
+                  <span>Max combination length</span>
+                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
+                    {maxLength} characters
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_COMBINED_LENGTH}
+                  max={MAX_COMBINED_LENGTH}
+                  step={1}
+                  value={maxLength}
+                  onChange={(e) => setMaxLength(Number(e.target.value))}
+                  aria-label="Maximum combined result length"
+                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
+                />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -563,8 +584,7 @@ export default function Home() {
                     key={entry.id}
                     entry={entry}
                     favorited={favoriteDomains.has(entry.domain)}
-                    copied={copiedId === entry.id}
-                    onCopy={() => copyDomain(entry)}
+                    onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -591,8 +611,7 @@ export default function Home() {
                     key={entry.id}
                     entry={entry}
                     favorited
-                    copied={copiedId === entry.id}
-                    onCopy={() => copyDomain(entry)}
+                    onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -620,8 +639,7 @@ export default function Home() {
                       key={entry.id}
                       entry={entry}
                       favorited={favoriteDomains.has(entry.domain)}
-                      copied={copiedId === entry.id}
-                      onCopy={() => copyDomain(entry)}
+                      onSearch={() => searchDomain(entry)}
                       onToggleFavorite={() => toggleFavorite(entry)}
                     />
                   ))}
@@ -727,14 +745,12 @@ export default function Home() {
 function ResultCard({
   entry,
   favorited,
-  copied,
-  onCopy,
+  onSearch,
   onToggleFavorite,
 }: {
   entry: FoundEntry;
   favorited: boolean;
-  copied: boolean;
-  onCopy: () => void;
+  onSearch: () => void;
   onToggleFavorite: () => void;
 }) {
   return (
@@ -756,44 +772,13 @@ function ResultCard({
       </div>
       <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
       <button
-        onClick={onCopy}
+        onClick={onSearch}
         className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
       >
-        {copied ? (
-          <>
-            <CheckIcon />
-            Copied
-          </>
-        ) : (
-          "Copy"
-        )}
+        <SearchIcon size={12} />
+        Search
       </button>
     </div>
-  );
-}
-
-function SegmentButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`min-h-11 flex-1 rounded-lg text-sm font-medium transition-all active:scale-[0.97] ${FOCUS_RING} ${
-        active
-          ? "bg-foreground text-background"
-          : "text-black/70 hover:bg-black/5 dark:text-white/70 dark:hover:bg-white/10"
-      }`}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -826,29 +811,11 @@ function LogDot({ status }: { status: LogStatus }) {
   return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} />;
 }
 
-function CheckIcon() {
+function SearchIcon({ size = 28 }: { size?: number }) {
   return (
     <svg
-      width="12"
-      height="12"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="3"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg
-      width="28"
-      height="28"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"

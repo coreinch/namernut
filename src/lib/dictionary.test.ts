@@ -5,8 +5,10 @@ import {
   getDictionaryStats,
   getSelectedPool,
   getWordPool,
+  MAX_COMBINED_LENGTH,
+  MIN_COMBINED_LENGTH,
   parseLangs,
-  parseShortOnly,
+  parseMaxLength,
 } from "./dictionary";
 
 describe("formatLangs", () => {
@@ -34,22 +36,34 @@ describe("parseLangs", () => {
   });
 });
 
-describe("parseShortOnly", () => {
-  it("is true only for exactly '3'", () => {
-    expect(parseShortOnly("3")).toBe(true);
-    expect(parseShortOnly("3-4")).toBe(false);
-    expect(parseShortOnly(null)).toBe(false);
-    expect(parseShortOnly("")).toBe(false);
+describe("parseMaxLength", () => {
+  it("defaults to MAX_COMBINED_LENGTH (no effective limit) for null/invalid input", () => {
+    expect(parseMaxLength(null)).toBe(MAX_COMBINED_LENGTH);
+    expect(parseMaxLength("not-a-number")).toBe(MAX_COMBINED_LENGTH);
+  });
+
+  it("clamps to [MIN_COMBINED_LENGTH, MAX_COMBINED_LENGTH]", () => {
+    expect(parseMaxLength("0")).toBe(MIN_COMBINED_LENGTH);
+    expect(parseMaxLength("1000")).toBe(MAX_COMBINED_LENGTH);
+  });
+
+  it("passes through valid in-range values", () => {
+    const mid = Math.floor((MIN_COMBINED_LENGTH + MAX_COMBINED_LENGTH) / 2);
+    expect(parseMaxLength(String(mid))).toBe(mid);
+  });
+
+  it("truncates fractional values", () => {
+    expect(parseMaxLength("7.9")).toBe(7);
   });
 });
 
 describe("getWordPool (real bundled data)", () => {
   const pool = getWordPool();
 
-  it("is non-empty and every word is 3-4 lowercase letters", () => {
+  it("is non-empty and every word is 2-8 lowercase letters", () => {
     expect(pool.length).toBeGreaterThan(1000);
     for (const entry of pool) {
-      expect(entry.word).toMatch(/^[a-z]{3,4}$/);
+      expect(entry.word).toMatch(/^[a-z]{2,8}$/);
       expect(entry.langs.length).toBeGreaterThan(0);
     }
   });
@@ -79,14 +93,6 @@ describe("getSelectedPool", () => {
     }
   });
 
-  it("shortOnly restricts to exactly 3-letter words", () => {
-    const short = getSelectedPool(ALL_LANGS, true);
-    expect(short.length).toBeGreaterThan(0);
-    for (const entry of short) {
-      expect(entry.word.length).toBe(3);
-    }
-  });
-
   it("selecting all languages returns the full pool", () => {
     expect(getSelectedPool(ALL_LANGS).length).toBe(getWordPool().length);
   });
@@ -94,8 +100,8 @@ describe("getSelectedPool", () => {
 
 describe("getDictionaryStats", () => {
   it("combinedUnique matches getSelectedPool's length for the same filters", () => {
-    const stats = getDictionaryStats(["english"], false);
-    expect(stats.combinedUnique).toBe(getSelectedPool(["english"], false).length);
+    const stats = getDictionaryStats(["english"]);
+    expect(stats.combinedUnique).toBe(getSelectedPool(["english"]).length);
   });
 
   it("totalCombinations is combinedUnique squared", () => {

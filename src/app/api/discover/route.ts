@@ -1,5 +1,5 @@
 import { runDiscovery, type DiscoveryEvent } from "@/lib/discovery";
-import { getSelectedPool, parseLangs, parseShortOnly } from "@/lib/dictionary";
+import { getSelectedPool, parseLangs, parseMaxLength } from "@/lib/dictionary";
 import { parseCount, parseKeyword, parseTlds } from "@/lib/candidates";
 
 export const dynamic = "force-dynamic";
@@ -15,8 +15,8 @@ function sse(event: DiscoveryEvent) {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const langs = parseLangs(searchParams.get("langs"));
-  const shortOnly = parseShortOnly(searchParams.get("len"));
-  const pool = getSelectedPool(langs, shortOnly);
+  const pool = getSelectedPool(langs);
+  const maxLength = parseMaxLength(searchParams.get("maxLength"));
   const keyword = parseKeyword(searchParams.get("keyword"));
   const count = parseCount(searchParams.get("count"));
   const tlds = parseTlds(searchParams.get("tlds"));
@@ -41,7 +41,7 @@ export async function GET(request: Request) {
         } catch {
           // controller already closed
         }
-      }, abortController.signal).finally(() => {
+      }, abortController.signal, maxLength).finally(() => {
         if (heartbeat) clearInterval(heartbeat);
         try {
           controller.close();

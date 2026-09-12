@@ -23,6 +23,15 @@ export interface WordEntry {
   langs: Lang[];
   /** Short WordNet gloss for this word (see src/lib/definitions.ts), or "" if none was found. */
   definition: string;
+  /**
+   * Common enough (by real-world usage frequency) to prioritize in search —
+   * see src/lib/candidates.ts, which tries common+common pairs before
+   * falling back to the full (much larger, and much more likely to include
+   * an obscure word) dictionary. WordNet alone has no notion of frequency;
+   * this comes from a separate word-frequency list applied at build time
+   * (see scripts/build-dictionaries.mjs).
+   */
+  common: boolean;
 }
 
 let cachedPool: WordEntry[] | null = null;
@@ -39,12 +48,14 @@ export function getWordPool(): WordEntry[] {
     }
   }
 
+  const commonWords = new Set(data.englishCommon);
   cachedPool = [...byWord.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([word, langs]) => ({
       word,
       langs: [...langs],
       definition: (data.englishDefinitions as Record<string, string>)[word] ?? "",
+      common: commonWords.has(word),
     }));
 
   return cachedPool;
@@ -61,25 +72,32 @@ export function parseLangs(raw: string | null): Lang[] {
   return unique.length > 0 ? unique : ALL_LANGS;
 }
 
-/** Parses the word-length filter: "3" restricts to 3-letter words only, anything else means 3-4. */
-export function parseShortOnly(raw: string | null): boolean {
-  return raw === "3";
+// The dictionary itself spans a range of word lengths (2-8 letters) rather
+// than being capped at 3-4 — the app limits how long a *result* can be via
+// a slider on the combined output length instead of restricting each
+// word's own length, so there's no per-word length filter here anymore.
+// These bounds are the slider's range: the shortest possible pairing is two
+// 2-letter words (4), and the longest sensible one accounts for the
+// keyword path pairing a full-length (15-char) keyword with an 8-letter
+// dictionary word (23, rounded up to 24).
+export const MIN_COMBINED_LENGTH = 4;
+export const MAX_COMBINED_LENGTH = 24;
+
+/** Parses the combined-output-length cap, clamping to the slider's range and defaulting to no effective limit. */
+export function parseMaxLength(raw: string | null): number {
+  const n = raw ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return MAX_COMBINED_LENGTH;
+  return Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, Math.trunc(n)));
 }
 
-/**
- * The word pool restricted to words present in at least one selected
- * language, and optionally to 3-letter words only (default is 3-4).
- */
-export function getSelectedPool(langs: Lang[], shortOnly = false): WordEntry[] {
+/** The word pool restricted to words present in at least one selected language. */
+export function getSelectedPool(langs: Lang[]): WordEntry[] {
   const selected = new Set(langs);
-  return getWordPool().filter(
-    (entry) =>
-      entry.langs.some((l) => selected.has(l)) && (!shortOnly || entry.word.length === 3)
-  );
+  return getWordPool().filter((entry) => entry.langs.some((l) => selected.has(l)));
 }
 
-export function getDictionaryStats(langs: Lang[] = ALL_LANGS, shortOnly = false) {
-  const combined = getSelectedPool(langs, shortOnly).length;
+export function getDictionaryStats(langs: Lang[] = ALL_LANGS) {
+  const combined = getSelectedPool(langs).length;
   return {
     english: data.english.length,
     combinedUnique: combined,
