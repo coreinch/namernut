@@ -168,7 +168,16 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * counts on its own again — rather than the search silently producing
  * zero results forever. A candidate that doesn't read as a
  * natural-sounding name (see niceness.ts) is rejected outright, the same
- * as an unpronounceable one. Each call gets its own random seed and local
+ * as an unpronounceable one — but only when there's no keyword: those two
+ * checks assume the whole name was algorithmically generated, which isn't
+ * true of a user-typed keyword. A short keyword (e.g. "x") is always
+ * exactly one edit away from whatever word it's glued to, tripping the
+ * typo check on every single candidate, and a keyword with a letter pair
+ * absent from the dictionary (e.g. "xx") tanks the niceness score of every
+ * candidate the same way — either would silently reduce the whole search
+ * to zero candidates ever reaching a real check, with no visible feedback,
+ * rather than rejecting a candidate that's actually clumsy. Each call gets
+ * its own random seed and local
  * counters — nothing here is shared across callers, so concurrent
  * searches (e.g. from separate browser tabs) never interfere with each
  * other or resume one another's progress. `maxLength` caps the combined
@@ -247,15 +256,21 @@ export async function runDiscovery(
       seenNames.add(name);
       if (name.length > maxLength) continue;
       if (!isPronounceable(name)) continue;
-      // Reads as a likely typo of an unrelated common word (e.g. one
-      // letter off) rather than an intentional invented name — see
-      // typocheck.ts for why this is a local dictionary check rather than
-      // a live search engine's spelling correction.
-      if (typoIndex.findMatch(name)) continue;
-      // Contains a letter pair that barely occurs anywhere in real English
-      // words (e.g. "mw") — reads as clunky rather than a natural-sounding
-      // invented name. See niceness.ts.
-      if (nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
+      // Skipped when a keyword is present: both checks judge the whole
+      // name as if it were algorithmically generated, but a keyword is a
+      // fixed, user-chosen string glued onto a word, not another generated
+      // half — see the doc comment above for why that always trips both.
+      if (!keyword) {
+        // Reads as a likely typo of an unrelated common word (e.g. one
+        // letter off) rather than an intentional invented name — see
+        // typocheck.ts for why this is a local dictionary check rather than
+        // a live search engine's spelling correction.
+        if (typoIndex.findMatch(name)) continue;
+        // Contains a letter pair that barely occurs anywhere in real English
+        // words (e.g. "mw") — reads as clunky rather than a natural-sounding
+        // invented name. See niceness.ts.
+        if (nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
+      }
 
       // Instagram is checked once per name (it has no TLD), lazily — only
       // once a domain actually turns out available for this name, and

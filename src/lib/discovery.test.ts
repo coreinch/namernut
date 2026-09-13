@@ -199,6 +199,47 @@ describe("runDiscovery", () => {
     expect(checkingNames).toEqual(["catdog.com"]);
   });
 
+  it("with a keyword, doesn't reject a candidate for merely reading as a typo of the word it's paired with", async () => {
+    // A one-letter keyword glued onto a word is, by construction, always
+    // exactly one edit (an insertion) away from that same word — e.g. "c" +
+    // "cat" = "ccat", one letter deleted away from "cat" itself. Without the
+    // keyword-aware skip, the (real, unmocked) typo check would flag every
+    // single candidate this way and the search would silently examine none
+    // of them.
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, "c", ["com"], 1, (e) => events.push(e), controller.signal, 20);
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(1);
+  });
+
+  it("with a keyword, doesn't reject a candidate for a low niceness score", async () => {
+    // The keyword's own letters (not the algorithm's) produced this bigram
+    // — judging it the same way as a generated pairing would make a
+    // keyword like "xx" reject every possible candidate, since no real
+    // English word contains a doubled "x".
+    vi.mocked(buildNicenessIndex).mockReturnValue({ score: () => 0 });
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, "xx", ["com"], 1, (e) => events.push(e), controller.signal, 20);
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(1);
+  });
+
   it("emits 'stopped' instead of 'complete' when aborted", async () => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
