@@ -176,6 +176,15 @@ const SAFETY_DENYLIST = new Set([
   "scumbag", "shitting", "shrimp", "slave", "slavery", "suicide", "taco",
   "thug", "torment", "torture", "tragedy", "trauma", "tumor", "vagina",
   "vomit", "wretch", "yakuza",
+  // same "common string, obscure/mismatched real sense" bug as "re"/"am"
+  // above, found via a full re-review of short common words prompted by
+  // "mo" — each of these is almost certainly tagged common because of a
+  // name (Ana, Ben, Deb, Lee, Raj, Tom) or a completely different common
+  // word/meaning (van the vehicle, may the month/auxiliary verb, gal
+  // informal for "girl", lay the common verb), not because of the
+  // obscure sense WordNet actually selected and this app displays.
+  "ana", "ben", "deb", "fin", "gal", "lay", "lee", "may", "mo", "raj",
+  "tom", "van",
   // "boil" has a fine everyday sense ("boil water"), but the definition
   // this app actually selected and displays is the gross medical one
   // ("a painful sore with a hard core filled with pus") — the word's
@@ -242,6 +251,24 @@ const SAFETY_DENYLIST = new Set([
 const MODIFIER_STOPWORDS = new Set([
   "all", "any", "both", "few", "less", "more", "most", "much", "only", "own",
   "some", "such", "very", "away", "nigh", "well", "then",
+  // WordNet doesn't syntactic-mark these as predicate-only/postpositive
+  // (see adjCasing.hasPrenominalSense above, which relies on that marker),
+  // but real English only ever uses them that way regardless — "three
+  // years ago", never "ago years"; "a frightened person", never "an
+  // afraid person". Found via user reports, the same way "away" above
+  // was presumably found originally.
+  "ago", "afraid", "alive", "aloof",
+  // A systematic pass over the rest of this same closed class (mostly
+  // archaic "a-" = Old English "on-" formations) rather than adding them
+  // one report at a time — English has a well-documented, finite set of
+  // adjectives that only ever appear predicatively ("the room was abuzz",
+  // never "an abuzz room"), and WordNet's own markers don't reliably
+  // flag them (see "ago" above). "aware" is excluded too: it's genuinely
+  // disputed among style guides whether modern usage has made it
+  // acceptable attributively, and "only allow what we're sure about"
+  // means a disputed case doesn't qualify either.
+  "aware", "ablaze", "aflame", "agog", "askew", "atilt", "unwell", "loath",
+  "abloom", "abuzz", "aslant",
 ]);
 
 // index.noun/index.adj list every lemma WordNet knows for that part of
@@ -385,12 +412,18 @@ async function main() {
   );
   console.log(`  -> ${english.size} words (2-8 letters)`);
 
+  // "?? false", not "?? true": only allow a word we have positive evidence
+  // is safe to use before a noun — a real adjective with no marker data at
+  // all (verified: doesn't happen for any single-word lemma in practice,
+  // only for multi-word phrases isValidWord already excludes) would
+  // otherwise default to "assume it's fine", which is exactly backwards
+  // for a strict allowlist.
   const englishModifiers = new Set(
     [...english].filter(
       (w) =>
         adjectives.has(w) &&
         !MODIFIER_STOPWORDS.has(w) &&
-        (adjCasing.hasPrenominalSense.get(w) ?? true)
+        (adjCasing.hasPrenominalSense.get(w) ?? false)
     )
   );
   console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
