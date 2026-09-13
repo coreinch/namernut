@@ -40,14 +40,15 @@ const TLDS = [
 type Tld = (typeof TLDS)[number];
 const PRIMARY_TLD_COUNT = 6;
 
-// Must stay in sync with MIN/MAX_COMBINED_LENGTH in src/lib/dictionary.ts
-// (same reasoning as TLDS above: duplicated locally rather than imported,
-// so this client bundle doesn't pull in the dictionary data file). The
-// dictionary spans 2-8 letter words, so the shortest possible pairing is
-// two 2-letter words (4) and the longest accounts for the keyword path
-// (a 15-char keyword plus an 8-letter word, rounded up to 24).
-const MIN_COMBINED_LENGTH = 4;
+// Must stay in sync with MIN/MAX/DEFAULT_COMBINED_LENGTH in
+// src/lib/dictionary.ts (same reasoning as TLDS above: duplicated locally
+// rather than imported, so this client bundle doesn't pull in the
+// dictionary data file). The max accounts for the keyword path (a 15-char
+// keyword plus an 8-letter word, rounded up to 24); the min and default
+// favor output quality over the shortest theoretically possible pairing.
+const MIN_COMBINED_LENGTH = 5;
 const MAX_COMBINED_LENGTH = 24;
+const DEFAULT_COMBINED_LENGTH = 8;
 
 // "filtered": the domain itself was available, but its Instagram username
 // wasn't (or the check was inconclusive) — see the "instagram" filter,
@@ -139,7 +140,7 @@ export default function Home() {
   const [enabledTlds, setEnabledTlds] = useState<Record<Tld, boolean>>(() =>
     Object.fromEntries(TLDS.map((t) => [t, t === "com"])) as Record<Tld, boolean>
   );
-  const [maxLength, setMaxLength] = useState(MAX_COMBINED_LENGTH);
+  const [maxLength, setMaxLength] = useState(DEFAULT_COMBINED_LENGTH);
   const [keywordInput, setKeywordInput] = useState("");
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results

@@ -86,17 +86,20 @@ export function parseLangs(raw: string | null): Lang[] {
 // than being capped at 3-4 — the app limits how long a *result* can be via
 // a slider on the combined output length instead of restricting each
 // word's own length, so there's no per-word length filter here anymore.
-// These bounds are the slider's range: the shortest possible pairing is two
-// 2-letter words (4), and the longest sensible one accounts for the
-// keyword path pairing a full-length (15-char) keyword with an 8-letter
-// dictionary word (23, rounded up to 24).
-export const MIN_COMBINED_LENGTH = 4;
+// These are the slider's range and starting value: the max accounts for
+// the keyword path pairing a full-length (15-char) keyword with an
+// 8-letter dictionary word (23, rounded up to 24); the min and default are
+// chosen for output quality rather than the shortest theoretically
+// possible pairing (two 2-letter words, 4) — very short combined names
+// tend to read as noise rather than a brandable word.
+export const MIN_COMBINED_LENGTH = 5;
 export const MAX_COMBINED_LENGTH = 24;
+export const DEFAULT_COMBINED_LENGTH = 8;
 
-/** Parses the combined-output-length cap, clamping to the slider's range and defaulting to no effective limit. */
+/** Parses the combined-output-length cap, clamping to the slider's range and defaulting to DEFAULT_COMBINED_LENGTH. */
 export function parseMaxLength(raw: string | null): number {
   const n = raw ? parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(n)) return MAX_COMBINED_LENGTH;
+  if (!Number.isFinite(n)) return DEFAULT_COMBINED_LENGTH;
   return Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, Math.trunc(n)));
 }
 

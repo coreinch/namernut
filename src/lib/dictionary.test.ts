@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ALL_LANGS,
+  DEFAULT_COMBINED_LENGTH,
   formatLangs,
   getDictionaryStats,
   getSelectedPool,
@@ -37,9 +38,9 @@ describe("parseLangs", () => {
 });
 
 describe("parseMaxLength", () => {
-  it("defaults to MAX_COMBINED_LENGTH (no effective limit) for null/invalid input", () => {
-    expect(parseMaxLength(null)).toBe(MAX_COMBINED_LENGTH);
-    expect(parseMaxLength("not-a-number")).toBe(MAX_COMBINED_LENGTH);
+  it("defaults to DEFAULT_COMBINED_LENGTH for null/invalid input", () => {
+    expect(parseMaxLength(null)).toBe(DEFAULT_COMBINED_LENGTH);
+    expect(parseMaxLength("not-a-number")).toBe(DEFAULT_COMBINED_LENGTH);
   });
 
   it("clamps to [MIN_COMBINED_LENGTH, MAX_COMBINED_LENGTH]", () => {
