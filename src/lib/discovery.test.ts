@@ -36,10 +36,10 @@ describe("runDiscovery", () => {
     // same candidate name. Without dedup this fires two "checking"/"found"
     // events for the same domain and produces a duplicate React key.
     const pool: WordEntry[] = [
-      { word: "ab", langs: ["english"], definition: "", common: false },
-      { word: "cde", langs: ["english"], definition: "", common: false },
-      { word: "abc", langs: ["english"], definition: "", common: false },
-      { word: "de", langs: ["english"], definition: "", common: false },
+      { word: "ab", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "cde", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "abc", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "de", langs: ["english"], definition: "", common: false, noun: true },
     ];
 
     vi.mocked(checkDomain).mockResolvedValue("available");
@@ -70,9 +70,9 @@ describe("runDiscovery", () => {
     // increment in the worker (no `await` in between) closes that race, so
     // this can assert exact equality rather than "around" the target.
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "", common: false },
-      { word: "dog", langs: ["english"], definition: "", common: false },
-      { word: "fox", langs: ["english"], definition: "", common: false },
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "fox", langs: ["english"], definition: "", common: false, noun: true },
     ];
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
@@ -90,8 +90,8 @@ describe("runDiscovery", () => {
 
   it("counts a result only when both the domain and its Instagram username are available", async () => {
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "", common: false },
-      { word: "dog", langs: ["english"], definition: "", common: false },
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
     ];
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
@@ -110,8 +110,8 @@ describe("runDiscovery", () => {
 
   it("filters out (rather than counts) a domain match whose Instagram username is taken, checked once per name not per TLD", async () => {
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "", common: false },
-      { word: "dog", langs: ["english"], definition: "", common: false },
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
     ];
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
@@ -138,13 +138,47 @@ describe("runDiscovery", () => {
     expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBeLessThanOrEqual(4);
   });
 
+  it("stops requiring Instagram availability once checking it looks structurally blocked, rather than producing zero results forever", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "fox", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    // Every Instagram check hits the same login-wall redirect — the real
+    // symptom that prompted this: Instagram checking is completely broken,
+    // not just occasionally wrong.
+    const loginWallError = new Error("instagram_login_wall");
+    loginWallError.name = "LoginWallError";
+    vi.mocked(checkInstagramUsername).mockRejectedValue(loginWallError);
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20);
+
+    // Without the circuit breaker this would filter every match forever
+    // and never reach the target — instead, after a handful of blocked
+    // checks, results start counting again on domain availability alone.
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(3);
+    for (const f of found) {
+      if (f.type === "found") expect(f.instagram).toBe("unknown");
+    }
+
+    // Told the user what happened, not just silently changed behavior.
+    expect(
+      events.some((e) => e.type === "error" && e.message.toLowerCase().includes("blocked"))
+    ).toBe(true);
+  });
+
   it("rejects a candidate outright when it doesn't score as a natural-sounding name", async () => {
     // Only "catdog" clears the (mocked) niceness bar; every other
     // combination in this 2x2 pool doesn't, so it should never be checked
     // (or found) at all, no matter how many are requested.
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "", common: false },
-      { word: "dog", langs: ["english"], definition: "", common: false },
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
     ];
     vi.mocked(buildNicenessIndex).mockReturnValue({ score: (name) => (name === "catdog" ? 1 : 0) });
     vi.mocked(checkDomain).mockResolvedValue("available");
@@ -167,8 +201,8 @@ describe("runDiscovery", () => {
 
   it("emits 'stopped' instead of 'complete' when aborted", async () => {
     const pool: WordEntry[] = [
-      { word: "cat", langs: ["english"], definition: "", common: false },
-      { word: "dog", langs: ["english"], definition: "", common: false },
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
     ];
     vi.mocked(checkDomain).mockResolvedValue("taken");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");

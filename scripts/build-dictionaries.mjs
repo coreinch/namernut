@@ -185,6 +185,30 @@ const SAFETY_DENYLIST = new Set([
   // obscure sense WordNet actually selected and this app displays.
   "ana", "ben", "deb", "fin", "gal", "lay", "lee", "may", "mo", "raj",
   "tom", "van",
+  // WordNet lexicographically glosses these as nouns ("hi: an expression
+  // of greeting"), but they're interjections that don't actually function
+  // as combinable nouns the way "cabin" or "fox" do — "hicabin.com"
+  // doesn't read as a noun compound the way a real noun would. "bye" and
+  // "wow" are doubly wrong: their selected sense isn't even the greeting/
+  // exclamation one (an obscure sports-tournament term and "a joke that
+  // seems extremely funny", respectively). "boo", "goodbye", "farewell",
+  // and "thanks" are kept — those genuinely do work as ordinary nouns
+  // ("a chorus of boos", "a tearful goodbye", "bid farewell", "give
+  // thanks").
+  "hi", "hello", "bye", "yes", "no", "wow", "nay", "yea", "ciao", "howdy",
+  // reads as "won't" without the apostrophe (same category as "ill"
+  // reading as "I'll") — its real sense ("an established custom", as in
+  // "as is his wont") is archaic/literary, and it's almost certainly
+  // tagged common because "wont" is a frequent informal typo/spelling of
+  // "won't" in casual dialogue (the frequency source), not from anyone
+  // using the actual noun.
+  "wont",
+  // a real, accurate literary adjective (pale-looking, or dim light), but
+  // genuinely rare in everyday speech — almost certainly tagged common
+  // because "Wan" is a very frequent syllable in dialogue (Obi-Wan, and
+  // various Asian given names), the same "common due to a name, not the
+  // actual word" pattern as "ana"/"ben"/"tom" above.
+  "wan",
   // "boil" has a fine everyday sense ("boil water"), but the definition
   // this app actually selected and displays is the gross medical one
   // ("a painful sore with a hard core filled with pus") — the word's
@@ -269,6 +293,30 @@ const MODIFIER_STOPWORDS = new Set([
   // means a disputed case doesn't qualify either.
   "aware", "ablaze", "aflame", "agog", "askew", "atilt", "unwell", "loath",
   "abloom", "abuzz", "aslant",
+  // "up" has many WordNet adjective senses — some marked predicate-only,
+  // some not — so at least one passes the prenominal check overall. But
+  // the specific sense this app actually selects and displays ("being or
+  // moving higher in position...") is the general predicate-typical one
+  // ("prices are up"), not the narrow idiomatic prenominal exception ("the
+  // up escalator") — so for an arbitrary noun pairing it just doesn't
+  // read as a modifier the way a real adjective does.
+  "up",
+  // Same underlying bug as "up", now traced to its actual pattern: a
+  // whole class of short prepositions/particles that WordNet tags with a
+  // narrow secondary adjective sense — often an idiomatic compound
+  // ("on"/"off" switch, not general use), a predicate-only state ("we are
+  // through", "prices are down"), or specific jargon ("out" in cricket/
+  // baseball) — none of which read as a modifier for an arbitrary noun
+  // pairing. Checked the rest of this word class too: "back", "past", and
+  // "near" genuinely do work prenominally ("back door", "past events",
+  // "near future"), so those are correctly left as modifiers.
+  "in", "on", "off", "out", "down", "under", "through",
+  // WordNet itself carries two senses for "ok" — one marked predicate-only,
+  // one not — so it passes the "at least one sense works prenominally"
+  // check, but "an ok movie" reads as marked/casual rather than a clean
+  // attributive use the way "a good movie" is. Same disputed-usage
+  // reasoning as "aware" above: not something we're sure about.
+  "ok", "okay",
 ]);
 
 // index.noun/index.adj list every lemma WordNet knows for that part of
@@ -428,6 +476,18 @@ async function main() {
   );
   console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
 
+  // Tags which words have a genuine WordNet noun sense at all — needed
+  // because "not a modifier" and "is a noun" are NOT the same thing. A
+  // word like "ago" or "any" has zero entries in index.noun (it's purely
+  // an adjective/determiner in WordNet); excluding it from
+  // englishModifiers doesn't make it a noun, so without this it was
+  // silently falling through into the "core" (noun) role in
+  // candidates.ts anyway, by virtue of merely not being tagged a
+  // modifier. Found via a live report that "ago" (already excluded as a
+  // modifier) was still showing up as the noun half of a pairing.
+  const englishNouns = new Set([...english].filter((w) => nouns.has(w)));
+  console.log(`  -> ${englishNouns.size} of ${english.size} words have a noun sense (usable as the core/noun half of a pairing)`);
+
   console.log("Fetching English word-frequency list...");
   const frequencyRank = loadFrequencyRanks(await fetchText(FREQUENCY_LIST_URL));
   const englishCommon = new Set(
@@ -486,6 +546,13 @@ async function main() {
         // modifier+noun pairs (see src/lib/modifiers.ts and candidates.ts)
         // instead of two arbitrary nouns jammed together.
         englishModifiers: [...englishModifiers].sort(),
+        // Subset of `english` that has a genuine WordNet noun sense —
+        // used to gate the "core" (noun) half of a modifier+core pairing
+        // in candidates.ts. Not just "everything that isn't a modifier":
+        // a word can be neither (e.g. "ago", "any" — adjective/determiner
+        // only, zero noun senses in WordNet), and must be excluded from
+        // both roles, not fall through into the noun role by default.
+        englishNouns: [...englishNouns].sort(),
         // Subset of `english` common enough (by usage frequency) to
         // prioritize in search — see src/lib/dictionary.ts/candidates.ts.
         // Not a hard filter: everything else in `english` is still

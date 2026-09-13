@@ -88,7 +88,11 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
 export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
   if (!keyword) {
     const modifiers = pool.filter((w) => isModifier(w.word, w.langs));
-    const core = pool.filter((w) => !isModifier(w.word, w.langs));
+    // Not just "isn't a modifier" — a word can be neither a usable
+    // modifier nor a noun (e.g. "ago", "any": adjective/determiner only in
+    // WordNet, zero noun senses), and must be excluded from both roles
+    // rather than defaulting into the noun role. See WordEntry.noun.
+    const core = pool.filter((w) => !isModifier(w.word, w.langs) && w.noun);
     const makeModCoreCandidate = (m: WordEntry, c: WordEntry): Candidate => ({
       name: `${m.word}${c.word}`,
       meaning: `${describe(m.word, m.definition)} · ${describe(c.word, c.definition)}`,

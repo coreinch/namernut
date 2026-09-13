@@ -12,7 +12,10 @@
  * This isn't a documented API — it's undocumented HTML structure that can
  * change without notice — so, like the domain checks in rdap.ts/whois.ts,
  * anything inconclusive resolves to "unknown" rather than failing the
- * whole search.
+ * whole search. It did in fact change: Instagram started redirecting every
+ * unauthenticated profile request to its login page, which itself carries
+ * a generic og:title — misread as "taken" for every username without the
+ * check below. See LoginWallError.
  */
 export type InstagramStatus = "available" | "taken" | "unknown";
 
@@ -33,6 +36,21 @@ export async function checkInstagramUsername(
   if (res.status === 429) {
     const err = new Error("rate_limited");
     err.name = "RateLimitError";
+    throw err;
+  }
+
+  // fetch() follows redirects by default — res.url is the final URL, not
+  // the one requested. Instagram now sends every unauthenticated profile
+  // request here regardless of username; its login page has its own
+  // generic og:title (content "Instagram"), which the naive check below
+  // would misread as "taken" every single time. Thrown distinctly (not
+  // just returned as "unknown") so callers can tell "this one check was
+  // inconclusive" apart from "the whole mechanism looks structurally
+  // blocked right now" — see discovery.ts, which stops gating results on
+  // Instagram availability once this happens repeatedly in one search.
+  if (res.url.includes("/accounts/login/")) {
+    const err = new Error("instagram_login_wall");
+    err.name = "LoginWallError";
     throw err;
   }
   if (res.status !== 200) return "unknown";

@@ -22,9 +22,9 @@ import {
 } from "./candidates";
 
 const pool: WordEntry[] = [
-  { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false },
-  { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false },
-  { word: "rex", langs: ["english"], definition: "a king", common: false },
+  { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false, noun: true },
+  { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false, noun: true },
+  { word: "rex", langs: ["english"], definition: "a king", common: false, noun: true },
 ];
 
 // Collects every candidate name across every tier in a space (the order
@@ -71,9 +71,9 @@ describe("buildCandidateSpace (no keyword, no modifiers, no common words -> sing
 describe("buildCandidateSpace (no keyword, some words common -> only the common+common tier is searched)", () => {
   // "cat" and "dog" are common; "rex" isn't.
   const commonPool: WordEntry[] = [
-    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: true },
-    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: true },
-    { word: "rex", langs: ["english"], definition: "a king", common: false },
+    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: true, noun: true },
+    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: true, noun: true },
+    { word: "rex", langs: ["english"], definition: "a king", common: false, noun: true },
   ];
   const space = buildCandidateSpace(commonPool);
 
@@ -94,11 +94,11 @@ describe("buildCandidateSpace (no keyword, pool has modifiers -> modifier+core p
   // "wild" and "sad" are in ENGLISH_MODIFIERS; "cat", "dog", "rex" aren't —
   // so this pool has 2 modifiers and 3 core words, none marked common.
   const modPool: WordEntry[] = [
-    { word: "wild", langs: ["english"], definition: "not tamed", common: false },
-    { word: "sad", langs: ["english"], definition: "unhappy", common: false },
-    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false },
-    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false },
-    { word: "rex", langs: ["english"], definition: "a king", common: false },
+    { word: "wild", langs: ["english"], definition: "not tamed", common: false, noun: false },
+    { word: "sad", langs: ["english"], definition: "unhappy", common: false, noun: false },
+    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false, noun: true },
+    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false, noun: true },
+    { word: "rex", langs: ["english"], definition: "a king", common: false, noun: true },
   ];
   const space = buildCandidateSpace(modPool);
 
@@ -121,12 +121,34 @@ describe("buildCandidateSpace (no keyword, pool has modifiers -> modifier+core p
   });
 });
 
+describe("buildCandidateSpace (a word that's neither a modifier nor a noun is excluded from both roles)", () => {
+  // "ago" is a real example: WordNet lists it only as an adjective, and
+  // it's excluded from the modifier role too (see MODIFIER_STOPWORDS in
+  // build-dictionaries.mjs) since real English never uses it prenominally
+  // ("three years ago", never "ago years"). Before WordEntry.noun existed,
+  // a word like this fell through into the core/noun role by default,
+  // merely by not being tagged a modifier — this proves that no longer
+  // happens.
+  const modPool: WordEntry[] = [
+    { word: "wild", langs: ["english"], definition: "not tamed", common: false, noun: false },
+    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false, noun: true },
+    { word: "ago", langs: ["english"], definition: "gone by; or in the past", common: false, noun: false },
+  ];
+  const space = buildCandidateSpace(modPool);
+
+  it("never pairs the non-modifier, non-noun word into any candidate", () => {
+    const names = new Set(allNames(space));
+    expect(names).toEqual(new Set(["wildcat"]));
+    expect([...names].some((n) => n.includes("ago"))).toBe(false);
+  });
+});
+
 describe("buildCandidateSpace (no keyword, common modifiers and core -> only the common modifier x common core tier is searched)", () => {
   const modPool: WordEntry[] = [
-    { word: "wild", langs: ["english"], definition: "not tamed", common: true },
-    { word: "sad", langs: ["english"], definition: "unhappy", common: false },
-    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: true },
-    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false },
+    { word: "wild", langs: ["english"], definition: "not tamed", common: true, noun: false },
+    { word: "sad", langs: ["english"], definition: "unhappy", common: false, noun: false },
+    { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: true, noun: true },
+    { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false, noun: true },
   ];
   const space = buildCandidateSpace(modPool);
 

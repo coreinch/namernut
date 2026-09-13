@@ -32,6 +32,14 @@ export interface WordEntry {
    * (see scripts/build-dictionaries.mjs).
    */
   common: boolean;
+  /**
+   * Has a genuine WordNet noun sense — used to gate the "core" (noun) half
+   * of a modifier+core pairing in candidates.ts. Not the same as "isn't a
+   * modifier": a word can be neither (e.g. "ago", "any" — adjective/
+   * determiner only in WordNet, zero noun senses), and must be excluded
+   * from both roles rather than falling through into the noun role.
+   */
+  noun: boolean;
 }
 
 let cachedPool: WordEntry[] | null = null;
@@ -49,6 +57,7 @@ export function getWordPool(): WordEntry[] {
   }
 
   const commonWords = new Set(data.englishCommon);
+  const nounWords = new Set(data.englishNouns);
   cachedPool = [...byWord.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([word, langs]) => ({
@@ -56,6 +65,7 @@ export function getWordPool(): WordEntry[] {
       langs: [...langs],
       definition: (data.englishDefinitions as Record<string, string>)[word] ?? "",
       common: commonWords.has(word),
+      noun: nounWords.has(word),
     }));
 
   return cachedPool;

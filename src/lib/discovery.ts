@@ -99,11 +99,21 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
   return status;
 }
 
+// How many consecutive LoginWallError results (see instagram.ts) it takes
+// before a search concludes Instagram checking is structurally blocked
+// right now, not just having a rough patch — at which point it stops
+// gating results on it. Reset by any non-blocked result, so a handful of
+// sporadic blips can't trip it; only a sustained run can.
+const INSTAGRAM_BLOCKED_STREAK_THRESHOLD = 3;
+
 // Checked once per found name (see worker below), not once per TLD, so this
 // runs far less often than checkOne — but Instagram's page-scraping check is
 // on much shakier ground than RDAP/whois (an undocumented HTML structure,
 // not a protocol meant for this), so it gets the same retry/backoff
 // treatment rather than failing a whole search over one flaky response.
+// Returns "blocked" (rather than retrying) for a login-wall redirect — that
+// isn't transient the way a rate limit is, so retrying the same candidate
+// won't help; the caller tracks how often this happens across candidates.
 async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (event: DiscoveryEvent) => void) {
   let status: InstagramStatus = "unknown";
   let attempt = 0;
@@ -114,6 +124,7 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
       break;
     } catch (err) {
       if (signal.aborted) return "aborted" as const;
+      if (err instanceof Error && err.name === "LoginWallError") return "blocked" as const;
       if (err instanceof Error && err.name === "RateLimitError") {
         onEvent({ type: "error", message: "Instagram rate limited, backing off..." });
         attempt++;
@@ -150,7 +161,12 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * available Instagram username for the same name — a domain match whose
  * Instagram username is taken (or inconclusive) doesn't count toward the
  * target and is reported as "filtered" instead of "found", so the search
- * keeps going rather than surfacing it. A candidate that doesn't read as a
+ * keeps going rather than surfacing it. If Instagram checking turns out to
+ * be structurally blocked for this whole search (see
+ * INSTAGRAM_BLOCKED_STREAK_THRESHOLD) rather than just occasionally
+ * flaky, that requirement is dropped part-way through — a domain match
+ * counts on its own again — rather than the search silently producing
+ * zero results forever. A candidate that doesn't read as a
  * natural-sounding name (see niceness.ts) is rejected outright, the same
  * as an unpronounceable one. Each call gets its own random seed and local
  * counters — nothing here is shared across callers, so concurrent
@@ -186,6 +202,13 @@ export async function runDiscovery(
   let nextIndexInTier = 0;
   let checkedCount = 0;
   let foundCount = 0;
+  // See INSTAGRAM_BLOCKED_STREAK_THRESHOLD / checkInstagramOne. Once
+  // tripped, Instagram is no longer checked at all for the rest of this
+  // search (no point spending requests on a mechanism confirmed blocked)
+  // and stops gating results — a domain match counts on its own again,
+  // same as before Instagram checking existed.
+  let instagramBlockedStreak = 0;
+  let instagramGateDisabled = false;
   // Word concatenation has no separator, so two different underlying word
   // pairs can occasionally produce the identical candidate string (e.g. a
   // 3+4 split landing on the same characters as a different 4+3 split) —
@@ -263,15 +286,40 @@ export async function runDiscovery(
           // increment — overshooting by up to CONCURRENCY-1 results.
           if (foundCount >= targetCount) continue;
 
-          if (!instagramForName) instagramForName = checkInstagramOne(name, signal, onEvent);
-          const instagram = await instagramForName;
-          if (instagram === "aborted") return;
+          let instagram: InstagramStatus = "unknown";
+          if (!instagramGateDisabled) {
+            if (!instagramForName) instagramForName = checkInstagramOne(name, signal, onEvent);
+            const result = await instagramForName;
+            if (result === "aborted") return;
+            if (result === "blocked") {
+              instagramBlockedStreak++;
+              // Guarded on !instagramGateDisabled too: several workers can
+              // have a check in flight when the streak first trips, and
+              // each one's in-flight request can still resolve "blocked"
+              // afterward — without this, each of those would re-trip the
+              // (already-tripped) breaker and emit a duplicate event.
+              if (!instagramGateDisabled && instagramBlockedStreak >= INSTAGRAM_BLOCKED_STREAK_THRESHOLD) {
+                instagramGateDisabled = true;
+                onEvent({
+                  type: "error",
+                  message:
+                    "Instagram checking appears to be blocked (redirecting to login) — no longer requiring it for the rest of this search.",
+                });
+              }
+            } else {
+              instagramBlockedStreak = 0;
+              instagram = result;
+            }
+          }
 
           // Only a domain+Instagram-username match counts as a result —
           // "taken" and "unknown" (an inconclusive check, e.g. rate
-          // limited) are both treated as not qualifying, since "unknown"
-          // is not the same as confirmed available.
-          if (instagram !== "available") {
+          // limited, or Instagram checking confirmed blocked for this
+          // whole search) are both treated as not qualifying, since
+          // "unknown" is not the same as confirmed available. Once the
+          // gate above is disabled, though, a domain match counts on its
+          // own — Instagram is no longer required at all.
+          if (!instagramGateDisabled && instagram !== "available") {
             onEvent({ type: "filtered", name: domain, checkedCount });
             continue;
           }
