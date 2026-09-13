@@ -176,39 +176,6 @@ const SAFETY_DENYLIST = new Set([
   "scumbag", "shitting", "shrimp", "slave", "slavery", "suicide", "taco",
   "thug", "torment", "torture", "tragedy", "trauma", "tumor", "vagina",
   "vomit", "wretch", "yakuza",
-  // same "common string, obscure/mismatched real sense" bug as "re"/"am"
-  // above, found via a full re-review of short common words prompted by
-  // "mo" — each of these is almost certainly tagged common because of a
-  // name (Ana, Ben, Deb, Lee, Raj, Tom) or a completely different common
-  // word/meaning (van the vehicle, may the month/auxiliary verb, gal
-  // informal for "girl", lay the common verb), not because of the
-  // obscure sense WordNet actually selected and this app displays.
-  "ana", "ben", "deb", "fin", "gal", "lay", "lee", "may", "mo", "raj",
-  "tom", "van",
-  // WordNet lexicographically glosses these as nouns ("hi: an expression
-  // of greeting"), but they're interjections that don't actually function
-  // as combinable nouns the way "cabin" or "fox" do — "hicabin.com"
-  // doesn't read as a noun compound the way a real noun would. "bye" and
-  // "wow" are doubly wrong: their selected sense isn't even the greeting/
-  // exclamation one (an obscure sports-tournament term and "a joke that
-  // seems extremely funny", respectively). "boo", "goodbye", "farewell",
-  // and "thanks" are kept — those genuinely do work as ordinary nouns
-  // ("a chorus of boos", "a tearful goodbye", "bid farewell", "give
-  // thanks").
-  "hi", "hello", "bye", "yes", "no", "wow", "nay", "yea", "ciao", "howdy",
-  // reads as "won't" without the apostrophe (same category as "ill"
-  // reading as "I'll") — its real sense ("an established custom", as in
-  // "as is his wont") is archaic/literary, and it's almost certainly
-  // tagged common because "wont" is a frequent informal typo/spelling of
-  // "won't" in casual dialogue (the frequency source), not from anyone
-  // using the actual noun.
-  "wont",
-  // a real, accurate literary adjective (pale-looking, or dim light), but
-  // genuinely rare in everyday speech — almost certainly tagged common
-  // because "Wan" is a very frequent syllable in dialogue (Obi-Wan, and
-  // various Asian given names), the same "common due to a name, not the
-  // actual word" pattern as "ana"/"ben"/"tom" above.
-  "wan",
   // "boil" has a fine everyday sense ("boil water"), but the definition
   // this app actually selected and displays is the gross medical one
   // ("a painful sore with a hard core filled with pus") — the word's
@@ -247,22 +214,20 @@ const SAFETY_DENYLIST = new Set([
   // above — missed the first time through.
   "pee",
   "urine", "sperm", "dung", "snot",
-  // "re" (prompted by "tornre.com") revealed a systemic pattern: a short
-  // word tagged "common" only because of a completely unrelated everyday
-  // use (a name, an abbreviation, an auxiliary verb in running text —
-  // "re" is common because "Re: Subject" is everywhere, not because
-  // anyone uses the musical solfège sense), while the WordNet sense this
-  // app actually selected and displays is obscure, meaningless jargon.
-  // Same fix as "amelia" earlier: exclude the word itself, since the
-  // string being common doesn't make ITS SHOWN SENSE any less junk.
-  "re", "ain", "are", "am", "cos", "do", "fa", "la", "si", "so", "te",
-  "gee", "ira", "kat", "mei", "meg", "min", "pat", "rip", "rue", "rum",
-  "sec", "sol", "won", "yer",
-  // "torn" itself (from the same "tornre.com" example) plus the rest of
-  // the same "damaged/wrecked" family — negative-quality brand
-  // descriptors, same tier as "broken"/"ruined" already excluded... except
-  // those weren't actually excluded yet either.
+  // "kat" (khat) is a drug reference, same tier as "heroin"/"cocaine"/
+  // "opium" above — kept even though it was found alongside a batch of
+  // purely grammatical "common string, wrong sense" fixes that were
+  // otherwise reverted (see build-dictionaries.mjs history): being a drug
+  // name is a negative/bad reason on its own, independent of that bug.
+  "kat",
+  // negative-quality brand descriptors: damaged/wrecked words. "ripped"
+  // doubly so — its selected sense here is drug/alcohol intoxication
+  // slang, same tier as "stoned".
   "torn", "broken", "ripped", "cracked", "wrecked", "ruined",
+  // the selected sense is the insult ("a person regarded as greedy and
+  // pig-like"), not the literal animal — a negative descriptor of a
+  // person, same tier as "loser"/"jerk"-style entries above.
+  "hog",
 ]);
 
 // WordNet's index.adj follows an older grammatical scheme that files
@@ -272,53 +237,6 @@ const SAFETY_DENYLIST = new Set([
 // generated brand-name modifier (e.g. "somecat.com"). Excluded here as a
 // correction to the POS category itself, not a taste judgment on the
 // (much larger) set of genuine adjectives WordNet returns.
-const MODIFIER_STOPWORDS = new Set([
-  "all", "any", "both", "few", "less", "more", "most", "much", "only", "own",
-  "some", "such", "very", "away", "nigh", "well", "then",
-  // WordNet doesn't syntactic-mark these as predicate-only/postpositive
-  // (see adjCasing.hasPrenominalSense above, which relies on that marker),
-  // but real English only ever uses them that way regardless — "three
-  // years ago", never "ago years"; "a frightened person", never "an
-  // afraid person". Found via user reports, the same way "away" above
-  // was presumably found originally.
-  "ago", "afraid", "alive", "aloof",
-  // A systematic pass over the rest of this same closed class (mostly
-  // archaic "a-" = Old English "on-" formations) rather than adding them
-  // one report at a time — English has a well-documented, finite set of
-  // adjectives that only ever appear predicatively ("the room was abuzz",
-  // never "an abuzz room"), and WordNet's own markers don't reliably
-  // flag them (see "ago" above). "aware" is excluded too: it's genuinely
-  // disputed among style guides whether modern usage has made it
-  // acceptable attributively, and "only allow what we're sure about"
-  // means a disputed case doesn't qualify either.
-  "aware", "ablaze", "aflame", "agog", "askew", "atilt", "unwell", "loath",
-  "abloom", "abuzz", "aslant",
-  // "up" has many WordNet adjective senses — some marked predicate-only,
-  // some not — so at least one passes the prenominal check overall. But
-  // the specific sense this app actually selects and displays ("being or
-  // moving higher in position...") is the general predicate-typical one
-  // ("prices are up"), not the narrow idiomatic prenominal exception ("the
-  // up escalator") — so for an arbitrary noun pairing it just doesn't
-  // read as a modifier the way a real adjective does.
-  "up",
-  // Same underlying bug as "up", now traced to its actual pattern: a
-  // whole class of short prepositions/particles that WordNet tags with a
-  // narrow secondary adjective sense — often an idiomatic compound
-  // ("on"/"off" switch, not general use), a predicate-only state ("we are
-  // through", "prices are down"), or specific jargon ("out" in cricket/
-  // baseball) — none of which read as a modifier for an arbitrary noun
-  // pairing. Checked the rest of this word class too: "back", "past", and
-  // "near" genuinely do work prenominally ("back door", "past events",
-  // "near future"), so those are correctly left as modifiers.
-  "in", "on", "off", "out", "down", "under", "through",
-  // WordNet itself carries two senses for "ok" — one marked predicate-only,
-  // one not — so it passes the "at least one sense works prenominally"
-  // check, but "an ok movie" reads as marked/casual rather than a clean
-  // attributive use the way "a good movie" is. Same disputed-usage
-  // reasoning as "aware" above: not something we're sure about.
-  "ok", "okay",
-]);
-
 // index.noun/index.adj list every lemma WordNet knows for that part of
 // speech (one per line, "<lemma> <pos> ..."), always lowercased regardless
 // of how the word is actually written.
@@ -468,23 +386,19 @@ async function main() {
   // for a strict allowlist.
   const englishModifiers = new Set(
     [...english].filter(
-      (w) =>
-        adjectives.has(w) &&
-        !MODIFIER_STOPWORDS.has(w) &&
-        (adjCasing.hasPrenominalSense.get(w) ?? false)
+      (w) => adjectives.has(w) && (adjCasing.hasPrenominalSense.get(w) ?? false)
     )
   );
   console.log(`  -> ${englishModifiers.size} of ${english.size} words have an adjective sense (tagged as modifiers)`);
 
   // Tags which words have a genuine WordNet noun sense at all — needed
   // because "not a modifier" and "is a noun" are NOT the same thing. A
-  // word like "ago" or "any" has zero entries in index.noun (it's purely
-  // an adjective/determiner in WordNet); excluding it from
-  // englishModifiers doesn't make it a noun, so without this it was
-  // silently falling through into the "core" (noun) role in
-  // candidates.ts anyway, by virtue of merely not being tagged a
-  // modifier. Found via a live report that "ago" (already excluded as a
-  // modifier) was still showing up as the noun half of a pairing.
+  // word can be purely an adjective in WordNet (zero entries in
+  // index.noun) while still failing the prenominal check above (e.g. a
+  // predicate-only sense) — excluding it from englishModifiers doesn't
+  // make it a noun, so without this it was silently falling through into
+  // the "core" (noun) role in candidates.ts anyway, by virtue of merely
+  // not being tagged a modifier.
   const englishNouns = new Set([...english].filter((w) => nouns.has(w)));
   console.log(`  -> ${englishNouns.size} of ${english.size} words have a noun sense (usable as the core/noun half of a pairing)`);
 
