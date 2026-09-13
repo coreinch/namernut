@@ -1,14 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("./rdap", () => ({ checkDomain: vi.fn() }));
 vi.mock("./whois", () => ({ checkDomainWhois: vi.fn() }));
+vi.mock("./instagram", () => ({ checkInstagramUsername: vi.fn() }));
 
 import { checkDomain } from "./rdap";
 import { checkDomainWhois } from "./whois";
+import { checkInstagramUsername } from "./instagram";
 import { runDiscovery, type DiscoveryEvent } from "./discovery";
 import type { WordEntry } from "./dictionary";
 
 describe("runDiscovery", () => {
+  // Every test drives checkDomain/checkDomainWhois explicitly, but most of
+  // them don't care about Instagram specifically (that's covered below) —
+  // default it to "available" so a domain match still counts as "found"
+  // the way it did before the Instagram gate existed (an available domain
+  // whose Instagram username is taken/unknown no longer counts — see the
+  // dedicated tests below).
+  beforeEach(() => {
+    vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+  });
+
   it("dedupes candidate names that collide via ambiguous word-boundary concatenation", async () => {
     // "ab" + "cde" and "abc" + "de" both concatenate to the identical
     // string "abcde" — a different underlying word pair landing on the
@@ -65,6 +77,56 @@ describe("runDiscovery", () => {
     expect(found.length).toBe(2);
     expect(complete).toBeDefined();
     if (complete?.type === "complete") expect(complete.foundCount).toBe(2);
+  });
+
+  it("counts a result only when both the domain and its Instagram username are available", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false },
+      { word: "dog", langs: ["english"], definition: "", common: false },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20);
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(2);
+    for (const f of found) {
+      if (f.type === "found") expect(f.instagram).toBe("available");
+    }
+  });
+
+  it("filters out (rather than counts) a domain match whose Instagram username is taken, checked once per name not per TLD", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false },
+      { word: "dog", langs: ["english"], definition: "", common: false },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(checkInstagramUsername).mockResolvedValue("taken");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    // Two TLDs so a single name can match more than once, to verify the
+    // Instagram lookup is cached rather than repeated per TLD/match.
+    await runDiscovery(pool, undefined, ["com", "net"], 4, (e) => events.push(e), controller.signal, 20);
+
+    // Every domain match has its Instagram username taken, so none of them
+    // qualify as a result — the whole 2x2 pool gets exhausted instead of
+    // ever reaching the target of 4.
+    expect(events.filter((e) => e.type === "found").length).toBe(0);
+    expect(events.filter((e) => e.type === "filtered").length).toBeGreaterThan(0);
+    const complete = events.find((e) => e.type === "complete");
+    expect(complete).toBeDefined();
+    if (complete?.type === "complete") expect(complete.foundCount).toBe(0);
+
+    // 4 names (2x2 pool) x 2 TLDs = 8 possible domain matches, but every
+    // name is only checked on Instagram once regardless of how many TLDs
+    // match it.
+    expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBeLessThanOrEqual(4);
   });
 
   it("emits 'stopped' instead of 'complete' when aborted", async () => {

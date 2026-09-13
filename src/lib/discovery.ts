@@ -5,12 +5,25 @@ import { isPronounceable } from "@/lib/pronounceable";
 import { ShuffledRange } from "@/lib/permutation";
 import { checkDomain } from "@/lib/rdap";
 import { checkDomainWhois } from "@/lib/whois";
+import { checkInstagramUsername, type InstagramStatus } from "@/lib/instagram";
 
 export type DiscoveryEvent =
   | { type: "checking"; name: string; checkedCount: number }
   | { type: "taken"; name: string; checkedCount: number }
   | { type: "unknown"; name: string; checkedCount: number }
-  | { type: "found"; domain: string; meaning: string; checkedCount: number; foundCount: number }
+  // The domain itself was available, but its Instagram username wasn't (or
+  // the check was inconclusive) — doesn't count toward the target, but is
+  // still worth a distinct log entry rather than looking identical to a
+  // plain domain-taken/unknown result.
+  | { type: "filtered"; name: string; checkedCount: number }
+  | {
+      type: "found";
+      domain: string;
+      meaning: string;
+      checkedCount: number;
+      foundCount: number;
+      instagram: InstagramStatus;
+    }
   | { type: "complete"; checkedCount: number; foundCount: number }
   | { type: "stopped"; checkedCount: number }
   | { type: "error"; message: string };
@@ -76,18 +89,64 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
   return status;
 }
 
+// Checked once per found name (see worker below), not once per TLD, so this
+// runs far less often than checkOne — but Instagram's page-scraping check is
+// on much shakier ground than RDAP/whois (an undocumented HTML structure,
+// not a protocol meant for this), so it gets the same retry/backoff
+// treatment rather than failing a whole search over one flaky response.
+async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (event: DiscoveryEvent) => void) {
+  let status: InstagramStatus = "unknown";
+  let attempt = 0;
+  for (;;) {
+    if (signal.aborted) return "aborted" as const;
+    try {
+      status = await checkInstagramUsername(name, signal);
+      break;
+    } catch (err) {
+      if (signal.aborted) return "aborted" as const;
+      if (err instanceof Error && err.name === "RateLimitError") {
+        onEvent({ type: "error", message: "Instagram rate limited, backing off..." });
+        attempt++;
+        if (attempt >= MAX_TRANSIENT_RETRIES) {
+          status = "unknown";
+          break;
+        }
+        await delay(RATE_LIMIT_BACKOFF_MS, signal);
+        continue;
+      }
+      attempt++;
+      if (attempt >= MAX_TRANSIENT_RETRIES) {
+        status = "unknown";
+        break;
+      }
+      await delay(1000, signal);
+    }
+  }
+  if (signal.aborted) return "aborted" as const;
+  // A slightly longer delay than the domain check's: this only fires once
+  // per found name (bounded by targetCount) rather than once per TLD, but
+  // Instagram's anti-scraping posture is stricter than a domain registry's,
+  // so it's worth being more conservative per-request here.
+  await delay(CHECK_DELAY_MS * 2, signal);
+  return status;
+}
+
 /**
  * Runs one independent discovery search: a freshly seeded, shuffled walk
  * over the candidate-name space, checking each candidate across every
  * selected TLD (a handful of candidates at a time, see CONCURRENCY) and
- * collecting up to `targetCount` available domains before finishing (or
- * until the caller aborts). Each call gets its own random seed and local
- * counters — nothing here is shared across callers, so concurrent searches
- * (e.g. from separate browser tabs) never interfere with each other or
- * resume one another's progress. `maxLength` caps the combined candidate
- * name's length (e.g. modifier+core, or keyword+word) — the dictionary
- * itself spans a range of word lengths, so this is what actually limits
- * how long a result can be, not any per-word restriction.
+ * collecting up to `targetCount` results before finishing (or until the
+ * caller aborts). A result requires both an available domain *and* an
+ * available Instagram username for the same name — a domain match whose
+ * Instagram username is taken (or inconclusive) doesn't count toward the
+ * target and is reported as "filtered" instead of "found", so the search
+ * keeps going rather than surfacing it. Each call gets its own random seed
+ * and local counters — nothing here is shared across callers, so concurrent
+ * searches (e.g. from separate browser tabs) never interfere with each
+ * other or resume one another's progress. `maxLength` caps the combined
+ * candidate name's length (e.g. modifier+core, or keyword+word) — the
+ * dictionary itself spans a range of word lengths, so this is what
+ * actually limits how long a result can be, not any per-word restriction.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -152,6 +211,13 @@ export async function runDiscovery(
       if (name.length > maxLength) continue;
       if (!isPronounceable(name)) continue;
 
+      // Instagram is checked once per name (it has no TLD), lazily — only
+      // once a domain actually turns out available for this name, and
+      // cached here so a name matching several TLDs doesn't re-check it.
+      // That bounds Instagram requests to roughly targetCount rather than
+      // one per candidate examined, which would be a much larger volume.
+      let instagramForName: ReturnType<typeof checkInstagramOne> | null = null;
+
       for (const tld of tlds) {
         if (signal.aborted) return;
         if (foundCount >= targetCount) return;
@@ -173,8 +239,26 @@ export async function runDiscovery(
           // still under target, then all resolve "available" and all
           // increment — overshooting by up to CONCURRENCY-1 results.
           if (foundCount >= targetCount) continue;
+
+          if (!instagramForName) instagramForName = checkInstagramOne(name, signal, onEvent);
+          const instagram = await instagramForName;
+          if (instagram === "aborted") return;
+
+          // Only a domain+Instagram-username match counts as a result —
+          // "taken" and "unknown" (an inconclusive check, e.g. rate
+          // limited) are both treated as not qualifying, since "unknown"
+          // is not the same as confirmed available.
+          if (instagram !== "available") {
+            onEvent({ type: "filtered", name: domain, checkedCount });
+            continue;
+          }
+
+          // Re-check once more: the Instagram lookup above can take a
+          // while, and another worker may have filled the last slot during
+          // it (same overshoot race as above, closed the same way).
+          if (foundCount >= targetCount) continue;
           foundCount++;
-          onEvent({ type: "found", domain, meaning, checkedCount, foundCount });
+          onEvent({ type: "found", domain, meaning, checkedCount, foundCount, instagram });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }

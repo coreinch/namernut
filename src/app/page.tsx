@@ -49,7 +49,10 @@ const PRIMARY_TLD_COUNT = 6;
 const MIN_COMBINED_LENGTH = 4;
 const MAX_COMBINED_LENGTH = 24;
 
-type LogStatus = "checking" | "taken" | "unknown" | "available";
+// "filtered": the domain itself was available, but its Instagram username
+// wasn't (or the check was inconclusive) — see the "instagram" filter,
+// which requires both to count as a result.
+type LogStatus = "checking" | "taken" | "unknown" | "available" | "filtered";
 
 interface LogEntry {
   id: string;
@@ -57,12 +60,17 @@ interface LogEntry {
   status: LogStatus;
 }
 
+type InstagramStatus = "available" | "taken" | "unknown";
+
 interface FoundEntry {
   id: string;
   domain: string;
   meaning: string;
   checkedCount: number;
   runId: string;
+  // Optional so entries persisted before this field existed still hydrate
+  // fine — treated as "unknown" wherever it's read (see InstagramBadge).
+  instagram?: InstagramStatus;
 }
 
 interface PersistedState {
@@ -304,6 +312,10 @@ export default function Home() {
               resolveLog(event.name, "unknown");
               setCheckedCount(event.checkedCount);
               break;
+            case "filtered":
+              resolveLog(event.name, "filtered");
+              setCheckedCount(event.checkedCount);
+              break;
             case "found": {
               // The search keeps going after each find until the batch
               // target is reached (or stopped) — status stays "running".
@@ -315,7 +327,14 @@ export default function Home() {
                 // same millisecond, and Date.now() alone isn't fine-grained
                 // enough to keep them apart — that previously produced
                 // duplicate React keys.
-                { id: crypto.randomUUID(), domain: event.domain, meaning: event.meaning, checkedCount: event.checkedCount, runId },
+                {
+                  id: crypto.randomUUID(),
+                  domain: event.domain,
+                  meaning: event.meaning,
+                  checkedCount: event.checkedCount,
+                  runId,
+                  instagram: event.instagram,
+                },
                 ...prev,
               ]);
               resolveLog(event.domain, "available");
@@ -357,6 +376,19 @@ export default function Home() {
     // the first "." reliably strips it.
     const name = entry.domain.split(".")[0];
     const url = `https://www.google.com/search?q=${encodeURIComponent(name)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }, []);
+
+  const openInstagram = useCallback((entry: FoundEntry) => {
+    // No API for this (Instagram's own availability check requires a
+    // logged-in session — see the "Instagram" button's tooltip/rationale
+    // in ResultCard) — instead open the profile URL in the user's own
+    // browser, which (already signed in) renders the real "Sorry, this
+    // page isn't available" for a free username vs. the actual profile
+    // for a taken one, the same differentiation an unauthenticated
+    // server-side fetch can't get.
+    const name = entry.domain.split(".")[0];
+    const url = `https://www.instagram.com/${encodeURIComponent(name)}/`;
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
@@ -585,6 +617,7 @@ export default function Home() {
                     entry={entry}
                     favorited={favoriteDomains.has(entry.domain)}
                     onSearch={() => searchDomain(entry)}
+                    onInstagram={() => openInstagram(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -612,6 +645,7 @@ export default function Home() {
                     entry={entry}
                     favorited
                     onSearch={() => searchDomain(entry)}
+                    onInstagram={() => openInstagram(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -640,6 +674,7 @@ export default function Home() {
                       entry={entry}
                       favorited={favoriteDomains.has(entry.domain)}
                       onSearch={() => searchDomain(entry)}
+                      onInstagram={() => openInstagram(entry)}
                       onToggleFavorite={() => toggleFavorite(entry)}
                     />
                   ))}
@@ -746,11 +781,13 @@ function ResultCard({
   entry,
   favorited,
   onSearch,
+  onInstagram,
   onToggleFavorite,
 }: {
   entry: FoundEntry;
   favorited: boolean;
   onSearch: () => void;
+  onInstagram: () => void;
   onToggleFavorite: () => void;
 }) {
   return (
@@ -771,13 +808,24 @@ function ResultCard({
         </button>
       </div>
       <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
-      <button
-        onClick={onSearch}
-        className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
-      >
-        <SearchIcon size={12} />
-        Search
-      </button>
+      <InstagramBadge status={entry.instagram} />
+      <div className="flex gap-1.5">
+        <button
+          onClick={onSearch}
+          className={`flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
+        >
+          <SearchIcon size={12} />
+          Search
+        </button>
+        <button
+          onClick={onInstagram}
+          title="Opens the Instagram profile to double-check — the badge above comes from an automated, unofficial check that can occasionally be wrong"
+          className={`flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
+        >
+          <InstagramIcon size={12} />
+          Instagram
+        </button>
+      </div>
     </div>
   );
 }
@@ -807,8 +855,27 @@ function LogDot({ status }: { status: LogStatus }) {
         ? "bg-black/30 dark:bg-white/30"
         : status === "available"
           ? "bg-emerald-500"
-          : "bg-amber-500";
+          : status === "filtered"
+            ? "bg-violet-500"
+            : "bg-amber-500";
   return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} />;
+}
+
+// "unknown" (Instagram's response was inconclusive, e.g. rate-limited) or
+// no field at all (an entry persisted before this existed) both render
+// nothing — there's nothing useful to tell the user in either case, and the
+// "Instagram" button below still works either way.
+function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
+  if (!status || status === "unknown") return null;
+  return (
+    <span
+      className={`text-[10px] font-medium ${
+        status === "available" ? "text-emerald-600 dark:text-emerald-400" : "text-black/40 dark:text-white/40"
+      }`}
+    >
+      {status === "available" ? "◇ Instagram available" : "◆ Instagram taken"}
+    </span>
+  );
 }
 
 function SearchIcon({ size = 28 }: { size?: number }) {
@@ -826,6 +893,26 @@ function SearchIcon({ size = 28 }: { size?: number }) {
     >
       <circle cx="11" cy="11" r="7" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  );
+}
+
+function InstagramIcon({ size = 28 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.5" cy="6.5" r="0.75" fill="currentColor" stroke="none" />
     </svg>
   );
 }
