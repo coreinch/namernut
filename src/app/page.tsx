@@ -100,6 +100,20 @@ const BATCH_SIZE = 12;
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
+// crypto.randomUUID() only exists in secure contexts (HTTPS, or
+// localhost) — this app is also used over plain HTTP on a LAN (e.g.
+// http://192.168.x.x:3000), where the browser doesn't expose it at all.
+// crypto.getRandomValues() has no such restriction, so it's the fallback:
+// same 128 bits of randomness, just not formatted as a UUID (fine here —
+// these ids are only ever compared for equality or used as React keys,
+// never parsed as UUIDs).
+function generateId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function sanitizeKeyword(raw: string) {
   // Mirrors parseKeyword in src/lib/candidates.ts — digits are kept
   // (domains can legally contain them), only letters/digits survive.
@@ -264,7 +278,7 @@ export default function Home() {
     // Every start is a brand new, independently seeded search — this tab's
     // own random walk over the candidate space, isolated from any other
     // tab's search. Found domains accumulate in a grid across searches.
-    const runId = crypto.randomUUID();
+    const runId = generateId();
     setActiveRunId(runId);
     setRunStatus("running");
     setErrorMessage(null);
@@ -328,7 +342,7 @@ export default function Home() {
                 // enough to keep them apart — that previously produced
                 // duplicate React keys.
                 {
-                  id: crypto.randomUUID(),
+                  id: generateId(),
                   domain: event.domain,
                   meaning: event.meaning,
                   checkedCount: event.checkedCount,
@@ -376,19 +390,6 @@ export default function Home() {
     // the first "." reliably strips it.
     const name = entry.domain.split(".")[0];
     const url = `https://www.google.com/search?q=${encodeURIComponent(name)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, []);
-
-  const openInstagram = useCallback((entry: FoundEntry) => {
-    // No API for this (Instagram's own availability check requires a
-    // logged-in session — see the "Instagram" button's tooltip/rationale
-    // in ResultCard) — instead open the profile URL in the user's own
-    // browser, which (already signed in) renders the real "Sorry, this
-    // page isn't available" for a free username vs. the actual profile
-    // for a taken one, the same differentiation an unauthenticated
-    // server-side fetch can't get.
-    const name = entry.domain.split(".")[0];
-    const url = `https://www.instagram.com/${encodeURIComponent(name)}/`;
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
@@ -617,7 +618,6 @@ export default function Home() {
                     entry={entry}
                     favorited={favoriteDomains.has(entry.domain)}
                     onSearch={() => searchDomain(entry)}
-                    onInstagram={() => openInstagram(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -645,7 +645,6 @@ export default function Home() {
                     entry={entry}
                     favorited
                     onSearch={() => searchDomain(entry)}
-                    onInstagram={() => openInstagram(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                   />
                 ))}
@@ -674,8 +673,7 @@ export default function Home() {
                       entry={entry}
                       favorited={favoriteDomains.has(entry.domain)}
                       onSearch={() => searchDomain(entry)}
-                      onInstagram={() => openInstagram(entry)}
-                      onToggleFavorite={() => toggleFavorite(entry)}
+                        onToggleFavorite={() => toggleFavorite(entry)}
                     />
                   ))}
                 </div>
@@ -781,13 +779,11 @@ function ResultCard({
   entry,
   favorited,
   onSearch,
-  onInstagram,
   onToggleFavorite,
 }: {
   entry: FoundEntry;
   favorited: boolean;
   onSearch: () => void;
-  onInstagram: () => void;
   onToggleFavorite: () => void;
 }) {
   return (
@@ -809,23 +805,13 @@ function ResultCard({
       </div>
       <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
       <InstagramBadge status={entry.instagram} />
-      <div className="flex gap-1.5">
-        <button
-          onClick={onSearch}
-          className={`flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
-        >
-          <SearchIcon size={12} />
-          Search
-        </button>
-        <button
-          onClick={onInstagram}
-          title="Opens the Instagram profile to double-check — the badge above comes from an automated, unofficial check that can occasionally be wrong"
-          className={`flex min-h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
-        >
-          <InstagramIcon size={12} />
-          Instagram
-        </button>
-      </div>
+      <button
+        onClick={onSearch}
+        className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
+      >
+        <SearchIcon size={12} />
+        Search
+      </button>
     </div>
   );
 }
@@ -897,22 +883,3 @@ function SearchIcon({ size = 28 }: { size?: number }) {
   );
 }
 
-function InstagramIcon({ size = 28 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="5" />
-      <circle cx="12" cy="12" r="4" />
-      <circle cx="17.5" cy="6.5" r="0.75" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}

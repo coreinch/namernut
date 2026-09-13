@@ -15,12 +15,14 @@ export interface CandidateTier {
 
 export interface CandidateSpace {
   /**
-   * Search exhausts each tier, in order, before moving to the next — e.g. a
-   * small tier of common+common word pairs first, falling back to the full
-   * (much larger, and much more likely to include an obscure WordNet entry)
-   * pool only once that's exhausted (or has nothing to offer). Each tier is
-   * independently shuffled by the caller (see discovery.ts), so exhausting
-   * one never means retracing a fixed order within it.
+   * Search draws only from common (see lib/dictionary.ts) words — the full,
+   * much larger pool (which includes real-but-obscure WordNet entries) is
+   * never searched, except as a one-tier fallback for the rare case where
+   * there's no common subset to draw from at all (e.g. a language
+   * selection with no common words). Kept as an array of tiers, rather
+   * than a single space, so that fallback case slots in the same way
+   * without a separate code path. Each tier is independently shuffled by
+   * the caller (see discovery.ts).
    */
   tiers: CandidateTier[];
 }
@@ -62,7 +64,12 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
 }
 
 /**
- * Builds the tiered space of candidate names to search (see CandidateSpace).
+ * Builds the candidate space to search (see CandidateSpace) — restricted to
+ * common (see lib/dictionary.ts) words only, e.g. "blue"+"ice" is
+ * reachable but "otc"+"bunion" isn't, since WordNet's dictionary spans
+ * everyday words and real-but-obscure ones alike with no notion of
+ * frequency on its own. The full pool is only ever used as a one-tier
+ * fallback when there's no common subset at all to draw from.
  *
  * With no keyword: if the pool has both modifiers (short adjectives, e.g.
  * "swift") and core words (everything else, e.g. "fox"), every candidate
@@ -73,16 +80,10 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
  * happens to be all modifiers or all core words (rare) falls back to
  * pairing every ordered pair of pool words instead.
  *
- * Within whichever of those shapes applies, a "common" (see lib/dictionary.ts)
- * modifier+core (or word+word) tier is tried before the full pool — e.g.
- * "blue"+"ice" gets a chance before "otc"+"bunion" — since WordNet's
- * dictionary spans everyday words and real-but-obscure ones alike with no
- * notion of frequency on its own.
- *
  * With a keyword, every candidate pairs the keyword with one pool word, in
  * both orders (keyword+word, word+keyword), so every result relates to
  * that keyword, the way "include a word" filters work in commercial name
- * generators — common words tried first here too.
+ * generators.
  */
 export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
   if (!keyword) {
@@ -99,8 +100,11 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
       const commonCore = core.filter((w) => w.common);
       if (commonModifiers.length > 0 && commonCore.length > 0) {
         tiers.push(buildPairTier(commonModifiers, commonCore, makeModCoreCandidate));
+      } else {
+        // No common subset to draw from at all — fall back to the full
+        // space rather than searching nothing.
+        tiers.push(buildPairTier(modifiers, core, makeModCoreCandidate));
       }
-      tiers.push(buildPairTier(modifiers, core, makeModCoreCandidate));
       return { tiers };
     }
 
@@ -110,15 +114,21 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
     });
     const tiers: CandidateTier[] = [];
     const commonPool = pool.filter((w) => w.common);
-    if (commonPool.length > 0) tiers.push(buildPairTier(commonPool, commonPool, makeFallbackCandidate));
-    tiers.push(buildPairTier(pool, pool, makeFallbackCandidate));
+    if (commonPool.length > 0) {
+      tiers.push(buildPairTier(commonPool, commonPool, makeFallbackCandidate));
+    } else {
+      tiers.push(buildPairTier(pool, pool, makeFallbackCandidate));
+    }
     return { tiers };
   }
 
   const tiers: CandidateTier[] = [];
   const commonPool = pool.filter((w) => w.common);
-  if (commonPool.length > 0) tiers.push(buildKeywordTier(commonPool, keyword));
-  tiers.push(buildKeywordTier(pool, keyword));
+  if (commonPool.length > 0) {
+    tiers.push(buildKeywordTier(commonPool, keyword));
+  } else {
+    tiers.push(buildKeywordTier(pool, keyword));
+  }
   return { tiers };
 }
 

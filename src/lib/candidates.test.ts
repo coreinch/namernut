@@ -68,7 +68,7 @@ describe("buildCandidateSpace (no keyword, no modifiers, no common words -> sing
   });
 });
 
-describe("buildCandidateSpace (no keyword, some words common -> common+common tier tried first)", () => {
+describe("buildCandidateSpace (no keyword, some words common -> only the common+common tier is searched)", () => {
   // "cat" and "dog" are common; "rex" isn't.
   const commonPool: WordEntry[] = [
     { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: true },
@@ -77,15 +77,13 @@ describe("buildCandidateSpace (no keyword, some words common -> common+common ti
   ];
   const space = buildCandidateSpace(commonPool);
 
-  it("has a common+common tier before the full fallback tier", () => {
-    expect(space.tiers.length).toBe(2);
+  it("has exactly one tier, sized common-only (not the full pool)", () => {
+    expect(space.tiers.length).toBe(1);
     expect(space.tiers[0].total).toBe(2 * 2); // cat/dog x cat/dog
-    expect(space.tiers[1].total).toBe(3 * 3); // full pool x full pool
   });
 
-  it("the first tier only ever pairs common words with each other", () => {
-    const names = new Set<string>();
-    for (let i = 0; i < space.tiers[0].total; i++) names.add(space.tiers[0].candidateAt(i).name);
+  it("the tier only ever pairs common words with each other — a non-common word is never reachable", () => {
+    const names = new Set(allNames(space));
     expect(names).toEqual(new Set(["catcat", "catdog", "dogcat", "dogdog"]));
     expect(names.has("rexrex")).toBe(false);
     expect(names.has("catrex")).toBe(false);
@@ -123,7 +121,7 @@ describe("buildCandidateSpace (no keyword, pool has modifiers -> modifier+core p
   });
 });
 
-describe("buildCandidateSpace (no keyword, common modifiers and core -> common+common tier first)", () => {
+describe("buildCandidateSpace (no keyword, common modifiers and core -> only the common modifier x common core tier is searched)", () => {
   const modPool: WordEntry[] = [
     { word: "wild", langs: ["english"], definition: "not tamed", common: true },
     { word: "sad", langs: ["english"], definition: "unhappy", common: false },
@@ -132,13 +130,12 @@ describe("buildCandidateSpace (no keyword, common modifiers and core -> common+c
   ];
   const space = buildCandidateSpace(modPool);
 
-  it("has a common-modifier+common-core tier before the full modifier x core tier", () => {
-    expect(space.tiers.length).toBe(2);
+  it("has exactly one tier, sized common-modifier x common-core (not the full modifier x core space)", () => {
+    expect(space.tiers.length).toBe(1);
     expect(space.tiers[0].total).toBe(1 * 1); // wild x cat
-    expect(space.tiers[1].total).toBe(2 * 2); // (wild,sad) x (cat,dog)
   });
 
-  it("the first tier is exactly the one common modifier+core pair", () => {
+  it("is exactly the one common modifier+core pair — non-common words are never reachable", () => {
     expect(space.tiers[0].candidateAt(0).name).toBe("wildcat");
   });
 });

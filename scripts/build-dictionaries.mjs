@@ -109,6 +109,127 @@ const SAFETY_DENYLIST = new Set([
   "rape", "rapist", "incest",
   "wanker", "tosser",
   "skank", "slag", "harlot", "strumpet", "wench", "hussy",
+  // found via a review of real search output ("divorcedclap.com",
+  // "savedsewer.com", "rentalamelia.com") — words that pass every check so
+  // far (real dictionary words, pronounceable, phonetically natural) but
+  // whose meaning is too heavy, clinical, or unpleasant to read as an
+  // intentional brand name. Words kept despite a negative *sense* existing
+  // (e.g. "killer", "poison", "insanity", "fever", "immortal", "phoenix",
+  // "executed") have a genuinely common positive/neutral/slang everyday
+  // use that outweighs it — these don't.
+  "divorced", "divorce", "divorcee",
+  "amelia", "cripple",
+  "autopsy", "burial", "buried", "coffin", "coroner", "doomed", "tomb", "grief",
+  "coma", "cough", "coughing", "flu", "hurting", "infected", "plague", "poorly", "seizure",
+  "crap", "poop", "sewer",
+  // found in the same live-output review: "homo" used bare as a noun
+  // label is a slur, the same tier as the already-listed "fag"/"dyke";
+  // "goddamn" is WordNet's own definition literally an expletive
+  // ("used as expletives"), unlike "damn" which was kept as too
+  // mainstream/multi-use to exclude.
+  "homo", "goddamn",
+  // found via an exhaustive read-through of every common MODIFIER word
+  // (the prefix position, so the most visible to a reader) prompted by
+  // "ill" slipping through as a modifier (sounds like "I'll" and its own
+  // meaning is "sick" anyway) — the same circular-definition blind spot
+  // that missed "divorced" applies here too, so this pass read definitions
+  // directly rather than keyword-matching them.
+  "sick", "crippled", "lunatic", "pathetic", "pitiful", "homeless", "sissy",
+  "racist", "murdered", "hideous", "vile", "wretched", "tortured",
+  // inflected forms of an already-listed root that slipped through as
+  // separate dictionary entries (the denylist matches exact strings, not
+  // stems) — found by checking every common suffix (-ed/-ing/-s/-y/-er)
+  // against each existing entry above and reviewing the real hits (most
+  // matches were unrelated words that just share letters, e.g. "spicy"/
+  // "cocky"/"dinky"/"butter" — kept, not related to "spic"/"cock"/"dink"/
+  // "butt" at all).
+  "fucked", "fucker", "fucking", "pissed", "pisser", "pissing", "retarded",
+  "skanky", "wencher",
+  // found live in a search result right after the pass above ("funeral"),
+  // same circular-definition blind spot again — its own gloss doesn't
+  // contain the word "funeral". This one slipped through specifically
+  // because it's a core (noun) word, not a modifier — the exhaustive
+  // read-through above only covered modifiers; core words are a much
+  // larger list not yet given the same treatment.
+  "funeral",
+  // WordNet's sense here is the archaic "odd/strange" meaning, not the
+  // modern identity term — but a generated name would be read through the
+  // modern meaning regardless of which WordNet sense produced it, so it's
+  // excluded on that basis rather than as a judgment about the identity
+  // term itself.
+  "queer",
+  // found via an exhaustive read-through of all ~3,400 common CORE (noun)
+  // words — the modifier pass above didn't touch these. Two of these
+  // ("nigga"/"nigger", "taco") are WordNet's OWN gloss literally labeling
+  // them "(ethnic slur)... offensive" — a startling miss from the
+  // original profanity sweep, which apparently never checked slur-labeled
+  // entries this directly. "come" is a critical one too: an extremely
+  // common everyday word whose selected WordNet sense is explicit sexual
+  // content, not its ordinary meaning.
+  "abortion", "asthma", "bugger", "bullshit", "cancer", "cemetery", "come",
+  "condom", "corpse", "cruelty", "cuckoo", "curse", "death", "despair",
+  "dickhead", "disease", "dope", "dump", "fart", "filth", "freak", "ghetto",
+  "gypsy", "homicide", "hood", "idiot", "illness", "jackass", "junkie",
+  "lust", "madman", "madness", "maniac", "massacre", "mistress", "moron",
+  "morgue", "murder", "murderer", "nigga", "nigger", "oath", "opium",
+  "penis", "pervert", "poison", "psycho", "puke", "screwing", "scum",
+  "scumbag", "shitting", "shrimp", "slave", "slavery", "suicide", "taco",
+  "thug", "torment", "torture", "tragedy", "trauma", "tumor", "vagina",
+  "vomit", "wretch", "yakuza",
+  // "boil" has a fine everyday sense ("boil water"), but the definition
+  // this app actually selected and displays is the gross medical one
+  // ("a painful sore with a hard core filled with pus") — the word's
+  // other senses don't help if that's not what's shown.
+  "boil",
+  // A different lens from everything above: not offensive or heavy, just
+  // actively bad as a brand descriptor — negative-quality, embarrassing,
+  // or failure-associated words that would make a business look bad no
+  // matter how "nice" they sound letter-by-letter (e.g. "uglybrand.com").
+  // Found the same way as the rest: reading every common word's actual
+  // definition directly, this time judged by "would this hurt a brand"
+  // rather than "is this offensive/sensitive."
+  "awful", "bad", "boring", "broke", "bum", "bust", "clumsy", "corrupt",
+  "crappy", "creepy", "deaf", "dull", "dumb", "dummy", "harsh", "helpless",
+  "ignorant", "lame", "lone", "lonely", "lousy", "numb", "petty", "punk",
+  "rotten", "sloppy", "stinking", "stinky", "stupid", "ugly", "unstable",
+  "vulgar", "worse",
+  "reject", "rubbish", "scam", "scandal", "trash", "disaster", "failure",
+  "fraud", "garbage", "junk", "loser", "mess",
+  // found live in real search output right after this batch ("distress"),
+  // plus a follow-up sweep for the same "reads badly as a brand
+  // descriptor" pattern — "stress" and "fear" were checked and kept
+  // (their shown definition is neutral/technical, and edgy-brand use
+  // respectively).
+  "distress", "weakness", "panic", "anxiety", "worry", "poor", "lacking",
+  "bummer", "insecure", "vain",
+  // "mum" here is the "keep mum" sense (failing to communicate when
+  // expected to) rather than "mother" — an evasive, mildly negative trait
+  // as a brand descriptor, not the affectionate word it looks like.
+  "mum",
+  // the original word that started the whole modifier review (reads as
+  // "I'll" as a prefix, and its own meaning is "sick" anyway) — somehow
+  // never actually added itself while "sick" (its parallel) was.
+  "ill",
+  // same crude-bodily-function tier as "crap"/"poop"/"fart"/"shitting"
+  // above — missed the first time through.
+  "pee",
+  "urine", "sperm", "dung", "snot",
+  // "re" (prompted by "tornre.com") revealed a systemic pattern: a short
+  // word tagged "common" only because of a completely unrelated everyday
+  // use (a name, an abbreviation, an auxiliary verb in running text —
+  // "re" is common because "Re: Subject" is everywhere, not because
+  // anyone uses the musical solfège sense), while the WordNet sense this
+  // app actually selected and displays is obscure, meaningless jargon.
+  // Same fix as "amelia" earlier: exclude the word itself, since the
+  // string being common doesn't make ITS SHOWN SENSE any less junk.
+  "re", "ain", "are", "am", "cos", "do", "fa", "la", "si", "so", "te",
+  "gee", "ira", "kat", "mei", "meg", "min", "pat", "rip", "rue", "rum",
+  "sec", "sol", "won", "yer",
+  // "torn" itself (from the same "tornre.com" example) plus the rest of
+  // the same "damaged/wrecked" family — negative-quality brand
+  // descriptors, same tier as "broken"/"ruined" already excluded... except
+  // those weren't actually excluded yet either.
+  "torn", "broken", "ripped", "cracked", "wrecked", "ruined",
 ]);
 
 // WordNet's index.adj follows an older grammatical scheme that files

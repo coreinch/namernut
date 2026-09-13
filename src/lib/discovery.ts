@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import type { WordEntry } from "@/lib/dictionary";
 import { buildCandidateSpace } from "@/lib/candidates";
 import { isPronounceable } from "@/lib/pronounceable";
+import { buildTypoIndex } from "@/lib/typocheck";
+import { buildNicenessIndex } from "@/lib/niceness";
 import { ShuffledRange } from "@/lib/permutation";
 import { checkDomain } from "@/lib/rdap";
 import { checkDomainWhois } from "@/lib/whois";
@@ -32,6 +34,14 @@ const CONCURRENCY = 4;
 const CHECK_DELAY_MS = 350;
 const RATE_LIMIT_BACKOFF_MS = 5000;
 const MAX_TRANSIENT_RETRIES = 3;
+
+// A name's least-common letter-pair needs to account for at least this
+// fraction of all letter-pairs in the dictionary to count as "nice" —
+// chosen empirically against the real dictionary: about 83% of realistic
+// word-pair combos clear it, while genuinely awkward ones (e.g. a rare
+// pair like "mw") don't. A candidate below this is rejected outright (see
+// the niceness check in worker() below), the same as isPronounceable.
+const NICENESS_THRESHOLD = 0.0001;
 
 function delay(ms: number, signal: AbortSignal) {
   return new Promise<void>((resolve) => {
@@ -140,8 +150,10 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * available Instagram username for the same name — a domain match whose
  * Instagram username is taken (or inconclusive) doesn't count toward the
  * target and is reported as "filtered" instead of "found", so the search
- * keeps going rather than surfacing it. Each call gets its own random seed
- * and local counters — nothing here is shared across callers, so concurrent
+ * keeps going rather than surfacing it. A candidate that doesn't read as a
+ * natural-sounding name (see niceness.ts) is rejected outright, the same
+ * as an unpronounceable one. Each call gets its own random seed and local
+ * counters — nothing here is shared across callers, so concurrent
  * searches (e.g. from separate browser tabs) never interfere with each
  * other or resume one another's progress. `maxLength` caps the combined
  * candidate name's length (e.g. modifier+core, or keyword+word) — the
@@ -158,6 +170,8 @@ export async function runDiscovery(
   maxLength: number
 ) {
   const space = buildCandidateSpace(pool, keyword);
+  const typoIndex = buildTypoIndex(pool.filter((w) => w.common).map((w) => w.word));
+  const nicenessIndex = buildNicenessIndex(pool.map((w) => w.word));
   const seed = crypto.randomInt(0, 2 ** 31);
   // One independently-shuffled walk per tier (e.g. common+common word pairs,
   // then the full pool) — each tier gets its own derived seed so the walks
@@ -210,6 +224,15 @@ export async function runDiscovery(
       seenNames.add(name);
       if (name.length > maxLength) continue;
       if (!isPronounceable(name)) continue;
+      // Reads as a likely typo of an unrelated common word (e.g. one
+      // letter off) rather than an intentional invented name — see
+      // typocheck.ts for why this is a local dictionary check rather than
+      // a live search engine's spelling correction.
+      if (typoIndex.findMatch(name)) continue;
+      // Contains a letter pair that barely occurs anywhere in real English
+      // words (e.g. "mw") — reads as clunky rather than a natural-sounding
+      // invented name. See niceness.ts.
+      if (nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
 
       // Instagram is checked once per name (it has no TLD), lazily — only
       // once a domain actually turns out available for this name, and

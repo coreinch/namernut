@@ -3,10 +3,18 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("./rdap", () => ({ checkDomain: vi.fn() }));
 vi.mock("./whois", () => ({ checkDomainWhois: vi.fn() }));
 vi.mock("./instagram", () => ({ checkInstagramUsername: vi.fn() }));
+// The real niceness index is built from the actual candidate pool passed
+// in — these tests use tiny 2-3 word fixtures, far too little data for
+// real bigram statistics, so almost every combined candidate would fail
+// the niceness gate for reasons unrelated to what each test is actually
+// checking. Default it to "always nice" here; the dedicated niceness test
+// below overrides it to verify the gate itself.
+vi.mock("./niceness", () => ({ buildNicenessIndex: vi.fn() }));
 
 import { checkDomain } from "./rdap";
 import { checkDomainWhois } from "./whois";
 import { checkInstagramUsername } from "./instagram";
+import { buildNicenessIndex } from "./niceness";
 import { runDiscovery, type DiscoveryEvent } from "./discovery";
 import type { WordEntry } from "./dictionary";
 
@@ -19,6 +27,7 @@ describe("runDiscovery", () => {
   // dedicated tests below).
   beforeEach(() => {
     vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+    vi.mocked(buildNicenessIndex).mockReturnValue({ score: () => 1 });
   });
 
   it("dedupes candidate names that collide via ambiguous word-boundary concatenation", async () => {
@@ -127,6 +136,33 @@ describe("runDiscovery", () => {
     // name is only checked on Instagram once regardless of how many TLDs
     // match it.
     expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it("rejects a candidate outright when it doesn't score as a natural-sounding name", async () => {
+    // Only "catdog" clears the (mocked) niceness bar; every other
+    // combination in this 2x2 pool doesn't, so it should never be checked
+    // (or found) at all, no matter how many are requested.
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false },
+      { word: "dog", langs: ["english"], definition: "", common: false },
+    ];
+    vi.mocked(buildNicenessIndex).mockReturnValue({ score: (name) => (name === "catdog" ? 1 : 0) });
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20);
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(1);
+    if (found[0].type === "found") expect(found[0].domain).toBe("catdog.com");
+
+    // The rejected names never even get a "checking" event — no domain
+    // check is wasted on a candidate this cheap local check already ruled
+    // out, the same as isPronounceable.
+    const checkingNames = events.filter((e) => e.type === "checking").map((e) => e.name);
+    expect(checkingNames).toEqual(["catdog.com"]);
   });
 
   it("emits 'stopped' instead of 'complete' when aborted", async () => {
