@@ -10,10 +10,19 @@ vi.mock("./braveSearch", () => ({
 vi.mock("./openrouter", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
 }));
+// A small fixed pool so splitIntoWords is deterministic: only "catdog"
+// (and other names built from these two words) can ever split, so the
+// rest of the suite's names are unaffected.
+vi.mock("./dictionary", () => ({
+  getWordPool: () => [
+    { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    { word: "dog", langs: ["english"], definition: "", common: true, noun: true },
+  ],
+}));
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkCollision } from "./collision";
+import { checkCollision, splitIntoWords } from "./collision";
 
 function result(overrides: Partial<BraveResult> = {}): BraveResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -34,6 +43,37 @@ describe("checkCollision", () => {
     await checkCollision("fluidfew");
     expect(braveSearchMock).toHaveBeenCalledWith('"fluidfew"', undefined);
     expect(braveSearchMock).toHaveBeenCalledWith("fluidfew", undefined);
+  });
+
+  it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
+    braveSearchMock.mockResolvedValue([]);
+    const res = await checkCollision("fluidfew");
+    expect(braveSearchMock).toHaveBeenCalledTimes(2);
+    expect(res.twoWordSplit).toBeUndefined();
+    expect(res.twoWordResultCount).toBeUndefined();
+  });
+
+  it("also runs an unquoted two-word search when the name splits into two dictionary words", async () => {
+    braveSearchMock.mockResolvedValue([]);
+    await checkCollision("catdog");
+    expect(braveSearchMock).toHaveBeenCalledTimes(3);
+    expect(braveSearchMock).toHaveBeenCalledWith('"catdog"', undefined);
+    expect(braveSearchMock).toHaveBeenCalledWith("catdog", undefined);
+    expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+  });
+
+  it("factors the two-word search's result count into the heuristic score and summary", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    braveSearchMock
+      .mockResolvedValueOnce([]) // quoted: 0
+      .mockResolvedValueOnce([]) // unquoted: 0
+      .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
+    const res = await checkCollision("catdog");
+    // 100 - (0*7) - (0*3) - (4*5) = 80
+    expect(res.rankabilityScore).toBe(80);
+    expect(res.twoWordSplit).toBe("cat dog");
+    expect(res.twoWordResultCount).toBe(4);
+    expect(res.summary).toContain('"cat dog"');
   });
 
   it("scores 100 with zero results on both searches, via the heuristic", async () => {
@@ -105,5 +145,19 @@ describe("checkCollision", () => {
       .mockResolvedValueOnce([result({ title: "unquoted hit" })]); // unquoted
     const res = await checkCollision("foo");
     expect(res.topResults).toEqual([result({ title: "unquoted hit" })]);
+  });
+});
+
+describe("splitIntoWords", () => {
+  it("splits a name into two real dictionary words when such a split exists", () => {
+    expect(splitIntoWords("catdog")).toEqual(["cat", "dog"]);
+  });
+
+  it("returns null when no split makes both halves real words", () => {
+    expect(splitIntoWords("fluidfew")).toBeNull();
+  });
+
+  it("returns null for a name too short to split into two 2+ letter words", () => {
+    expect(splitIntoWords("cat")).toBeNull();
   });
 });
