@@ -175,6 +175,13 @@ Give a rankability score from 0 to 100:
   off as "just the nearest matches" or "not an exact collision" just
   because no single result is a literal name match; score it low the same
   as a direct collision would be.
+- And this: an existing app/product/brand whose name IS one of the name's
+  two halves (e.g. an app literally called "Said" showing up for
+  "saidapps") is itself a real, strong collision on its own — the new name
+  is that existing brand plus a generic suffix, which is exactly the kind
+  of near-miss a search engine (and a searcher) conflates with the
+  original. Don't discount it just because it's not a match on the full
+  combined string; weight it the same as a direct hit on the whole name.
 
 BROAD-MATCH (unquoted) search results for ${name}:
 ${formatResultsForPrompt(unquoted)}${twoWordSection}
