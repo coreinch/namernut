@@ -72,6 +72,16 @@ interface FoundEntry {
   // Optional so entries persisted before this field existed still hydrate
   // fine — treated as "unknown" wherever it's read (see InstagramBadge).
   instagram?: InstagramStatus;
+  // Populated automatically by the "found" SSE event once the discovery
+  // pipeline's rankability check runs (see checkRankabilityOne in
+  // discovery.ts) — absent when BRAVE_API_KEY wasn't configured at the
+  // time, the check failed, or (for entries persisted before this field
+  // existed) it never ran at all. See CollisionBadge, which falls back to
+  // an on-demand "Check collisions" button whenever this is undefined.
+  // 0 = as unrankable as "Google" itself; 100 = a long random string with
+  // no real-world usage anywhere to compete with.
+  rankabilityScore?: number;
+  collisionSummary?: string;
 }
 
 interface PersistedState {
@@ -134,6 +144,7 @@ export default function Home() {
   const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [importMessage, setImportMessage] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [enabledLangs, setEnabledLangs] = useState<Record<Lang, boolean>>(() =>
     Object.fromEntries(LANGS.map((l) => [l, true])) as Record<Lang, boolean>
   );
@@ -208,7 +219,6 @@ export default function Home() {
   // One-time hydration from an external system (localStorage) on mount —
   // this can't be a lazy useState initializer because it must not run
   // during SSR, where localStorage doesn't exist.
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -229,7 +239,6 @@ export default function Home() {
     // superseded, real writes may proceed."
     setHasHydrated(true);
   }, []);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     // Every state value this effect reads was set in the same hydration
@@ -394,12 +403,77 @@ export default function Home() {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
+  // Backfill path only — the discovery pipeline itself already runs this
+  // automatically per found name (see checkRankabilityOne in
+  // discovery.ts), populating rankabilityScore/collisionSummary directly
+  // on the FoundEntry before it's ever rendered. This on-demand version
+  // exists for the cases that misses: entries persisted from before this
+  // feature existed, a run where BRAVE_API_KEY wasn't configured yet, or a
+  // manual retry after a one-off failure. Neither of these two bits of
+  // state is persisted — a stuck "loading" badge or stale error message
+  // shouldn't survive a reload.
+  const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
+  const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
+
+  const checkCollisionFor = useCallback((name: string) => {
+    setCheckingCollisionNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+    setCollisionErrors((prev) => {
+      if (!(name in prev)) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    (async () => {
+      try {
+        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+        const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
+        // Keyed by bare name (not domain — a result found under several
+        // TLDs shares one score), so every matching entry across both
+        // arrays gets updated, not just the one card that was clicked.
+        const applyScore = (entry: FoundEntry): FoundEntry =>
+          entry.domain.split(".")[0] === name
+            ? { ...entry, rankabilityScore, collisionSummary: summary }
+            : entry;
+        setFoundHistory((prev) => prev.map(applyScore));
+        setFavorites((prev) => prev.map(applyScore));
+      } catch (err) {
+        setCollisionErrors((prev) => ({
+          ...prev,
+          [name]: err instanceof Error ? err.message : "Check failed",
+        }));
+      } finally {
+        setCheckingCollisionNames((prev) => {
+          if (!prev.has(name)) return prev;
+          const next = new Set(prev);
+          next.delete(name);
+          return next;
+        });
+      }
+    })();
+  }, []);
+
   const toggleFavorite = useCallback((entry: FoundEntry) => {
     setFavorites((prev) =>
       prev.some((f) => f.domain === entry.domain)
         ? prev.filter((f) => f.domain !== entry.domain)
         : [entry, ...prev]
     );
+  }, []);
+
+  const copyNames = useCallback(async (entries: FoundEntry[]) => {
+    // Bare names only, one per line — domain here is always name + "." +
+    // tld (no subdomains), so splitting on the first "." reliably strips
+    // it, same as searchDomain above.
+    const names = entries.map((entry) => entry.domain.split(".")[0]).join("\n");
+    try {
+      await navigator.clipboard.writeText(names);
+      setCopyMessage(`Copied ${entries.length} name${entries.length === 1 ? "" : "s"}.`);
+    } catch {
+      setCopyMessage("Couldn't copy — check clipboard permissions.");
+    }
+    setTimeout(() => setCopyMessage(null), 2500);
   }, []);
 
   const exportBackup = useCallback(() => {
@@ -462,7 +536,16 @@ export default function Home() {
   // finds render in discovery order — first found stays put, each new one
   // appends after it — instead of reshuffling the whole grid every find.
   const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
-  const previousResults = foundHistory.filter((e) => e.runId !== activeRunId);
+  // Ranked best-first (highest rankabilityScore — easiest to actually rank
+  // #1 for — at the top), unlike currentRunResults above which preserves
+  // discovery order: once a result has aged into history, how promising it
+  // is matters more than when it happened to turn up. Entries with no
+  // score yet (never checked — see FoundEntry) sort last, via the ?? -1
+  // fallback, rather than being scattered among real 0-100 scores.
+  const previousResults = foundHistory
+    .filter((e) => e.runId !== activeRunId)
+    .slice()
+    .sort((a, b) => (b.rankabilityScore ?? -1) - (a.rankabilityScore ?? -1));
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
 
   return (
@@ -602,15 +685,31 @@ export default function Home() {
               into the collapsed "Previous results" section below. */}
           {(currentRunResults.length > 0 || isRunning) && (
             <section className="flex flex-col gap-2">
-              <div className="flex items-baseline justify-between">
+              <div className="flex items-baseline justify-between gap-2">
                 <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                   Available domains
                 </h2>
-                {isRunning && (
-                  <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
-                    {currentRunFound}/{BATCH_SIZE}
-                  </span>
-                )}
+                <div className="flex items-baseline gap-2">
+                  {copyMessage && (
+                    <span className="animate-fade-in-up text-xs text-black/55 dark:text-white/55">
+                      {copyMessage}
+                    </span>
+                  )}
+                  {currentRunResults.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => copyNames(currentRunResults)}
+                      className={`text-xs text-black/65 underline decoration-black/30 underline-offset-2 transition-colors hover:text-black/85 dark:text-white/65 dark:decoration-white/30 dark:hover:text-white/85 ${FOCUS_RING}`}
+                    >
+                      Copy names
+                    </button>
+                  )}
+                  {isRunning && (
+                    <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
+                      {currentRunFound}/{BATCH_SIZE}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                 {currentRunResults.map((entry) => (
@@ -618,8 +717,15 @@ export default function Home() {
                     key={entry.id}
                     entry={entry}
                     favorited={favoriteDomains.has(entry.domain)}
+                    collision={{
+                      score: entry.rankabilityScore,
+                      summary: entry.collisionSummary,
+                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
+                      error: collisionErrors[entry.domain.split(".")[0]],
+                    }}
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
+                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
                   />
                 ))}
                 {isRunning &&
@@ -645,8 +751,15 @@ export default function Home() {
                     key={entry.id}
                     entry={entry}
                     favorited
+                    collision={{
+                      score: entry.rankabilityScore,
+                      summary: entry.collisionSummary,
+                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
+                      error: collisionErrors[entry.domain.split(".")[0]],
+                    }}
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
+                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
                   />
                 ))}
               </div>
@@ -673,8 +786,15 @@ export default function Home() {
                       key={entry.id}
                       entry={entry}
                       favorited={favoriteDomains.has(entry.domain)}
+                      collision={{
+                      score: entry.rankabilityScore,
+                      summary: entry.collisionSummary,
+                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
+                      error: collisionErrors[entry.domain.split(".")[0]],
+                    }}
                       onSearch={() => searchDomain(entry)}
-                        onToggleFavorite={() => toggleFavorite(entry)}
+                      onToggleFavorite={() => toggleFavorite(entry)}
+                      onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
                     />
                   ))}
                 </div>
@@ -779,13 +899,17 @@ export default function Home() {
 function ResultCard({
   entry,
   favorited,
+  collision,
   onSearch,
   onToggleFavorite,
+  onCheckCollision,
 }: {
   entry: FoundEntry;
   favorited: boolean;
+  collision: CollisionDisplay;
   onSearch: () => void;
   onToggleFavorite: () => void;
+  onCheckCollision: () => void;
 }) {
   return (
     <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 transition-colors hover:border-emerald-500/50">
@@ -806,6 +930,7 @@ function ResultCard({
       </div>
       <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
       <InstagramBadge status={entry.instagram} />
+      <CollisionBadge collision={collision} onCheck={onCheckCollision} />
       <button
         onClick={onSearch}
         className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
@@ -862,6 +987,77 @@ function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
     >
       {status === "available" ? "◇ Instagram available" : "◆ Instagram taken"}
     </span>
+  );
+}
+
+// Domain/Instagram availability (see above) says nothing about whether a
+// name already means something real in the world — see lib/collision.ts.
+// score is 0-100: 0 as unrankable as "Google" itself, 100 as wide open as a
+// long random string with no real-world usage anywhere. Ordinarily
+// populated automatically (see checkRankabilityOne in discovery.ts, and
+// the "found" SSE handler in the component below) by the time a card first
+// renders; undefined only for entries that missed that (persisted from
+// before this feature existed, or found while BRAVE_API_KEY wasn't
+// configured), which is what the fallback "Check collisions" button below
+// is for.
+interface CollisionDisplay {
+  score: number | undefined;
+  summary: string | undefined;
+  loading: boolean;
+  error: string | undefined;
+}
+
+/** Emerald at 100 down to red at 0, passing through the same lime → amber →
+ * orange progression a traffic-light-style meter would use. */
+function scoreColorClass(score: number): string {
+  if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
+  if (score >= 60) return "text-lime-600 dark:text-lime-400";
+  if (score >= 40) return "text-amber-600 dark:text-amber-400";
+  if (score >= 20) return "text-orange-600 dark:text-orange-400";
+  return "text-red-600 dark:text-red-400";
+}
+
+function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; onCheck: () => void }) {
+  if (collision.loading) {
+    return (
+      <span className="flex items-center gap-1.5 text-[10px] text-black/45 dark:text-white/45">
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+        Checking…
+      </span>
+    );
+  }
+  if (collision.error) {
+    return (
+      <button
+        type="button"
+        onClick={onCheck}
+        className={`self-start text-[10px] font-medium text-amber-600 underline decoration-amber-600/40 underline-offset-2 transition-colors hover:text-amber-700 dark:text-amber-400 dark:decoration-amber-400/40 dark:hover:text-amber-300 ${FOCUS_RING}`}
+        title={collision.error}
+      >
+        Check failed — retry
+      </button>
+    );
+  }
+  if (collision.score === undefined) {
+    return (
+      <button
+        type="button"
+        onClick={onCheck}
+        className={`self-start text-[10px] font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
+      >
+        Check collisions
+      </button>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={`text-[10px] font-semibold tabular-nums ${scoreColorClass(collision.score)}`}>
+        {collision.score}% rankable
+      </span>
+      {collision.summary && (
+        <span className="text-[10px] leading-snug text-black/55 dark:text-white/55">{collision.summary}</span>
+      )}
+    </div>
   );
 }
 

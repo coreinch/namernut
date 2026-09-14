@@ -16,6 +16,15 @@
  * unauthenticated profile request to its login page, which itself carries
  * a generic og:title — misread as "taken" for every username without the
  * check below. See LoginWallError.
+ *
+ * If INSTAGRAM_SESSION_ID is set (a real account's `sessionid` cookie
+ * value, from .env.local — never committed, see .gitignore), requests are
+ * sent authenticated as that account, which avoids the login-wall redirect
+ * entirely. That's a live session credential for a real account, and this
+ * search does a rapid-fire lookup per candidate — running it authenticated
+ * risks that account being flagged or challenged by Instagram's automated-
+ * behavior detection, which anonymous requests (just an inconclusive login
+ * page) don't risk. Falls back to the unauthenticated path when unset.
  */
 export type InstagramStatus = "available" | "taken" | "unknown";
 
@@ -28,8 +37,13 @@ export async function checkInstagramUsername(
   username: string,
   signal?: AbortSignal
 ): Promise<InstagramStatus> {
+  const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "text/html" };
+  if (process.env.INSTAGRAM_SESSION_ID) {
+    headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;
+  }
+
   const res = await fetch(`https://www.instagram.com/${encodeURIComponent(username)}/`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+    headers,
     signal,
   });
 
