@@ -125,9 +125,13 @@ export async function checkCollision(name: string, signal?: AbortSignal): Promis
       } else {
         ({ rankabilityScore, summary } = heuristicScore(quoted.length, unquoted.length));
       }
-    } catch {
+    } catch (err) {
       // LLM call failed (rate limited, network error, malformed response,
-      // etc.) — fall back rather than losing the check entirely.
+      // etc.) — fall back rather than losing the check entirely. Logged
+      // (not swallowed silently) since a bad default model or a dead key
+      // otherwise degrades to the heuristic on every single check without
+      // any visible sign that something's wrong.
+      console.error(`checkCollision: OpenRouter call failed for "${name}", using heuristic instead`, err);
       ({ rankabilityScore, summary } = heuristicScore(quoted.length, unquoted.length));
     }
   } else {

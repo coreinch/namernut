@@ -40,7 +40,7 @@ describe("completeChat", () => {
     vi.stubGlobal("fetch", fetchMock);
     await completeChat("hi");
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.model).toBe("meta-llama/llama-3.1-8b-instruct:free");
+    expect(body.model).toBe("nvidia/nemotron-3-super-120b-a12b:free");
   });
 
   it("uses OPENROUTER_MODEL when set", async () => {
