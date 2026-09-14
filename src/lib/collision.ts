@@ -1,5 +1,5 @@
 import { braveSearch, type BraveResult } from "@/lib/braveSearch";
-import { completeChat } from "@/lib/openrouter";
+import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
 
 export interface CollisionResult {
@@ -89,7 +89,7 @@ function clampScore(n: number): number {
 }
 
 /**
- * Stands in whenever there's no OPENROUTER_API_KEY, or the LLM call itself
+ * Stands in whenever there's no KILOCODE_API_KEY, or the LLM call itself
  * fails — a crude but dependency-free signal beats no signal at all. Pure
  * result-count penalty, unquoted broad-match hits only (see checkCollision
  * for why there's no quoted search): the exact string search that used to
@@ -107,19 +107,26 @@ function clampScore(n: number): number {
 function heuristicScore(
   unquotedCount: number,
   twoWordSplit: string | null,
-  twoWordCount: number
+  twoWordCount: number,
+  reason: "no_key" | "rate_limited" | "other_error"
 ): { rankabilityScore: number; summary: string } {
+  const reasonNote =
+    reason === "no_key"
+      ? "Set KILOCODE_API_KEY for a real verdict instead of this count-based estimate."
+      : reason === "rate_limited"
+        ? "Kilo Gateway's free-tier daily request limit is exhausted — this is a count-based estimate until it resets."
+        : "Kilo Gateway didn't return a usable verdict — this is a count-based estimate instead.";
   if (unquotedCount === 0 && twoWordCount === 0) {
     return {
       rankabilityScore: 100,
-      summary: "No results at all under either search — nothing to compete with.",
+      summary: `No results at all under either search — nothing to compete with. ${reasonNote}`,
     };
   }
   const penalty = unquotedCount * 4 + twoWordCount * 8;
   const twoWordNote = twoWordSplit ? ` and ${twoWordCount} result(s) for "${twoWordSplit}"` : "";
   return {
     rankabilityScore: clampScore(100 - penalty),
-    summary: `${unquotedCount} broad-match result(s) found${twoWordNote}. Set OPENROUTER_API_KEY for a real verdict instead of this count-based estimate.`,
+    summary: `${unquotedCount} broad-match result(s) found${twoWordNote}. ${reasonNote}`,
   };
 }
 
@@ -211,7 +218,7 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * quoted exact-match search: it only ever hid real collisions (a quoted
  * search finds literal reuse of the string, but a search engine's own
  * near-miss interpretation of it — the actual risk — only shows up
- * unquoted), so it's not run. If OPENROUTER_API_KEY is set, an LLM turns
+ * unquoted), so it's not run. If KILOCODE_API_KEY is set, an LLM turns
  * those results into a 0-100 rankability score; otherwise heuristicScore
  * stands in. Called once per found candidate, after its domain (and, if
  * enabled, Instagram) availability is already confirmed — see
@@ -233,7 +240,7 @@ export async function checkCollision(
   let rankabilityScore: number;
   let summary: string;
 
-  if (process.env.OPENROUTER_API_KEY) {
+  if (process.env.KILOCODE_API_KEY) {
     try {
       const parsed = parseLlmResponse(
         await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord), signal)
@@ -241,7 +248,7 @@ export async function checkCollision(
       if (parsed) {
         ({ rankabilityScore, summary } = parsed);
       } else {
-        ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
+        ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, "other_error"));
       }
     } catch (err) {
       // LLM call failed (rate limited, network error, malformed response,
@@ -249,11 +256,12 @@ export async function checkCollision(
       // (not swallowed silently) since a bad default model or a dead key
       // otherwise degrades to the heuristic on every single check without
       // any visible sign that something's wrong.
-      console.error(`checkCollision: OpenRouter call failed for "${name}", using heuristic instead`, err);
-      ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
+      console.error(`checkCollision: Kilo Gateway call failed for "${name}", using heuristic instead`, err);
+      const reason = err instanceof Error && err.name === "RateLimitError" ? "rate_limited" : "other_error";
+      ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, reason));
     }
   } else {
-    ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
+    ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, "no_key"));
   }
 
   return {

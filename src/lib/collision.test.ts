@@ -7,7 +7,7 @@ const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise
 vi.mock("./braveSearch", () => ({
   braveSearch: (...args: Parameters<typeof braveSearchMock>) => braveSearchMock(...args),
 }));
-vi.mock("./openrouter", () => ({
+vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
 }));
 // A small fixed pool so splitIntoWords is deterministic: only "catdog"
@@ -62,7 +62,7 @@ describe("checkCollision", () => {
   });
 
   it("factors the two-word search's result count into the heuristic score and summary, weighted higher than unquoted", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce([]) // unquoted: 0
       .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
@@ -75,7 +75,7 @@ describe("checkCollision", () => {
   });
 
   it("scores 100 with zero results on both searches, via the heuristic", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
@@ -83,7 +83,7 @@ describe("checkCollision", () => {
   });
 
   it("scores lower as the unquoted result count rises, via the heuristic", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
     const res = await checkCollision("oddago");
     // 100 - (9*4) = 64
@@ -91,7 +91,7 @@ describe("checkCollision", () => {
   });
 
   it("penalizes a two-word split hit more than the same count of unquoted hits, via the heuristic", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())) // unquoted: 3
       .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())); // "cat dog": 3
@@ -101,14 +101,14 @@ describe("checkCollision", () => {
   });
 
   it("never returns a negative score even when the count is very high, via the heuristic", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock.mockResolvedValueOnce(Array.from({ length: 30 }, () => result()));
     const res = await checkCollision("sadpitch");
     expect(res.rankabilityScore).toBeGreaterThanOrEqual(0);
   });
 
-  it("uses the LLM score when OPENROUTER_API_KEY is set and it responds in the expected format", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+  it("uses the LLM score when KILOCODE_API_KEY is set and it responds in the expected format", async () => {
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
     braveSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
@@ -119,7 +119,7 @@ describe("checkCollision", () => {
   });
 
   it("falls back to the heuristic when the LLM response doesn't match the expected format", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
     braveSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
     const res = await checkCollision("fluidfew");
@@ -127,7 +127,7 @@ describe("checkCollision", () => {
   });
 
   it("falls back to the heuristic when the LLM score is out of range", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
     braveSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
     const res = await checkCollision("fluidfew");
@@ -135,15 +135,36 @@ describe("checkCollision", () => {
   });
 
   it("falls back to the heuristic when the LLM call throws", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
     braveSearchMock.mockResolvedValue([]);
     completeChatMock.mockRejectedValue(new Error("rate limited"));
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
   });
 
+  it("names Kilo Gateway's rate limit specifically, rather than misleadingly asking to set an already-configured key", async () => {
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+    braveSearchMock.mockResolvedValue([]);
+    const err = new Error("rate limited");
+    err.name = "RateLimitError";
+    completeChatMock.mockRejectedValue(err);
+    const res = await checkCollision("fluidfew");
+    expect(res.summary).toContain("free-tier daily request limit");
+    expect(res.summary).not.toContain("Set KILOCODE_API_KEY");
+  });
+
+  it("gives a generic failure note (not the rate-limit or missing-key message) for any other LLM error", async () => {
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+    braveSearchMock.mockResolvedValue([]);
+    completeChatMock.mockRejectedValue(new Error("network hiccup"));
+    const res = await checkCollision("fluidfew");
+    expect(res.summary).toContain("didn't return a usable verdict");
+    expect(res.summary).not.toContain("Set KILOCODE_API_KEY");
+    expect(res.summary).not.toContain("free-tier daily request limit");
+  });
+
   it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce([]) // unquoted: none
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
@@ -152,7 +173,7 @@ describe("checkCollision", () => {
   });
 
   it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("KILOCODE_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce([result({ title: "unquoted hit" })])
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"

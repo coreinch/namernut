@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { OpenRouterApiKeyMissingError, completeChat } from "./openrouter";
+import { KilocodeApiKeyMissingError, completeChat } from "./kilocode";
 
 function mockResponse(status: number, body: unknown = {}) {
   return {
@@ -10,7 +10,7 @@ function mockResponse(status: number, body: unknown = {}) {
 
 describe("completeChat", () => {
   beforeEach(() => {
-    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    vi.stubEnv("KILOCODE_API_KEY", "test-key");
   });
 
   afterEach(() => {
@@ -18,9 +18,9 @@ describe("completeChat", () => {
     vi.unstubAllEnvs();
   });
 
-  it("throws OpenRouterApiKeyMissingError when no API key is configured", async () => {
-    vi.stubEnv("OPENROUTER_API_KEY", "");
-    await expect(completeChat("hello")).rejects.toBeInstanceOf(OpenRouterApiKeyMissingError);
+  it("throws KilocodeApiKeyMissingError when no API key is configured", async () => {
+    vi.stubEnv("KILOCODE_API_KEY", "");
+    await expect(completeChat("hello")).rejects.toBeInstanceOf(KilocodeApiKeyMissingError);
   });
 
   it("returns the trimmed message content on success", async () => {
@@ -33,18 +33,18 @@ describe("completeChat", () => {
     await expect(completeChat("hi")).resolves.toBe("hello there");
   });
 
-  it("defaults to the free llama model when OPENROUTER_MODEL is unset", async () => {
+  it("defaults to the free auto-router model when KILOCODE_MODEL is unset", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockResponse(200, { choices: [{ message: { content: "ok" } }] })
     );
     vi.stubGlobal("fetch", fetchMock);
     await completeChat("hi");
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.model).toBe("nvidia/nemotron-3-super-120b-a12b:free");
+    expect(body.model).toBe("kilo-auto/free");
   });
 
-  it("uses OPENROUTER_MODEL when set", async () => {
-    vi.stubEnv("OPENROUTER_MODEL", "some/other-model:free");
+  it("uses KILOCODE_MODEL when set", async () => {
+    vi.stubEnv("KILOCODE_MODEL", "some/other-model:free");
     const fetchMock = vi.fn().mockResolvedValue(
       mockResponse(200, { choices: [{ message: { content: "ok" } }] })
     );
@@ -59,13 +59,13 @@ describe("completeChat", () => {
     await expect(completeChat("hi")).rejects.toMatchObject({ name: "RateLimitError" });
   });
 
-  it("throws an OpenRouterError on any other non-200 status", async () => {
+  it("throws a KilocodeError on any other non-200 status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(500)));
-    await expect(completeChat("hi")).rejects.toMatchObject({ name: "OpenRouterError" });
+    await expect(completeChat("hi")).rejects.toMatchObject({ name: "KilocodeError" });
   });
 
-  it("throws an OpenRouterError when the response has no message content", async () => {
+  it("throws a KilocodeError when the response has no message content", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(200, { choices: [] })));
-    await expect(completeChat("hi")).rejects.toMatchObject({ name: "OpenRouterError" });
+    await expect(completeChat("hi")).rejects.toMatchObject({ name: "KilocodeError" });
   });
 });
