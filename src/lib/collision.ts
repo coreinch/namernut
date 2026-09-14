@@ -167,6 +167,14 @@ Give a rankability score from 0 to 100:
   coincidental noise (OCR errors, anagram/word-unscrambler sites, random
   sentence-boundary text, tiny/dormant accounts with near-zero followers) —
   that shouldn't meaningfully lower the score.
+- A REAL collision also includes this: several DIFFERENT existing
+  products/apps/companies that are all topically about the same thing the
+  name describes (e.g. multiple unrelated "Soup" apps showing up for
+  "soupapps"), even when none of them is an exact reinterpretation of the
+  string itself. That's still a crowded, hard-to-rank space — don't wave it
+  off as "just the nearest matches" or "not an exact collision" just
+  because no single result is a literal name match; score it low the same
+  as a direct collision would be.
 
 BROAD-MATCH (unquoted) search results for ${name}:
 ${formatResultsForPrompt(unquoted)}${twoWordSection}
