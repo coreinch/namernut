@@ -128,6 +128,32 @@ function generateId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Collapses entries that share a domain down to one, preferring whichever
+// one already carries a collision score over an unscored duplicate. Used
+// to clean up persisted state from before the "found" handler started
+// guarding against this (see start() below) — a re-run of discovery, with
+// no exclusion of domains an earlier run already found, could legitimately
+// rediscover the same available domain and add a second entry for it,
+// which then rendered as a duplicate card in Previous results. Keeps the
+// original relative order (by first occurrence) rather than reshuffling.
+function dedupeByDomain(entries: FoundEntry[]): FoundEntry[] {
+  const bestByDomain = new Map<string, FoundEntry>();
+  for (const entry of entries) {
+    const existing = bestByDomain.get(entry.domain);
+    if (!existing || (existing.rankabilityScore === undefined && entry.rankabilityScore !== undefined)) {
+      bestByDomain.set(entry.domain, entry);
+    }
+  }
+  const seenDomains = new Set<string>();
+  const result: FoundEntry[] = [];
+  for (const entry of entries) {
+    if (seenDomains.has(entry.domain)) continue;
+    seenDomains.add(entry.domain);
+    result.push(bestByDomain.get(entry.domain)!);
+  }
+  return result;
+}
+
 function sanitizeKeyword(raw: string) {
   // Mirrors parseKeyword in src/lib/candidates.ts — digits are kept
   // (domains can legally contain them), only letters/digits survive.
@@ -226,7 +252,7 @@ export default function Home() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       const parsed: Partial<PersistedState> = raw ? JSON.parse(raw) : {};
-      if (parsed.foundHistory) setFoundHistory(parsed.foundHistory);
+      if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory));
       if (parsed.favorites) setFavorites(parsed.favorites);
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
       if (parsed.enabledTlds) setEnabledTlds(parsed.enabledTlds);
@@ -348,23 +374,35 @@ export default function Home() {
               // target is reached (or stopped) — status stays "running".
               setCheckedCount(event.checkedCount);
               setCurrentRunFound(event.foundCount);
-              setFoundHistory((prev) => [
-                // A random id, not `${domain}-${Date.now()}`: with several
-                // concurrent workers, two "found" events can land in the
-                // same millisecond, and Date.now() alone isn't fine-grained
-                // enough to keep them apart — that previously produced
-                // duplicate React keys.
-                {
-                  id: generateId(),
-                  domain: event.domain,
-                  meaning: event.meaning,
-                  parts: event.parts,
-                  checkedCount: event.checkedCount,
-                  runId,
-                  instagram: event.instagram,
-                },
-                ...prev,
-              ]);
+              setFoundHistory((prev) => {
+                // Each search is independently reseeded with no exclusion
+                // of domains a previous run already found (see start()
+                // above), so re-running discovery (or clicking "Search
+                // again") can legitimately rediscover the same available
+                // domain — without this guard that added a second
+                // FoundEntry for it, showing as a duplicate card in
+                // Previous results. Keep the existing entry (it may
+                // already carry a collision score from being checked
+                // earlier) rather than replacing it with an unscored one.
+                if (prev.some((e) => e.domain === event.domain)) return prev;
+                return [
+                  // A random id, not `${domain}-${Date.now()}`: with
+                  // several concurrent workers, two "found" events can
+                  // land in the same millisecond, and Date.now() alone
+                  // isn't fine-grained enough to keep them apart — that
+                  // previously produced duplicate React keys.
+                  {
+                    id: generateId(),
+                    domain: event.domain,
+                    meaning: event.meaning,
+                    parts: event.parts,
+                    checkedCount: event.checkedCount,
+                    runId,
+                    instagram: event.instagram,
+                  },
+                  ...prev,
+                ];
+              });
               resolveLog(event.domain, "available");
               break;
             }
@@ -508,9 +546,11 @@ export default function Home() {
           return [...prev, ...additions];
         });
         setFoundHistory((prev) => {
-          const seen = new Set(prev.map((f) => f.id));
-          const additions = importedHistory.filter((e) => e?.id && !seen.has(e.id));
-          return [...prev, ...additions];
+          const seen = new Set(prev.map((f) => f.domain));
+          const additions = importedHistory.filter(
+            (e) => e?.domain && typeof e.domain === "string" && !seen.has(e.domain)
+          );
+          return dedupeByDomain([...prev, ...additions]);
         });
 
         setImportMessage(
