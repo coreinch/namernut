@@ -38,17 +38,17 @@ describe("checkCollision", () => {
     vi.unstubAllEnvs();
   });
 
-  it("runs a quoted and an unquoted Brave search for the name", async () => {
+  it("runs only an unquoted Brave search for the name when it doesn't split into two words", async () => {
     braveSearchMock.mockResolvedValue([]);
     await checkCollision("fluidfew");
-    expect(braveSearchMock).toHaveBeenCalledWith('"fluidfew"', undefined);
+    expect(braveSearchMock).toHaveBeenCalledTimes(1);
     expect(braveSearchMock).toHaveBeenCalledWith("fluidfew", undefined);
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
     braveSearchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
-    expect(braveSearchMock).toHaveBeenCalledTimes(2);
+    expect(braveSearchMock).toHaveBeenCalledTimes(1);
     expect(res.twoWordSplit).toBeUndefined();
     expect(res.twoWordResultCount).toBeUndefined();
   });
@@ -56,8 +56,7 @@ describe("checkCollision", () => {
   it("also runs an unquoted two-word search when the name splits into two dictionary words", async () => {
     braveSearchMock.mockResolvedValue([]);
     await checkCollision("catdog");
-    expect(braveSearchMock).toHaveBeenCalledTimes(3);
-    expect(braveSearchMock).toHaveBeenCalledWith('"catdog"', undefined);
+    expect(braveSearchMock).toHaveBeenCalledTimes(2);
     expect(braveSearchMock).toHaveBeenCalledWith("catdog", undefined);
     expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
@@ -65,11 +64,10 @@ describe("checkCollision", () => {
   it("factors the two-word search's result count into the heuristic score and summary", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     braveSearchMock
-      .mockResolvedValueOnce([]) // quoted: 0
       .mockResolvedValueOnce([]) // unquoted: 0
       .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
     const res = await checkCollision("catdog");
-    // 100 - (0*7) - (0*3) - (4*5) = 80
+    // 100 - (0*5) - (4*5) = 80
     expect(res.rankabilityScore).toBe(80);
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.twoWordResultCount).toBe(4);
@@ -84,21 +82,17 @@ describe("checkCollision", () => {
     expect(completeChatMock).not.toHaveBeenCalled();
   });
 
-  it("scores lower as quoted/unquoted result counts rise, via the heuristic", async () => {
+  it("scores lower as the unquoted result count rises, via the heuristic", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
-    braveSearchMock
-      .mockResolvedValueOnce([result()]) // quoted: 1
-      .mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
+    braveSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
     const res = await checkCollision("oddago");
-    // 100 - (1*7) - (9*3) = 66
-    expect(res.rankabilityScore).toBe(66);
+    // 100 - (9*5) = 55
+    expect(res.rankabilityScore).toBe(55);
   });
 
-  it("never returns a negative score even when counts are very high, via the heuristic", async () => {
+  it("never returns a negative score even when the count is very high, via the heuristic", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
-    braveSearchMock
-      .mockResolvedValueOnce(Array.from({ length: 10 }, () => result()))
-      .mockResolvedValueOnce(Array.from({ length: 10 }, () => result()));
+    braveSearchMock.mockResolvedValueOnce(Array.from({ length: 30 }, () => result()));
     const res = await checkCollision("sadpitch");
     expect(res.rankabilityScore).toBeGreaterThanOrEqual(0);
   });
@@ -138,13 +132,13 @@ describe("checkCollision", () => {
     expect(res.rankabilityScore).toBe(100);
   });
 
-  it("prefers quoted results for topResults, falling back to unquoted when there are none", async () => {
+  it("prefers unquoted results for topResults, falling back to the two-word split when there are none", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     braveSearchMock
-      .mockResolvedValueOnce([]) // quoted: none
-      .mockResolvedValueOnce([result({ title: "unquoted hit" })]); // unquoted
-    const res = await checkCollision("foo");
-    expect(res.topResults).toEqual([result({ title: "unquoted hit" })]);
+      .mockResolvedValueOnce([]) // unquoted: none
+      .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
+    const res = await checkCollision("catdog");
+    expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
   });
 });
 

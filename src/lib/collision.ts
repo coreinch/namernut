@@ -14,18 +14,17 @@ export interface CollisionResult {
    */
   rankabilityScore: number;
   summary: string;
-  quotedResultCount: number;
   unquotedResultCount: number;
   /** The two dictionary words the name was split into, e.g. "even chad" for
    * "evenchad" — present only when such a split exists — and the unquoted
    * result count for searching that phrase. See splitIntoWords: this is
    * what caught real two-word collisions by hand that the concatenated
-   * searches above miss entirely (e.g. "evenchad" reads clean until you
+   * search above misses entirely (e.g. "evenchad" reads clean until you
    * search "even chad" and find it's a real person). */
   twoWordSplit?: string;
   twoWordResultCount?: number;
-  /** Quoted-match results if there were any, else the top unquoted ones —
-   * whichever set actually explains the score. */
+  /** The unquoted-name results if there were any, else the two-word split
+   * ones — whichever set actually explains the score. */
   topResults: BraveResult[];
 }
 
@@ -68,31 +67,30 @@ function clampScore(n: number): number {
 /**
  * Stands in whenever there's no OPENROUTER_API_KEY, or the LLM call itself
  * fails — a crude but dependency-free signal beats no signal at all. Pure
- * result-count penalty: each exact-quote hit costs more than each broad-
- * match hit, since that's what repeatedly caught the worst real collisions
- * by hand (e.g. the quoted search for "oddago" looked clean, but the
- * unquoted one immediately surfaced the real company "Oddogo" one letter
- * away — a broad-match hit still matters, just less than a literal one).
+ * result-count penalty, unquoted broad-match hits only (see checkCollision
+ * for why there's no quoted search): the exact string search that used to
+ * run alongside this one only ever hid real collisions rather than adding
+ * any (e.g. the quoted search for "oddago" looked clean, but the unquoted
+ * one immediately surfaced the real company "Oddogo" one letter away).
  * Zero hits on both is the one case this heuristic can be fully confident
  * about, so it's the only score that reaches the true endpoints.
  */
 function heuristicScore(
-  quotedCount: number,
   unquotedCount: number,
   twoWordSplit: string | null,
   twoWordCount: number
 ): { rankabilityScore: number; summary: string } {
-  if (quotedCount === 0 && unquotedCount === 0 && twoWordCount === 0) {
+  if (unquotedCount === 0 && twoWordCount === 0) {
     return {
       rankabilityScore: 100,
       summary: "No results at all under either search — nothing to compete with.",
     };
   }
-  const penalty = quotedCount * 7 + unquotedCount * 3 + twoWordCount * 5;
+  const penalty = unquotedCount * 5 + twoWordCount * 5;
   const twoWordNote = twoWordSplit ? ` and ${twoWordCount} result(s) for "${twoWordSplit}"` : "";
   return {
     rankabilityScore: clampScore(100 - penalty),
-    summary: `${quotedCount} exact-match and ${unquotedCount} broad-match result(s) found${twoWordNote}. Set OPENROUTER_API_KEY for a real verdict instead of this count-based estimate.`,
+    summary: `${unquotedCount} broad-match result(s) found${twoWordNote}. Set OPENROUTER_API_KEY for a real verdict instead of this count-based estimate.`,
   };
 }
 
@@ -106,7 +104,6 @@ function formatResultsForPrompt(results: BraveResult[]): string {
 
 function buildPrompt(
   name: string,
-  quoted: BraveResult[],
   unquoted: BraveResult[],
   twoWordSplit: string | null,
   twoWord: BraveResult[]
@@ -138,9 +135,6 @@ Give a rankability score from 0 to 100:
   sentence-boundary text, tiny/dormant accounts with near-zero followers) —
   that shouldn't meaningfully lower the score.
 
-EXACT-MATCH (quoted) search results for "${name}":
-${formatResultsForPrompt(quoted)}
-
 BROAD-MATCH (unquoted) search results for ${name}:
 ${formatResultsForPrompt(unquoted)}${twoWordSection}
 
@@ -159,25 +153,26 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
 }
 
 /**
- * Runs the collision/rankability check for one candidate name: an exact-
- * quote Brave search (does anything actually use this literal string?), an
- * unquoted broad-match search (what does a search engine resolve it to,
- * including near-miss real brands? — see the "oddago"/"Oddogo" case in
+ * Runs the collision/rankability check for one candidate name: an unquoted
+ * broad-match search (what does a search engine resolve it to, including
+ * near-miss real brands? — see the "oddago"/"Oddogo" case in
  * heuristicScore above), and — when the name itself splits into two real
  * dictionary words (see splitIntoWords) — an unquoted search for that
  * two-word phrase, since a concatenated name can look entirely clean while
- * reading it as two words surfaces a real person, place, or brand. If
- * OPENROUTER_API_KEY is set, an LLM turns those results into a 0-100
- * rankability score; otherwise heuristicScore stands in. Called once per
- * found candidate, after its domain (and, if enabled, Instagram)
- * availability is already confirmed — see checkRankabilityOne in
- * discovery.ts — never against every candidate a search merely examines,
- * since Brave's free tier is a low monthly quota.
+ * reading it as two words surfaces a real person, place, or brand. No
+ * quoted exact-match search: it only ever hid real collisions (a quoted
+ * search finds literal reuse of the string, but a search engine's own
+ * near-miss interpretation of it — the actual risk — only shows up
+ * unquoted), so it's not run. If OPENROUTER_API_KEY is set, an LLM turns
+ * those results into a 0-100 rankability score; otherwise heuristicScore
+ * stands in. Called once per found candidate, after its domain (and, if
+ * enabled, Instagram) availability is already confirmed — see
+ * checkRankabilityOne in discovery.ts — never against every candidate a
+ * search merely examines, since Brave's free tier is a low monthly quota.
  */
 export async function checkCollision(name: string, signal?: AbortSignal): Promise<CollisionResult> {
   const twoWordSplit = splitIntoWords(name);
-  const [quoted, unquoted, twoWord] = await Promise.all([
-    braveSearch(`"${name}"`, signal),
+  const [unquoted, twoWord] = await Promise.all([
     braveSearch(name, signal),
     twoWordSplit ? braveSearch(twoWordSplit.join(" "), signal) : Promise.resolve<BraveResult[]>([]),
   ]);
@@ -189,12 +184,12 @@ export async function checkCollision(name: string, signal?: AbortSignal): Promis
   if (process.env.OPENROUTER_API_KEY) {
     try {
       const parsed = parseLlmResponse(
-        await completeChat(buildPrompt(name, quoted, unquoted, twoWordSplitStr, twoWord), signal)
+        await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord), signal)
       );
       if (parsed) {
         ({ rankabilityScore, summary } = parsed);
       } else {
-        ({ rankabilityScore, summary } = heuristicScore(quoted.length, unquoted.length, twoWordSplitStr, twoWord.length));
+        ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
       }
     } catch (err) {
       // LLM call failed (rate limited, network error, malformed response,
@@ -203,19 +198,18 @@ export async function checkCollision(name: string, signal?: AbortSignal): Promis
       // otherwise degrades to the heuristic on every single check without
       // any visible sign that something's wrong.
       console.error(`checkCollision: OpenRouter call failed for "${name}", using heuristic instead`, err);
-      ({ rankabilityScore, summary } = heuristicScore(quoted.length, unquoted.length, twoWordSplitStr, twoWord.length));
+      ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
     }
   } else {
-    ({ rankabilityScore, summary } = heuristicScore(quoted.length, unquoted.length, twoWordSplitStr, twoWord.length));
+    ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length));
   }
 
   return {
     name,
     rankabilityScore,
     summary,
-    quotedResultCount: quoted.length,
     unquotedResultCount: unquoted.length,
     ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr, twoWordResultCount: twoWord.length } : {}),
-    topResults: quoted.length > 0 ? quoted.slice(0, 5) : unquoted.slice(0, 5),
+    topResults: unquoted.length > 0 ? unquoted.slice(0, 5) : twoWord.slice(0, 5),
   };
 }
