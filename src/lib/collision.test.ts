@@ -61,14 +61,14 @@ describe("checkCollision", () => {
     expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 
-  it("factors the two-word search's result count into the heuristic score and summary", async () => {
+  it("factors the two-word search's result count into the heuristic score and summary, weighted higher than unquoted", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce([]) // unquoted: 0
       .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
     const res = await checkCollision("catdog");
-    // 100 - (0*5) - (4*5) = 80
-    expect(res.rankabilityScore).toBe(80);
+    // 100 - (0*4) - (4*8) = 68
+    expect(res.rankabilityScore).toBe(68);
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.twoWordResultCount).toBe(4);
     expect(res.summary).toContain('"cat dog"');
@@ -86,8 +86,18 @@ describe("checkCollision", () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     braveSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
     const res = await checkCollision("oddago");
-    // 100 - (9*5) = 55
-    expect(res.rankabilityScore).toBe(55);
+    // 100 - (9*4) = 64
+    expect(res.rankabilityScore).toBe(64);
+  });
+
+  it("penalizes a two-word split hit more than the same count of unquoted hits, via the heuristic", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    braveSearchMock
+      .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())) // unquoted: 3
+      .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())); // "cat dog": 3
+    const res = await checkCollision("catdog");
+    // 100 - (3*4) - (3*8) = 64, well below what 6 unquoted-only hits would cost (76)
+    expect(res.rankabilityScore).toBe(64);
   });
 
   it("never returns a negative score even when the count is very high, via the heuristic", async () => {
@@ -132,10 +142,19 @@ describe("checkCollision", () => {
     expect(res.rankabilityScore).toBe(100);
   });
 
-  it("prefers unquoted results for topResults, falling back to the two-word split when there are none", async () => {
+  it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
     vi.stubEnv("OPENROUTER_API_KEY", "");
     braveSearchMock
       .mockResolvedValueOnce([]) // unquoted: none
+      .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
+    const res = await checkCollision("catdog");
+    expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
+  });
+
+  it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    braveSearchMock
+      .mockResolvedValueOnce([result({ title: "unquoted hit" })])
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);

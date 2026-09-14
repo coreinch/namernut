@@ -23,8 +23,10 @@ export interface CollisionResult {
    * search "even chad" and find it's a real person). */
   twoWordSplit?: string;
   twoWordResultCount?: number;
-  /** The unquoted-name results if there were any, else the two-word split
-   * ones — whichever set actually explains the score. */
+  /** The two-word split results if there were any, else the unquoted-name
+   * ones — the split takes priority since a match there is a stronger
+   * collision signal (see heuristicScore) and previously got silently
+   * hidden behind unquoted results whenever both existed. */
   topResults: BraveResult[];
 }
 
@@ -71,9 +73,14 @@ function clampScore(n: number): number {
  * for why there's no quoted search): the exact string search that used to
  * run alongside this one only ever hid real collisions rather than adding
  * any (e.g. the quoted search for "oddago" looked clean, but the unquoted
- * one immediately surfaced the real company "Oddogo" one letter away).
- * Zero hits on both is the one case this heuristic can be fully confident
- * about, so it's the only score that reaches the true endpoints.
+ * one immediately surfaced the real company "Oddogo" one letter away). A
+ * two-word split hit is weighted higher than a plain broad-match hit — a
+ * result for "even chad" means Google resolves the name to a genuine
+ * two-word phrase (a name, a place, a real phrase), which is a much more
+ * reliable collision signal than a broad-match hit on the raw concatenated
+ * string, which is often just fuzzy/incidental matching. Zero hits on both
+ * is the one case this heuristic can be fully confident about, so it's the
+ * only score that reaches the true endpoints.
  */
 function heuristicScore(
   unquotedCount: number,
@@ -86,7 +93,7 @@ function heuristicScore(
       summary: "No results at all under either search — nothing to compete with.",
     };
   }
-  const penalty = unquotedCount * 5 + twoWordCount * 5;
+  const penalty = unquotedCount * 4 + twoWordCount * 8;
   const twoWordNote = twoWordSplit ? ` and ${twoWordCount} result(s) for "${twoWordSplit}"` : "";
   return {
     rankabilityScore: clampScore(100 - penalty),
@@ -113,7 +120,11 @@ function buildPrompt(
 
 SEPARATE-WORDS (unquoted) search results for "${twoWordSplit}" — "${name}" also reads as
 these two real dictionary words, so check whether that phrase names something
-real (a person, place, or brand) even if the concatenated form looks clean:
+real (a person, place, or brand) even if the concatenated form looks clean.
+Weight a genuine hit here MORE heavily than a broad-match hit above: a
+result for "${twoWordSplit}" means the name resolves to an actual two-word
+phrase, which is a stronger, more reliable collision than fuzzy/incidental
+matching on the raw concatenated string:
 ${formatResultsForPrompt(twoWord)}`
     : "";
 
@@ -210,6 +221,6 @@ export async function checkCollision(name: string, signal?: AbortSignal): Promis
     summary,
     unquotedResultCount: unquoted.length,
     ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr, twoWordResultCount: twoWord.length } : {}),
-    topResults: unquoted.length > 0 ? unquoted.slice(0, 5) : twoWord.slice(0, 5),
+    topResults: twoWord.length > 0 ? twoWord.slice(0, 5) : unquoted.slice(0, 5),
   };
 }
