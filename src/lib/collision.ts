@@ -62,6 +62,28 @@ export function splitIntoWords(name: string): [string, string] | null {
   return best;
 }
 
+/**
+ * Validates a candidate's own known split (see Candidate.parts in
+ * lib/candidates.ts — the literal two strings name was concatenated from,
+ * e.g. ["poet", "apps"] for "poetapps", carried through from generation via
+ * DiscoveryEvent's "found" case and FoundEntry rather than re-derived here.
+ * Preferred over splitIntoWords whenever given: splitIntoWords only finds
+ * splits where BOTH halves are in the WordNet-derived dictionary, which
+ * misses splits built from a user's own keyword (e.g. "apps" itself isn't a
+ * dictionary word, so "poetapps" was silently never checked as "poet apps"
+ * at all, hiding a real Power Apps collision that only shows up once you
+ * search the two words separately). Returns null if parts is absent or
+ * doesn't actually concatenate to name — this endpoint is public, so a
+ * caller-supplied parts value is never trusted to produce a search query
+ * without that check.
+ */
+export function validateParts(name: string, parts: [string, string] | undefined): [string, string] | null {
+  if (!parts) return null;
+  const [first, second] = parts;
+  if (!first || !second || first + second !== name) return null;
+  return parts;
+}
+
 function clampScore(n: number): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
@@ -167,8 +189,8 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * Runs the collision/rankability check for one candidate name: an unquoted
  * broad-match search (what does a search engine resolve it to, including
  * near-miss real brands? — see the "oddago"/"Oddogo" case in
- * heuristicScore above), and — when the name itself splits into two real
- * dictionary words (see splitIntoWords) — an unquoted search for that
+ * heuristicScore above), and — when the name splits into two words (see
+ * validateParts and splitIntoWords) — an unquoted search for that
  * two-word phrase, since a concatenated name can look entirely clean while
  * reading it as two words surfaces a real person, place, or brand. No
  * quoted exact-match search: it only ever hid real collisions (a quoted
@@ -181,8 +203,12 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * checkRankabilityOne in discovery.ts — never against every candidate a
  * search merely examines, since Brave's free tier is a low monthly quota.
  */
-export async function checkCollision(name: string, signal?: AbortSignal): Promise<CollisionResult> {
-  const twoWordSplit = splitIntoWords(name);
+export async function checkCollision(
+  name: string,
+  parts?: [string, string],
+  signal?: AbortSignal
+): Promise<CollisionResult> {
+  const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const [unquoted, twoWord] = await Promise.all([
     braveSearch(name, signal),
     twoWordSplit ? braveSearch(twoWordSplit.join(" "), signal) : Promise.resolve<BraveResult[]>([]),

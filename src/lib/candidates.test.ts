@@ -59,11 +59,13 @@ describe("buildCandidateSpace (no keyword, no modifiers, no common words -> sing
     expect(tier.candidateAt(0)).toEqual({
       name: "catcat",
       meaning: "cat: a small domesticated animal · cat: a small domesticated animal",
+      parts: ["cat", "cat"],
     });
     // index 2 -> i1=0 (cat), i2=2 (rex)
     expect(tier.candidateAt(2)).toEqual({
       name: "catrex",
       meaning: "cat: a small domesticated animal · rex: a king",
+      parts: ["cat", "rex"],
     });
   });
 });
@@ -182,10 +184,12 @@ describe("buildCandidateSpace (with keyword)", () => {
     expect(tier.candidateAt(0)).toEqual({
       name: "novacat",
       meaning: "nova · cat: a small domesticated animal",
+      parts: ["nova", "cat"],
     });
     expect(tier.candidateAt(pool.length)).toEqual({
       name: "catnova",
       meaning: "cat: a small domesticated animal · nova",
+      parts: ["cat", "nova"],
     });
   });
 });

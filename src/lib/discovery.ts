@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { WordEntry } from "@/lib/dictionary";
-import { buildCandidateSpace } from "@/lib/candidates";
+import { buildCandidateSpace, type Candidate } from "@/lib/candidates";
 import { isPronounceable } from "@/lib/pronounceable";
 import { buildTypoIndex } from "@/lib/typocheck";
 import { buildNicenessIndex } from "@/lib/niceness";
@@ -22,6 +22,11 @@ export type DiscoveryEvent =
       type: "found";
       domain: string;
       meaning: string;
+      /** The two literal strings the name was concatenated from — see
+       * Candidate.parts in lib/candidates.ts — carried through so
+       * lib/collision.ts can search the name as two separate words without
+       * re-deriving the split. */
+      parts: [string, string];
       checkedCount: number;
       foundCount: number;
       instagram: InstagramStatus;
@@ -230,7 +235,7 @@ export async function runDiscovery(
   // Synchronous claim (no `await` before the mutation), so concurrent
   // workers never race over the same (tier, index) pair or overshoot the
   // target. Advances past exhausted or empty tiers to the next one.
-  function claimCandidate(): { name: string; meaning: string } | null {
+  function claimCandidate(): Candidate | null {
     if (signal.aborted) return null;
     if (foundCount >= targetCount) return null;
     while (tierIndex < space.tiers.length && nextIndexInTier >= space.tiers[tierIndex].total) {
@@ -249,7 +254,7 @@ export async function runDiscovery(
       const candidate = claimCandidate();
       if (candidate === null) return;
 
-      const { name, meaning } = candidate;
+      const { name, meaning, parts } = candidate;
       // Synchronous check-then-add, no `await` in between, so concurrent
       // workers can't both slip past this for the same name.
       if (seenNames.has(name)) continue;
@@ -344,7 +349,7 @@ export async function runDiscovery(
           // it (same overshoot race as above, closed the same way).
           if (foundCount >= targetCount) continue;
           foundCount++;
-          onEvent({ type: "found", domain, meaning, checkedCount, foundCount, instagram });
+          onEvent({ type: "found", domain, meaning, parts, checkedCount, foundCount, instagram });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }

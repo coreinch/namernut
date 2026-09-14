@@ -67,19 +67,22 @@ interface FoundEntry {
   id: string;
   domain: string;
   meaning: string;
+  // The two literal strings domain's name was concatenated from — see
+  // Candidate.parts in lib/candidates.ts — passed to checkCollisionFor so
+  // it can search the name as two separate words. Optional so entries
+  // persisted before this field existed still hydrate fine; absent means
+  // checkCollisionFor falls back to collision.ts's own dictionary-based
+  // guess (splitIntoWords) instead.
+  parts?: [string, string];
   checkedCount: number;
   runId: string;
   // Optional so entries persisted before this field existed still hydrate
   // fine — treated as "unknown" wherever it's read (see InstagramBadge).
   instagram?: InstagramStatus;
-  // Populated automatically by the "found" SSE event once the discovery
-  // pipeline's rankability check runs (see checkRankabilityOne in
-  // discovery.ts) — absent when BRAVE_API_KEY wasn't configured at the
-  // time, the check failed, or (for entries persisted before this field
-  // existed) it never ran at all. See CollisionBadge, which falls back to
-  // an on-demand "Check collisions" button whenever this is undefined.
-  // 0 = as unrankable as "Google" itself; 100 = a long random string with
-  // no real-world usage anywhere to compete with.
+  // Populated on demand via checkCollisionFor (the "Check collisions"
+  // button in CollisionBadge) — absent until checked, or if the check
+  // failed. 0 = as unrankable as "Google" itself; 100 = a long random
+  // string with no real-world usage anywhere to compete with.
   rankabilityScore?: number;
   collisionSummary?: string;
 }
@@ -355,6 +358,7 @@ export default function Home() {
                   id: generateId(),
                   domain: event.domain,
                   meaning: event.meaning,
+                  parts: event.parts,
                   checkedCount: event.checkedCount,
                   runId,
                   instagram: event.instagram,
@@ -403,19 +407,13 @@ export default function Home() {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  // Backfill path only — the discovery pipeline itself already runs this
-  // automatically per found name (see checkRankabilityOne in
-  // discovery.ts), populating rankabilityScore/collisionSummary directly
-  // on the FoundEntry before it's ever rendered. This on-demand version
-  // exists for the cases that misses: entries persisted from before this
-  // feature existed, a run where BRAVE_API_KEY wasn't configured yet, or a
-  // manual retry after a one-off failure. Neither of these two bits of
-  // state is persisted — a stuck "loading" badge or stale error message
-  // shouldn't survive a reload.
+  // On-demand only — see CollisionBadge/"Check collisions" and "Rescore".
+  // Neither of these two bits of state is persisted — a stuck "loading"
+  // badge or stale error message shouldn't survive a reload.
   const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
   const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
 
-  const checkCollisionFor = useCallback((name: string) => {
+  const checkCollisionFor = useCallback((name: string, parts: [string, string] | undefined) => {
     setCheckingCollisionNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
     setCollisionErrors((prev) => {
       if (!(name in prev)) return prev;
@@ -425,7 +423,10 @@ export default function Home() {
     });
     (async () => {
       try {
-        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}`);
+        const partsParam = parts
+          ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
+          : "";
+        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}${partsParam}`);
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
         const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
@@ -725,7 +726,7 @@ export default function Home() {
                     }}
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
-                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
+                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
                   />
                 ))}
                 {isRunning &&
@@ -759,7 +760,7 @@ export default function Home() {
                     }}
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
-                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
+                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
                   />
                 ))}
               </div>
@@ -794,7 +795,7 @@ export default function Home() {
                     }}
                       onSearch={() => searchDomain(entry)}
                       onToggleFavorite={() => toggleFavorite(entry)}
-                      onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0])}
+                      onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
                     />
                   ))}
                 </div>
@@ -993,13 +994,10 @@ function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
 // Domain/Instagram availability (see above) says nothing about whether a
 // name already means something real in the world — see lib/collision.ts.
 // score is 0-100: 0 as unrankable as "Google" itself, 100 as wide open as a
-// long random string with no real-world usage anywhere. Ordinarily
-// populated automatically (see checkRankabilityOne in discovery.ts, and
-// the "found" SSE handler in the component below) by the time a card first
-// renders; undefined only for entries that missed that (persisted from
-// before this feature existed, or found while BRAVE_API_KEY wasn't
-// configured), which is what the fallback "Check collisions" button below
-// is for.
+// long random string with no real-world usage anywhere. undefined until
+// checked on demand via the "Check collisions" button below; once scored,
+// "Rescore" re-runs the same check (search results change over time, and
+// so does the checker's own logic).
 interface CollisionDisplay {
   score: number | undefined;
   summary: string | undefined;
@@ -1051,9 +1049,18 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <span className={`text-[10px] font-semibold tabular-nums ${scoreColorClass(collision.score)}`}>
-        {collision.score}% rankable
-      </span>
+      <div className="flex items-center gap-1.5">
+        <span className={`text-[10px] font-semibold tabular-nums ${scoreColorClass(collision.score)}`}>
+          {collision.score}% rankable
+        </span>
+        <button
+          type="button"
+          onClick={onCheck}
+          className={`text-[10px] font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
+        >
+          Rescore
+        </button>
+      </div>
       {collision.summary && (
         <span className="text-[10px] leading-snug text-black/55 dark:text-white/55">{collision.summary}</span>
       )}

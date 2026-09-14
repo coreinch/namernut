@@ -5,6 +5,8 @@ export interface Candidate {
   name: string;
   /** Each half's word plus its short WordNet definition (or just the bare word for a user-supplied keyword, which has none), e.g. "swift: moving fast · fox: a carnivorous mammal". */
   meaning: string;
+  /** The two literal strings name was concatenated from, in order (parts[0] + parts[1] === name) — e.g. ["swift", "fox"], or ["poet", "apps"] for a keyword. Used by lib/collision.ts to search the name as two separate words without re-deriving the split from a dictionary lookup or by parsing `meaning`. */
+  parts: [string, string];
 }
 
 export interface CandidateTier {
@@ -55,10 +57,18 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
     candidateAt(shuffled) {
       if (shuffled < L) {
         const w = words[shuffled];
-        return { name: `${keyword}${w.word}`, meaning: `${keyword} · ${describe(w.word, w.definition)}` };
+        return {
+          name: `${keyword}${w.word}`,
+          meaning: `${keyword} · ${describe(w.word, w.definition)}`,
+          parts: [keyword, w.word],
+        };
       }
       const w = words[shuffled - L];
-      return { name: `${w.word}${keyword}`, meaning: `${describe(w.word, w.definition)} · ${keyword}` };
+      return {
+        name: `${w.word}${keyword}`,
+        meaning: `${describe(w.word, w.definition)} · ${keyword}`,
+        parts: [w.word, keyword],
+      };
     },
   };
 }
@@ -96,6 +106,7 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
     const makeModCoreCandidate = (m: WordEntry, c: WordEntry): Candidate => ({
       name: `${m.word}${c.word}`,
       meaning: `${describe(m.word, m.definition)} · ${describe(c.word, c.definition)}`,
+      parts: [m.word, c.word],
     });
 
     if (modifiers.length > 0 && core.length > 0) {
@@ -115,6 +126,7 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
     const makeFallbackCandidate = (w1: WordEntry, w2: WordEntry): Candidate => ({
       name: `${w1.word}${w2.word}`,
       meaning: `${describe(w1.word, w1.definition)} · ${describe(w2.word, w2.definition)}`,
+      parts: [w1.word, w2.word],
     });
     const tiers: CandidateTier[] = [];
     const commonPool = pool.filter((w) => w.common);

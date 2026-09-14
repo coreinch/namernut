@@ -22,7 +22,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkCollision, splitIntoWords } from "./collision";
+import { checkCollision, splitIntoWords, validateParts } from "./collision";
 
 function result(overrides: Partial<BraveResult> = {}): BraveResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -158,6 +158,43 @@ describe("checkCollision", () => {
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
+  });
+
+  it("uses the caller-supplied parts even for a word the dictionary doesn't have (e.g. a user keyword)", async () => {
+    // "apps" isn't in the mocked pool (only cat/dog) and would never be
+    // found by splitIntoWords, but it's a real keyword-tier split — see
+    // buildKeywordTier in lib/candidates.ts — passed straight through as
+    // Candidate.parts instead of re-derived from a dictionary lookup.
+    braveSearchMock.mockResolvedValue([]);
+    await checkCollision("poetapps", ["poet", "apps"]);
+    expect(braveSearchMock).toHaveBeenCalledTimes(2);
+    expect(braveSearchMock).toHaveBeenCalledWith("poetapps", undefined);
+    expect(braveSearchMock).toHaveBeenCalledWith("poet apps", undefined);
+  });
+
+  it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
+    braveSearchMock.mockResolvedValue([]);
+    await checkCollision("catdog", ["not", "matching"]);
+    expect(braveSearchMock).toHaveBeenCalledTimes(2);
+    expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+  });
+});
+
+describe("validateParts", () => {
+  it("accepts parts that concatenate to name", () => {
+    expect(validateParts("poetapps", ["poet", "apps"])).toEqual(["poet", "apps"]);
+  });
+
+  it("returns null when parts is undefined", () => {
+    expect(validateParts("catdog", undefined)).toBeNull();
+  });
+
+  it("returns null when parts don't concatenate back to name", () => {
+    expect(validateParts("catdog", ["cat", "fish"])).toBeNull();
+  });
+
+  it("returns null when either part is empty", () => {
+    expect(validateParts("catdog", ["", "catdog"])).toBeNull();
   });
 });
 
