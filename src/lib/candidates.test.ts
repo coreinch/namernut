@@ -15,6 +15,7 @@ vi.mock("./modifiers", () => ({
 
 import {
   buildCandidateSpace,
+  countCandidatesWithinLength,
   parseCount,
   parseKeyword,
   parseTlds,
@@ -191,6 +192,34 @@ describe("buildCandidateSpace (with keyword)", () => {
       meaning: "cat: a small domesticated animal · nova",
       parts: ["cat", "nova"],
     });
+  });
+});
+
+describe("countCandidatesWithinLength", () => {
+  it("matches the brute-force count of buildCandidateSpace's own tiers, for every length", () => {
+    // cat/dog/rex are all 3 letters, so every no-keyword pair is 6 chars.
+    expect(countCandidatesWithinLength(pool, undefined, 5)).toBe(0);
+    expect(countCandidatesWithinLength(pool, undefined, 6)).toBe(9);
+    expect(countCandidatesWithinLength(pool, undefined, 24)).toBe(9);
+  });
+
+  it("counts both keyword+word and word+keyword orders, gated on the combined length", () => {
+    // "nova" (4) + cat/dog/rex (3) is always 7 chars combined.
+    expect(countCandidatesWithinLength(pool, "nova", 6)).toBe(0);
+    expect(countCandidatesWithinLength(pool, "nova", 7)).toBe(6); // 2 orders * 3 words
+  });
+
+  it("respects the modifier+core tier, not the full pool^2", () => {
+    const modPool: WordEntry[] = [
+      { word: "wild", langs: ["english"], definition: "not tamed", common: false, noun: false },
+      { word: "sad", langs: ["english"], definition: "unhappy", common: false, noun: false },
+      { word: "cat", langs: ["english"], definition: "a small domesticated animal", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "a domesticated animal", common: false, noun: true },
+      { word: "rex", langs: ["english"], definition: "a king", common: false, noun: true },
+    ];
+    // wild+core is 7 chars (wildcat/wilddog/wildrex), sad+core is 6.
+    expect(countCandidatesWithinLength(modPool, undefined, 6)).toBe(3); // sad+{cat,dog,rex}
+    expect(countCandidatesWithinLength(modPool, undefined, 7)).toBe(6); // + wild+{cat,dog,rex}
   });
 });
 

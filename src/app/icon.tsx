@@ -27,7 +27,7 @@ export default function Icon() {
             letterSpacing: -6,
           }}
         >
-          .d
+          N
         </div>
       </div>
     ),

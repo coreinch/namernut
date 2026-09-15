@@ -95,7 +95,23 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
  * that keyword, the way "include a word" filters work in commercial name
  * generators.
  */
-export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
+interface PairTierSpec {
+  kind: "pair";
+  rows: WordEntry[];
+  cols: WordEntry[];
+  makeCandidate: (row: WordEntry, col: WordEntry) => Candidate;
+}
+
+interface KeywordTierSpec {
+  kind: "keyword";
+  words: WordEntry[];
+  keyword: string;
+}
+
+type TierSpec = PairTierSpec | KeywordTierSpec;
+
+/** Picks which tier(s) buildCandidateSpace/countCandidatesWithinLength search — see buildCandidateSpace's doc comment for the selection rules. Shared so the two stay in sync by construction rather than by convention. */
+function selectTierSpecs(pool: WordEntry[], keyword?: string): TierSpec[] {
   if (!keyword) {
     const modifiers = pool.filter((w) => isModifier(w.word, w.langs));
     // Not just "isn't a modifier" — a word can be neither a usable
@@ -110,17 +126,14 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
     });
 
     if (modifiers.length > 0 && core.length > 0) {
-      const tiers: CandidateTier[] = [];
       const commonModifiers = modifiers.filter((w) => w.common);
       const commonCore = core.filter((w) => w.common);
       if (commonModifiers.length > 0 && commonCore.length > 0) {
-        tiers.push(buildPairTier(commonModifiers, commonCore, makeModCoreCandidate));
-      } else {
-        // No common subset to draw from at all — fall back to the full
-        // space rather than searching nothing.
-        tiers.push(buildPairTier(modifiers, core, makeModCoreCandidate));
+        return [{ kind: "pair", rows: commonModifiers, cols: commonCore, makeCandidate: makeModCoreCandidate }];
       }
-      return { tiers };
+      // No common subset to draw from at all — fall back to the full
+      // space rather than searching nothing.
+      return [{ kind: "pair", rows: modifiers, cols: core, makeCandidate: makeModCoreCandidate }];
     }
 
     const makeFallbackCandidate = (w1: WordEntry, w2: WordEntry): Candidate => ({
@@ -128,24 +141,67 @@ export function buildCandidateSpace(pool: WordEntry[], keyword?: string): Candid
       meaning: `${describe(w1.word, w1.definition)} · ${describe(w2.word, w2.definition)}`,
       parts: [w1.word, w2.word],
     });
-    const tiers: CandidateTier[] = [];
     const commonPool = pool.filter((w) => w.common);
     if (commonPool.length > 0) {
-      tiers.push(buildPairTier(commonPool, commonPool, makeFallbackCandidate));
-    } else {
-      tiers.push(buildPairTier(pool, pool, makeFallbackCandidate));
+      return [{ kind: "pair", rows: commonPool, cols: commonPool, makeCandidate: makeFallbackCandidate }];
     }
-    return { tiers };
+    return [{ kind: "pair", rows: pool, cols: pool, makeCandidate: makeFallbackCandidate }];
   }
 
-  const tiers: CandidateTier[] = [];
   const commonPool = pool.filter((w) => w.common);
-  if (commonPool.length > 0) {
-    tiers.push(buildKeywordTier(commonPool, keyword));
-  } else {
-    tiers.push(buildKeywordTier(pool, keyword));
-  }
+  return [{ kind: "keyword", words: commonPool.length > 0 ? commonPool : pool, keyword }];
+}
+
+export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
+  const tiers = selectTierSpecs(pool, keyword).map((spec) =>
+    spec.kind === "pair"
+      ? buildPairTier(spec.rows, spec.cols, spec.makeCandidate)
+      : buildKeywordTier(spec.words, spec.keyword)
+  );
   return { tiers };
+}
+
+function lengthHistogram(words: WordEntry[]): Map<number, number> {
+  const hist = new Map<number, number>();
+  for (const w of words) hist.set(w.word.length, (hist.get(w.word.length) ?? 0) + 1);
+  return hist;
+}
+
+/**
+ * Counts how many candidates buildCandidateSpace(pool, keyword) would
+ * search that have a combined name length <= maxLength — i.e. how many
+ * would survive runDiscovery's own `name.length > maxLength` filter (see
+ * discovery.ts) before any of its other filters (pronounceable, typo,
+ * niceness) run. Uses a per-length histogram + convolution instead of
+ * iterating every pair, so it stays instant even for the multi-million-
+ * pair modifier x core tier.
+ */
+export function countCandidatesWithinLength(
+  pool: WordEntry[],
+  keyword: string | undefined,
+  maxLength: number
+): number {
+  let total = 0;
+  for (const spec of selectTierSpecs(pool, keyword)) {
+    if (spec.kind === "keyword") {
+      const limit = maxLength - spec.keyword.length;
+      if (limit < 1) continue;
+      let matching = 0;
+      for (const w of spec.words) {
+        if (w.word.length <= limit) matching++;
+      }
+      total += matching * 2; // both keyword+word and word+keyword orders
+    } else {
+      const rowHist = lengthHistogram(spec.rows);
+      const colHist = lengthHistogram(spec.cols);
+      for (const [rLen, rCount] of rowHist) {
+        for (const [cLen, cCount] of colHist) {
+          if (rLen + cLen <= maxLength) total += rCount * cCount;
+        }
+      }
+    }
+  }
+  return total;
 }
 
 // TLDs we've verified actually work — 404=available / 200=taken via RDAP

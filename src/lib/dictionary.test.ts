@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { countCandidatesWithinLength } from "./candidates";
 import {
   ALL_LANGS,
   DEFAULT_COMBINED_LENGTH,
@@ -105,9 +106,17 @@ describe("getDictionaryStats", () => {
     expect(stats.combinedUnique).toBe(getSelectedPool(["english"]).length);
   });
 
-  it("totalCombinations is combinedUnique squared", () => {
-    const stats = getDictionaryStats();
-    expect(stats.totalCombinations).toBe(stats.combinedUnique * stats.combinedUnique);
+  it("totalCombinations matches countCandidatesWithinLength for the same pool/length/keyword", () => {
+    const stats = getDictionaryStats(["english"], 8, "nova");
+    expect(stats.totalCombinations).toBe(
+      countCandidatesWithinLength(getSelectedPool(["english"]), "nova", 8)
+    );
+  });
+
+  it("totalCombinations shrinks as maxLength shrinks", () => {
+    const wide = getDictionaryStats(["english"], MAX_COMBINED_LENGTH);
+    const narrow = getDictionaryStats(["english"], MIN_COMBINED_LENGTH);
+    expect(narrow.totalCombinations).toBeLessThan(wide.totalCombinations);
   });
 
   it("per-language counts are all positive", () => {

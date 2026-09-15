@@ -12,14 +12,29 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const TITLE = "Namerag – Domain Name Generator + AI Rankability Score";
+const DESCRIPTION =
+  "Generate brandable startup names, check live domain & Instagram availability, then get an AI rankability score for how much competition it already faces.";
+
 export const metadata: Metadata = {
-  title: "Domain Finder",
-  description:
-    "Combines English dictionary words to find an available domain.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Domain Finder",
+    // Short brand name only — this is what shows under the home-screen
+    // icon, where there's no room for the full SEO title above.
+    title: "Namerag",
   },
 };
 

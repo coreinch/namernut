@@ -37,7 +37,7 @@ const FREQUENCY_LIST_URL =
 const COMMON_WORD_RANK_CUTOFF = 10000;
 
 async function fetchText(url) {
-  const res = await fetch(url, { headers: { "User-Agent": "domain-finder-dictionary-builder" } });
+  const res = await fetch(url, { headers: { "User-Agent": "namerag-dictionary-builder" } });
   if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
   return res.text();
 }

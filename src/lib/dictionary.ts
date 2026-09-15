@@ -1,4 +1,5 @@
 import data from "@/data/dictionaries.json";
+import { countCandidatesWithinLength } from "@/lib/candidates";
 
 // A single-entry union (rather than a plain string) so WordEntry/isModifier
 // keep the same shape they'd have with multiple languages — English is the
@@ -109,12 +110,19 @@ export function getSelectedPool(langs: Lang[]): WordEntry[] {
   return getWordPool().filter((entry) => entry.langs.some((l) => selected.has(l)));
 }
 
-export function getDictionaryStats(langs: Lang[] = ALL_LANGS) {
-  const combined = getSelectedPool(langs).length;
+export function getDictionaryStats(
+  langs: Lang[] = ALL_LANGS,
+  maxLength: number = DEFAULT_COMBINED_LENGTH,
+  keyword?: string
+) {
+  const pool = getSelectedPool(langs);
   return {
     english: data.english.length,
-    combinedUnique: combined,
-    totalCombinations: combined * combined,
+    combinedUnique: pool.length,
+    // How many modifier+core (or keyword+word) candidates would actually
+    // be searched at this length/keyword setting — see
+    // countCandidatesWithinLength in lib/candidates.ts.
+    totalCombinations: countCandidatesWithinLength(pool, keyword, maxLength),
     generatedAt: data.generatedAt,
   };
 }

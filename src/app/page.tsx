@@ -79,8 +79,8 @@ interface FoundEntry {
   // Optional so entries persisted before this field existed still hydrate
   // fine — treated as "unknown" wherever it's read (see InstagramBadge).
   instagram?: InstagramStatus;
-  // Populated on demand via checkCollisionFor (the "Check collisions"
-  // button in CollisionBadge) — absent until checked, or if the check
+  // Populated on demand via checkCollisionFor (the "Rank" button in
+  // CollisionBadge) — absent until checked, or if the check
   // failed. 0 = as unrankable as "Google" itself; 100 = a long random
   // string with no real-world usage anywhere to compete with.
   rankabilityScore?: number;
@@ -96,7 +96,11 @@ interface PersistedState {
   keywordInput: string;
 }
 
-const STORAGE_KEY = "domain-finder:state:v1";
+const STORAGE_KEY = "namerag:state:v1";
+// Pre-rename key — read once as a fallback during hydration (see below) so
+// existing users' saved results/favorites/settings survive the rename
+// instead of silently becoming unreachable under the new key.
+const LEGACY_STORAGE_KEY = "domain-finder:state:v1";
 
 interface DictionaryStats {
   english: number;
@@ -232,14 +236,15 @@ export default function Home() {
     // the stale, unfiltered pool size. Aborting means only the latest
     // request's response can ever reach setStats.
     const controller = new AbortController();
-    fetch(`/api/stats?langs=${encodeURIComponent(langsParam)}`, {
-      signal: controller.signal,
-    })
+    fetch(
+      `/api/stats?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}`,
+      { signal: controller.signal }
+    )
       .then((r) => r.json())
       .then(setStats)
       .catch(() => {});
     return () => controller.abort();
-  }, [langsParam]);
+  }, [langsParam, maxLength, keywordParam]);
 
   // Restore results, favorites, and filters on load. localStorage means
   // this survives closing the browser and is shared across tabs of this
@@ -251,7 +256,15 @@ export default function Home() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed: Partial<PersistedState> = raw ? JSON.parse(raw) : {};
+      // Nothing under the current key yet — fall back to the pre-rename
+      // key so an existing user's saved results/favorites/settings still
+      // come back after the rename, rather than silently resetting to
+      // empty. The write effect below saves under the new key on the very
+      // next tick, and once that succeeds there's nothing left reading the
+      // legacy key, so it's safe to remove here rather than leave two
+      // copies of the same data lying around.
+      const legacyRaw = raw ? null : localStorage.getItem(LEGACY_STORAGE_KEY);
+      const parsed: Partial<PersistedState> = JSON.parse(raw ?? legacyRaw ?? "{}");
       if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory));
       if (parsed.favorites) setFavorites(parsed.favorites);
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
@@ -260,6 +273,7 @@ export default function Home() {
         setMaxLength(Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, parsed.maxLength)));
       }
       if (typeof parsed.keywordInput === "string") setKeywordInput(parsed.keywordInput);
+      if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
     }
@@ -445,7 +459,7 @@ export default function Home() {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  // On-demand only — see CollisionBadge/"Check collisions" and "Rescore".
+  // On-demand only — see CollisionBadge/"Rank" and "Rescore".
   // Neither of these two bits of state is persisted — a stuck "loading"
   // badge or stale error message shouldn't survive a reload.
   const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
@@ -521,7 +535,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `domain-finder-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `namerag-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -557,7 +571,7 @@ export default function Home() {
           `Imported ${importedFavorites.length} favorite(s) and ${importedHistory.length} result(s) (duplicates skipped).`
         );
       } catch {
-        setImportMessage("Couldn't read that file — make sure it's a Domain Finder backup export.");
+        setImportMessage("Couldn't read that file — make sure it's a Namerag backup export.");
       }
       setTimeout(() => setImportMessage(null), 4000);
     };
@@ -595,9 +609,9 @@ export default function Home() {
       <header className="shrink-0 border-b border-black/15 bg-background/80 px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-3 backdrop-blur-md dark:border-white/15">
         <div className="flex items-center gap-3">
           <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold tracking-tight">Domain Finder</h1>
+            <h1 className="truncate text-base font-semibold tracking-tight">Namerag</h1>
             <p className="truncate text-xs text-black/65 dark:text-white/65">
-              Dictionary word combos · {selectedTlds.map((t) => `.${t}`).join(" ")}
+              AI rankability scores · {selectedTlds.map((t) => `.${t}`).join(" ")}
             </p>
           </div>
           <div className="ml-auto shrink-0">
@@ -627,32 +641,6 @@ export default function Home() {
           )}
           {stats && (
             <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15">
-              <p className="text-xs text-black/55 dark:text-white/55">
-                <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                  {formatNumber(stats.combinedUnique)}
-                </span>{" "}
-                English dictionary words in the pool
-              </p>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
-                  <span>Max combination length</span>
-                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                    {maxLength} characters
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={MIN_COMBINED_LENGTH}
-                  max={MAX_COMBINED_LENGTH}
-                  step={1}
-                  value={maxLength}
-                  onChange={(e) => setMaxLength(Number(e.target.value))}
-                  aria-label="Maximum combined result length"
-                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
-                />
-              </div>
-
               <div className="flex flex-col gap-2">
                 <div className="relative">
                   <input
@@ -662,7 +650,7 @@ export default function Home() {
                     onChange={(e) => setKeywordInput(e.target.value)}
                     placeholder="Include a word (optional), e.g. nova"
                     maxLength={20}
-                    className={`min-h-11 w-full rounded-xl border border-black/15 bg-transparent px-3.5 text-sm outline-none transition-colors placeholder:text-black/45 focus:border-emerald-500/50 dark:border-white/15 dark:placeholder:text-white/45 ${FOCUS_RING}`}
+                    className={`min-h-12 w-full rounded-xl border border-black/15 bg-transparent px-4 text-base outline-none transition-colors placeholder:text-black/45 focus:border-emerald-500/50 dark:border-white/15 dark:placeholder:text-white/45 ${FOCUS_RING}`}
                   />
                   {keywordInput && (
                     <button
@@ -682,6 +670,31 @@ export default function Home() {
                 )}
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
+                  <span>Max combination length</span>
+                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
+                    {maxLength} characters
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_COMBINED_LENGTH}
+                  max={MAX_COMBINED_LENGTH}
+                  step={1}
+                  value={maxLength}
+                  onChange={(e) => setMaxLength(Number(e.target.value))}
+                  aria-label="Maximum combined result length"
+                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
+                />
+                <p className="text-xs text-black/55 dark:text-white/55">
+                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
+                    {formatNumber(stats.totalCombinations)}
+                  </span>{" "}
+                  possible combinations at this length
+                </p>
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 {visibleTlds.map((tld) => (
                   <button
@@ -689,10 +702,10 @@ export default function Home() {
                     type="button"
                     onClick={() => toggleTld(tld)}
                     aria-pressed={enabledTlds[tld]}
-                    className={`min-h-10 rounded-full border px-3.5 text-xs font-medium transition-all active:scale-95 ${FOCUS_RING} ${
+                    className={`min-h-11 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
                       enabledTlds[tld]
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : "border-black/20 text-black/65 hover:bg-black/5 dark:border-white/20 dark:text-white/65 dark:hover:bg-white/10"
+                        ? "border-emerald-500/40 bg-emerald-500/10 font-medium text-emerald-700 dark:text-emerald-300"
+                        : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
                     }`}
                   >
                     .{tld}
@@ -702,7 +715,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => setShowMoreTlds((v) => !v)}
-                    className={`min-h-10 rounded-full border border-dashed border-black/25 px-3.5 text-xs font-medium text-black/65 transition-all active:scale-95 hover:bg-black/5 dark:border-white/25 dark:text-white/65 dark:hover:bg-white/10 ${FOCUS_RING}`}
+                    className={`min-h-11 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
                   >
                     {effectiveShowMoreTlds ? "Less ▲" : `More ▾`}
                   </button>
@@ -712,7 +725,7 @@ export default function Home() {
           )}
 
           {errorMessage && (
-            <p className="animate-fade-in-up rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+            <p className="animate-fade-in-up rounded-xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400">
               {errorMessage}
             </p>
           )}
@@ -752,7 +765,7 @@ export default function Home() {
                   )}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {currentRunResults.map((entry) => (
                   <ResultCard
                     key={entry.id}
@@ -786,7 +799,7 @@ export default function Home() {
               <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                 Favorites
               </h2>
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {favorites.map((entry) => (
                   <ResultCard
                     key={entry.id}
@@ -815,13 +828,13 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setShowPreviousResults((v) => !v)}
-                className={`flex min-h-10 items-center justify-between rounded-xl border border-dashed border-black/25 px-3.5 text-xs font-medium text-black/65 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/25 dark:text-white/65 dark:hover:bg-white/10 ${FOCUS_RING}`}
+                className={`flex min-h-11 items-center justify-between rounded-xl border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
               >
                 <span>Previous results ({previousResults.length})</span>
                 <span>{showPreviousResults ? "▲" : "▾"}</span>
               </button>
               {showPreviousResults && (
-                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {previousResults.map((entry) => (
                     <ResultCard
                       key={entry.id}
@@ -864,7 +877,10 @@ export default function Home() {
                   {log.map((entry) => (
                     <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
                       <LogDot status={entry.status} />
-                      <span className="text-black/90 dark:text-white/90">{entry.name}</span>
+                      <span className="truncate text-black/90 dark:text-white/90">{entry.name}</span>
+                      <span className="ml-auto shrink-0 text-xs text-black/45 dark:text-white/45">
+                        {LOG_STATUS_LABEL[entry.status]}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -953,40 +969,49 @@ function ResultCard({
   onCheckCollision: () => void;
 }) {
   return (
-    <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 transition-colors hover:border-emerald-500/50">
+    <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-black/15 p-3 transition-colors hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.03]">
       <div className="flex items-start justify-between gap-1.5">
-        <span className="truncate font-mono text-sm font-semibold text-emerald-800 dark:text-emerald-300">
-          {entry.domain}
-        </span>
-        <button
-          onClick={onToggleFavorite}
-          aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
-          aria-pressed={favorited}
-          className={`shrink-0 rounded text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
-            favorited ? "text-amber-500" : "text-black/35 hover:text-black/55 dark:text-white/35 dark:hover:text-white/55"
-          }`}
-        >
-          {favorited ? "★" : "☆"}
-        </button>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate font-mono text-sm font-semibold text-emerald-700 md:text-base dark:text-emerald-400">
+            {entry.domain}
+          </span>
+          <InstagramBadge status={entry.instagram} />
+        </div>
+        <div className="-mr-2 flex shrink-0 items-center">
+          <button
+            onClick={onSearch}
+            aria-label="Open a Google search for this name in a new tab"
+            title="Google search"
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black/35 transition-colors hover:text-black/55 dark:text-white/35 dark:hover:text-white/55 ${FOCUS_RING}`}
+          >
+            <SearchIcon size={14} />
+          </button>
+          <button
+            onClick={onToggleFavorite}
+            aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+            aria-pressed={favorited}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
+              favorited ? "text-emerald-500" : "text-black/35 hover:text-black/55 dark:text-white/35 dark:hover:text-white/55"
+            }`}
+          >
+            {favorited ? "★" : "☆"}
+          </button>
+        </div>
       </div>
-      <span className="text-[11px] text-emerald-700/70 dark:text-emerald-400/70">{entry.meaning}</span>
-      <InstagramBadge status={entry.instagram} />
+      <span className="text-xs text-black/55 md:text-sm dark:text-white/55">{entry.meaning}</span>
       <CollisionBadge collision={collision} onCheck={onCheckCollision} />
-      <button
-        onClick={onSearch}
-        className={`flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 dark:text-emerald-300 ${FOCUS_RING}`}
-      >
-        <SearchIcon size={12} />
-        Search
-      </button>
     </div>
   );
 }
 
 function StatusBadge({ status }: { status: RunStatus }) {
+  // Emerald is reserved for "found" (the one positive outcome) and red for
+  // "error" (the one failure state) — every other status is grayscale,
+  // told apart by its label and (for "running") motion rather than a
+  // third accent color.
   const map: Record<RunStatus, { label: string; dot: string }> = {
     idle: { label: "Idle", dot: "bg-black/35 dark:bg-white/35" },
-    running: { label: "Running", dot: "bg-blue-500 animate-pulse" },
+    running: { label: "Running", dot: "bg-black/50 animate-pulse dark:bg-white/50" },
     stopped: { label: "Stopped", dot: "bg-black/35 dark:bg-white/35" },
     found: { label: "Found", dot: "bg-emerald-500" },
     error: { label: "Error", dot: "bg-red-500" },
@@ -1000,17 +1025,25 @@ function StatusBadge({ status }: { status: RunStatus }) {
   );
 }
 
+// Emerald marks the one positive outcome ("available"); every other status
+// is grayscale, told apart by motion ("checking" pulses, nothing else does)
+// and by the status word LOG_STATUS_LABEL prints next to it — never by hue
+// alone, so the log stays legible without relying on color perception.
+const LOG_STATUS_LABEL: Record<LogStatus, string> = {
+  checking: "checking…",
+  taken: "taken",
+  unknown: "unknown",
+  available: "available",
+  filtered: "filtered",
+};
+
 function LogDot({ status }: { status: LogStatus }) {
   const className =
     status === "checking"
-      ? "bg-blue-500 animate-pulse"
-      : status === "taken"
-        ? "bg-black/30 dark:bg-white/30"
-        : status === "available"
-          ? "bg-emerald-500"
-          : status === "filtered"
-            ? "bg-violet-500"
-            : "bg-amber-500";
+      ? "bg-black/40 animate-pulse dark:bg-white/40"
+      : status === "available"
+        ? "bg-emerald-500"
+        : "bg-black/30 dark:bg-white/30";
   return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} />;
 }
 
@@ -1018,15 +1051,24 @@ function LogDot({ status }: { status: LogStatus }) {
 // no field at all (an entry persisted before this existed) both render
 // nothing — there's nothing useful to tell the user in either case, and the
 // "Instagram" button below still works either way.
+// Every result in this list already passed the "domain + Instagram both
+// available" gate in runDiscovery (see discovery.ts) — so "available" is
+// the expected, unremarkable case for a card that exists at all, and
+// saying so on every single card is noise, not information. "taken" only
+// happens via the rare fallback where Instagram checking got disabled
+// mid-search (see INSTAGRAM_BLOCKED_STREAK_THRESHOLD) and a domain-only
+// match started counting — that's the one outcome actually worth flagging,
+// so it's the only one rendered here. "unknown" (inconclusive check) is
+// unremarkable in the same way "available" is and also renders nothing.
 function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
-  if (!status || status === "unknown") return null;
+  if (status !== "taken") return null;
   return (
     <span
-      className={`text-[10px] font-medium ${
-        status === "available" ? "text-emerald-600 dark:text-emerald-400" : "text-black/40 dark:text-white/40"
-      }`}
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-black/40 dark:text-white/40"
+      title="This name's domain is available, but the matching Instagram handle isn't"
     >
-      {status === "available" ? "◇ Instagram available" : "◆ Instagram taken"}
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black/30 dark:bg-white/30" />
+      IG taken
     </span>
   );
 }
@@ -1035,7 +1077,7 @@ function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
 // name already means something real in the world — see lib/collision.ts.
 // score is 0-100: 0 as unrankable as "Google" itself, 100 as wide open as a
 // long random string with no real-world usage anywhere. undefined until
-// checked on demand via the "Check collisions" button below; once scored,
+// checked on demand via the "Rank" button below; once scored,
 // "Rescore" re-runs the same check (search results change over time, and
 // so does the checker's own logic).
 interface CollisionDisplay {
@@ -1058,8 +1100,8 @@ function scoreColorClass(score: number): string {
 function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; onCheck: () => void }) {
   if (collision.loading) {
     return (
-      <span className="flex items-center gap-1.5 text-[10px] text-black/45 dark:text-white/45">
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-blue-500" />
+      <span className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
+        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
         Checking…
       </span>
     );
@@ -1069,7 +1111,7 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
       <button
         type="button"
         onClick={onCheck}
-        className={`self-start text-[10px] font-medium text-amber-600 underline decoration-amber-600/40 underline-offset-2 transition-colors hover:text-amber-700 dark:text-amber-400 dark:decoration-amber-400/40 dark:hover:text-amber-300 ${FOCUS_RING}`}
+        className={`self-start text-xs font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
         title={collision.error}
       >
         Check failed — retry
@@ -1081,28 +1123,28 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
       <button
         type="button"
         onClick={onCheck}
-        className={`self-start text-[10px] font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
+        className={`flex min-h-11 w-full items-center justify-center rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 md:text-sm dark:text-emerald-300 ${FOCUS_RING}`}
       >
-        Check collisions
+        Rank
       </button>
     );
   }
   return (
     <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5">
-        <span className={`text-[10px] font-semibold tabular-nums ${scoreColorClass(collision.score)}`}>
+        <span className={`text-xs font-semibold tabular-nums md:text-sm ${scoreColorClass(collision.score)}`}>
           {collision.score}% rankable
         </span>
         <button
           type="button"
           onClick={onCheck}
-          className={`text-[10px] font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
+          className={`text-xs font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 md:text-sm dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
         >
           Rescore
         </button>
       </div>
       {collision.summary && (
-        <span className="text-[10px] leading-snug text-black/55 dark:text-white/55">{collision.summary}</span>
+        <span className="text-xs leading-snug text-black/55 md:text-sm dark:text-white/55">{collision.summary}</span>
       )}
     </div>
   );
