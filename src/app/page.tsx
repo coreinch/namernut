@@ -97,6 +97,8 @@ interface PersistedState {
   keywordInput: string;
   gates: DiscoveryGates;
   autoRank: boolean;
+  useAiSynonyms: boolean;
+  useAiInvented: boolean;
 }
 
 // A type-only import, so (unlike TLDS/MIN_COMBINED_LENGTH above) this
@@ -216,6 +218,21 @@ export default function Home() {
   // auto-running it for every found result — rather than only the ones a
   // user picks via "Rank" — is a real cost, not just a convenience switch.
   const [autoRank, setAutoRank] = useState(false);
+  // On by default: unlike autoRank, this is one LLM call per search start
+  // (not per found result), and it's purely additive on top of the
+  // dictionary pairing that always runs anyway — see suggestKeywordSynonyms
+  // in lib/synonyms.ts and selectTierSpecs in lib/candidates.ts. Only ever
+  // meaningful when a keyword is actually typed.
+  const [useAiSynonyms, setUseAiSynonyms] = useState(true);
+  // Populated once per search from the "synonyms" SSE event — not
+  // persisted, purely a live display of what the current/last run actually
+  // searched, the same as `log`.
+  const [aiSynonymWords, setAiSynonymWords] = useState<string[]>([]);
+  // On by default, same reasoning as useAiSynonyms — one LLM call per
+  // search start. Unlike useAiSynonyms this isn't gated on a keyword being
+  // typed at all: see suggestInventedNames in lib/inventedNames.ts.
+  const [useAiInvented, setUseAiInvented] = useState(true);
+  const [aiInventedWords, setAiInventedWords] = useState<string[]>([]);
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results
   // (tagged with the runId that found them) are persisted across reloads
@@ -311,6 +328,8 @@ export default function Home() {
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
       if (typeof parsed.autoRank === "boolean") setAutoRank(parsed.autoRank);
+      if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
+      if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
@@ -337,12 +356,26 @@ export default function Home() {
         keywordInput,
         gates,
         autoRank,
+        useAiSynonyms,
+        useAiInvented,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // ignore write failures — persistence is a nice-to-have
     }
-  }, [hasHydrated, foundHistory, favorites, enabledLangs, enabledTlds, maxLength, keywordInput, gates, autoRank]);
+  }, [
+    hasHydrated,
+    foundHistory,
+    favorites,
+    enabledLangs,
+    enabledTlds,
+    maxLength,
+    keywordInput,
+    gates,
+    autoRank,
+    useAiSynonyms,
+    useAiInvented,
+  ]);
 
   useEffect(() => {
     // Scroll only the log's own internal scrollbox to its latest entry —
@@ -428,6 +461,8 @@ export default function Home() {
     setCheckedCount(0);
     setCurrentRunFound(0);
     setLog([]);
+    setAiSynonymWords([]);
+    setAiInventedWords([]);
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -435,7 +470,8 @@ export default function Home() {
       const res = await fetch(
         `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}` +
           `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
-          `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}`,
+          `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
+          `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}`,
         { signal: controller.signal }
       );
       if (!res.body) throw new Error("No response stream");
@@ -459,6 +495,12 @@ export default function Home() {
           const event = JSON.parse(dataLine.slice(6));
 
           switch (event.type) {
+            case "synonyms":
+              setAiSynonymWords(event.words);
+              break;
+            case "invented":
+              setAiInventedWords(event.words);
+              break;
             case "checking":
               addChecking(event.name);
               setCheckedCount(event.checkedCount);
@@ -535,7 +577,19 @@ export default function Home() {
     } finally {
       abortRef.current = null;
     }
-  }, [addChecking, resolveLog, langsParam, maxLength, keywordParam, tldsParam, gates, autoRank, checkCollisionFor]);
+  }, [
+    addChecking,
+    resolveLog,
+    langsParam,
+    maxLength,
+    keywordParam,
+    tldsParam,
+    gates,
+    autoRank,
+    checkCollisionFor,
+    useAiSynonyms,
+    useAiInvented,
+  ]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -682,6 +736,45 @@ export default function Home() {
                 )}
               </div>
 
+              {/* AI generation — two independent, always-visible toggles
+                  (never one hiding in place of the other): "AI synonyms"
+                  expands the typed keyword into related words to pair with
+                  the dictionary (so it's inert with nothing to expand until
+                  a keyword exists — shown disabled, not hidden, so that's
+                  visible rather than looking like it vanished); "AI-invented
+                  names" is a wholly separate mechanism — complete made-up
+                  words, no dictionary pairing at all — that works with or
+                  without a keyword. */}
+              <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+                <div className="flex flex-col gap-1">
+                  <GateToggle
+                    label="AI synonyms"
+                    checked={useAiSynonyms}
+                    onChange={setUseAiSynonyms}
+                    disabled={!keywordParam}
+                  />
+                  <p className="text-xs text-black/45 dark:text-white/45">
+                    {keywordParam ? (
+                      <>
+                        Also pairs the dictionary with AI-suggested synonyms of &ldquo;{keywordParam}&rdquo; (e.g.
+                        &ldquo;blaze&rdquo; for &ldquo;fast&rdquo;) — dictionary pairing on the literal word always
+                        runs either way, this only adds more to it.
+                      </>
+                    ) : (
+                      "Type a keyword above to enable — expands it into related words to pair with the dictionary."
+                    )}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <GateToggle label="AI-invented names" checked={useAiInvented} onChange={setUseAiInvented} />
+                  <p className="text-xs text-black/45 dark:text-white/45">
+                    Also searches fully AI-invented brandable words (like &ldquo;Zuvio&rdquo; or &ldquo;Fovixia&rdquo;)
+                    — not built from any dictionary word.
+                    {keywordParam && ` Themed around "${keywordParam}" since it's typed above.`}
+                  </p>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
                   <span>Max combination length</span>
@@ -794,6 +887,17 @@ export default function Home() {
                   )}
                 </div>
               </div>
+              {aiSynonymWords.length > 0 && (
+                <p className="text-xs text-black/45 dark:text-white/45">
+                  Also searching AI synonym{aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
+                </p>
+              )}
+              {aiInventedWords.length > 0 && (
+                <p className="text-xs text-black/45 dark:text-white/45">
+                  Also searching AI-invented name{aiInventedWords.length === 1 ? "" : "s"}:{" "}
+                  {aiInventedWords.join(", ")}
+                </p>
+              )}
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {currentRunResults.map((entry) => (
                   <ResultCard
@@ -1044,21 +1148,27 @@ function GateToggle({
   label,
   checked,
   onChange,
+  disabled,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
+  /** Renders the switch inert and dimmed — e.g. "AI synonyms" has nothing to synonym-expand without a keyword typed, but still stays visible (rather than disappearing) so it never reads as if a different toggle took its place. */
+  disabled?: boolean;
 }) {
   return (
-    <div className="flex min-h-9 items-center justify-between gap-3 text-xs text-black/65 dark:text-white/65">
+    <div
+      className={`flex min-h-9 items-center justify-between gap-3 text-xs text-black/65 dark:text-white/65 ${disabled ? "opacity-40" : ""}`}
+    >
       <span>{label}</span>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         aria-label={label}
+        disabled={disabled}
         onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${FOCUS_RING} ${
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${disabled ? "cursor-not-allowed" : ""} ${FOCUS_RING} ${
           checked ? "bg-emerald-500" : "bg-black/15 dark:bg-white/20"
         }`}
       >

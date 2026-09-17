@@ -195,6 +195,69 @@ describe("buildCandidateSpace (with keyword)", () => {
   });
 });
 
+describe("buildCandidateSpace (with keyword and AI synonyms)", () => {
+  const space = buildCandidateSpace(pool, "nova", ["blaze"]);
+
+  it("adds one keyword-shaped tier per AI synonym, on top of the literal keyword tier", () => {
+    expect(space.tiers.length).toBe(2);
+    expect(space.tiers[0].total).toBe(2 * pool.length);
+    expect(space.tiers[1].total).toBe(2 * pool.length);
+  });
+
+  it("lists the synonym tier BEFORE the literal keyword tier, so it isn't crowded out by a large literal-keyword tier filling the target first", () => {
+    const names = new Set(allNames({ tiers: [space.tiers[0]] }));
+    expect(names).toEqual(new Set(["blazecat", "blazedog", "blazerex", "catblaze", "dogblaze", "rexblaze"]));
+  });
+
+  it("labels a synonym candidate's meaning as an AI idea for the original keyword, not the bare synonym", () => {
+    expect(space.tiers[0].candidateAt(0)).toEqual({
+      name: "blazecat",
+      meaning: 'blaze (AI idea for "nova") · cat: a small domesticated animal',
+      parts: ["blaze", "cat"],
+    });
+  });
+
+  it("with no AI synonyms passed, behaves exactly like the keyword-only case", () => {
+    expect(buildCandidateSpace(pool, "nova", []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+  });
+});
+
+describe("buildCandidateSpace (AI-invented names)", () => {
+  it("adds one extra tier, independent of whether there's a keyword, ahead of the dictionary-pairing tier(s)", () => {
+    // Prepended (tiers[0]), not appended — see buildCandidateSpace's
+    // comment: claimCandidate exhausts tiers in order, and the dictionary
+    // tier(s) dwarf a ~20-word invented batch, so invented names need to
+    // go first to ever actually get searched.
+    const withKeyword = buildCandidateSpace(pool, "nova", [], ["zuvio", "fovixia"]);
+    expect(withKeyword.tiers.length).toBe(2); // invented tier + keyword tier
+    expect(withKeyword.tiers[0].total).toBe(2);
+
+    const withoutKeyword = buildCandidateSpace(pool, undefined, [], ["zuvio", "fovixia"]);
+    expect(withoutKeyword.tiers.length).toBe(2); // invented tier + fallback pair tier
+    expect(withoutKeyword.tiers[0].total).toBe(2);
+  });
+
+  it("each invented word is a complete candidate on its own, with an empty second half (no real two-word split)", () => {
+    const space = buildCandidateSpace(pool, undefined, [], ["zuvio"]);
+    expect(space.tiers[0].candidateAt(0)).toEqual({
+      name: "zuvio",
+      meaning: "zuvio (AI-invented name)",
+      parts: ["zuvio", ""],
+    });
+  });
+
+  it("labels the candidate's meaning with the keyword it was themed around, when there is one", () => {
+    const space = buildCandidateSpace(pool, "nova", [], ["zuvio"]);
+    expect(space.tiers[0].candidateAt(0).meaning).toBe('zuvio (AI-invented name for "nova")');
+  });
+
+  it("adds no tier at all when there are no invented names", () => {
+    expect(buildCandidateSpace(pool, "nova", [], []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+  });
+});
+
 describe("countCandidatesWithinLength", () => {
   it("matches the brute-force count of buildCandidateSpace's own tiers, for every length", () => {
     // cat/dog/rex are all 3 letters, so every no-keyword pair is 6 chars.

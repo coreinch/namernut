@@ -385,6 +385,136 @@ describe("runDiscovery", () => {
     expect(events.some((e) => e.type === "stopped")).toBe(true);
     expect(events.some((e) => e.type === "complete")).toBe(false);
   });
+
+  it("widens the candidate space with AI-suggested synonym tiers and announces them via a 'synonyms' event", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      "nova",
+      ["com"],
+      4,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON,
+      ["blaze"]
+    );
+
+    // Fired first, before any real check, and carries exactly the synonyms
+    // passed in.
+    expect(events[0]).toEqual({ type: "synonyms", words: ["blaze"] });
+
+    // The literal keyword ("nova") and the AI synonym ("blaze") both search
+    // — the synonym tier is additive, not a replacement.
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(new Set(foundDomains)).toEqual(
+      new Set(["novacat.com", "catnova.com", "blazecat.com", "catblaze.com"])
+    );
+  });
+
+  it("claims candidates round-robin across sibling tiers, not sequentially, so more than one AI synonym's results actually surface", async () => {
+    // Each of the 3 keyword-shaped tiers (the two AI synonyms plus the
+    // literal keyword "nova") has 2 * 3 = 6 candidates of its own — a
+    // target smaller than any single tier's own capacity. Sequential
+    // tier-by-tier claiming (the pre-round-robin behavior) would pull every
+    // result from whichever tier happened to be first and never touch the
+    // other two at all.
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: true, noun: true },
+      { word: "fox", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      "nova",
+      ["com"],
+      6,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON,
+      ["blaze", "flash"]
+    );
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(6);
+    const sourceWords = new Set(
+      found.flatMap((f) => (f.type === "found" ? f.parts.filter((p) => ["blaze", "flash", "nova"].includes(p)) : []))
+    );
+    // More than one of the 3 keyword-shaped tiers actually contributed a
+    // result — proof this isn't draining one tier before touching the rest.
+    expect(sourceWords.size).toBeGreaterThan(1);
+  });
+
+  it("does not emit a 'synonyms' event when there are no AI synonyms", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, "nova", ["com"], 2, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.some((e) => e.type === "synonyms")).toBe(false);
+  });
+
+  it("searches AI-invented names as complete standalone candidates and announces them via an 'invented' event", async () => {
+    // Empty pool -> the fallback dictionary-pairing tier has zero
+    // candidates, isolating this run to the invented tier alone.
+    const pool: WordEntry[] = [];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      undefined,
+      ["com"],
+      2,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON,
+      [],
+      ["zuvio", "fovixia"]
+    );
+
+    expect(events[0]).toEqual({ type: "invented", words: ["zuvio", "fovixia"] });
+
+    // Invented names reach a real check directly — no dictionary word ever
+    // gets glued onto them, unlike every other candidate in this run.
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(new Set(foundDomains)).toEqual(new Set(["zuvio.com", "fovixia.com"]));
+  });
+
+  it("does not emit an 'invented' event when there are no AI-invented names", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.some((e) => e.type === "invented")).toBe(false);
+  });
 });
 
 describe("parseGates", () => {

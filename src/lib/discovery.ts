@@ -10,6 +10,17 @@ import { checkDomainWhois } from "@/lib/whois";
 import { checkInstagramUsername, type InstagramStatus } from "@/lib/instagram";
 
 export type DiscoveryEvent =
+  // Emitted once, before any "checking" events, only when aiSynonyms is
+  // non-empty — see suggestKeywordSynonyms in lib/synonyms.ts. Purely
+  // informational: the words are already baked into the candidate space
+  // buildCandidateSpace built (see runDiscovery below) by the time this
+  // fires, so the UI can surface what's being searched without gating
+  // anything on it.
+  | { type: "synonyms"; words: string[] }
+  // Same posture as "synonyms" above, but for suggestInventedNames in
+  // lib/inventedNames.ts — a distinct event since these are complete
+  // standalone candidate names, not halves paired with a dictionary word.
+  | { type: "invented"; words: string[] }
   | { type: "checking"; name: string; checkedCount: number }
   | { type: "taken"; name: string; checkedCount: number }
   | { type: "unknown"; name: string; checkedCount: number }
@@ -220,6 +231,17 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * dictionary itself spans a range of word lengths, so this is what
  * actually limits how long a result can be, not any per-word restriction.
  * `gates` toggles each rejection check independently — see DiscoveryGates.
+ * `aiSynonyms` (only ever meaningful alongside `keyword`) widens the
+ * candidate space with AI-suggested synonym tiers — see
+ * suggestKeywordSynonyms in lib/synonyms.ts and selectTierSpecs in
+ * candidates.ts; an empty array reproduces the pre-synonyms behavior
+ * exactly (just the literal keyword tier). `inventedNames` adds one more
+ * tier of complete, AI-invented candidate names (see suggestInventedNames
+ * in lib/inventedNames.ts) — unlike every other candidate, these aren't
+ * built from two paired halves, and unlike aiSynonyms this tier exists
+ * whether or not there's a keyword at all. Every candidate from either
+ * tier still passes through the exact same maxLength/gates checks below
+ * as any other candidate — neither is special-cased in the worker loop.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -229,9 +251,13 @@ export async function runDiscovery(
   onEvent: (event: DiscoveryEvent) => void,
   signal: AbortSignal,
   maxLength: number,
-  gates: DiscoveryGates
+  gates: DiscoveryGates,
+  aiSynonyms: string[] = [],
+  inventedNames: string[] = []
 ) {
-  const space = buildCandidateSpace(pool, keyword);
+  const space = buildCandidateSpace(pool, keyword, aiSynonyms, inventedNames);
+  if (aiSynonyms.length > 0) onEvent({ type: "synonyms", words: aiSynonyms });
+  if (inventedNames.length > 0) onEvent({ type: "invented", words: inventedNames });
   const typoIndex = buildTypoIndex(pool.filter((w) => w.common).map((w) => w.word));
   const nicenessIndex = buildNicenessIndex(pool.map((w) => w.word));
   const seed = crypto.randomInt(0, 2 ** 31);
@@ -244,8 +270,17 @@ export async function runDiscovery(
     tier.total > 0 ? new ShuffledRange(tier.total, (seed + i) >>> 0) : null
   );
 
-  let tierIndex = 0;
-  let nextIndexInTier = 0;
+  // Per-tier cursor, claimed round-robin (see claimCandidate below) rather
+  // than exhausting one tier fully before moving to the next — with, say,
+  // 6 AI-synonym tiers plus the literal keyword tier, any tier fully
+  // drained before moving on means later tiers (often each one alone
+  // larger than a normal target count) never get reached at all. This
+  // also made the earlier fix of just reordering tiers (AI tiers before
+  // the literal keyword tier) a dead end: it only helps the tier placed
+  // first among equals, not the rest. Round-robin means a search with N
+  // non-empty tiers draws roughly 1/N of its results from each.
+  const tierCursors = new Array(space.tiers.length).fill(0);
+  let nextTier = 0;
   let checkedCount = 0;
   let foundCount = 0;
   // See INSTAGRAM_BLOCKED_STREAK_THRESHOLD / checkInstagramOne. Once
@@ -274,15 +309,19 @@ export async function runDiscovery(
   function claimCandidate(): Candidate | null {
     if (signal.aborted) return null;
     if (foundCount >= targetCount) return null;
-    while (tierIndex < space.tiers.length && nextIndexInTier >= space.tiers[tierIndex].total) {
-      tierIndex++;
-      nextIndexInTier = 0;
+    // Scan at most once around the full ring looking for a tier that
+    // isn't exhausted yet, starting from nextTier — same synchronous,
+    // no-`await`-in-between claim as before, so concurrent workers still
+    // never race over the same (tier, index) pair.
+    for (let attempts = 0; attempts < space.tiers.length; attempts++) {
+      const i = (nextTier + attempts) % space.tiers.length;
+      if (tierCursors[i] < space.tiers[i].total) {
+        const idx = tierCursors[i]++;
+        nextTier = (i + 1) % space.tiers.length;
+        return space.tiers[i].candidateAt(tierRanges[i]!.at(idx));
+      }
     }
-    if (tierIndex >= space.tiers.length) return null;
-    const tier = space.tiers[tierIndex];
-    const range = tierRanges[tierIndex]!;
-    const idx = nextIndexInTier++;
-    return tier.candidateAt(range.at(idx));
+    return null; // every tier exhausted
   }
 
   async function worker() {

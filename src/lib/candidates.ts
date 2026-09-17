@@ -50,7 +50,8 @@ function buildPairTier(
   };
 }
 
-function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
+/** `label` is what shows in the candidate's meaning string — defaults to the bare keyword itself, but an AI-suggested synonym tier (see suggestKeywordSynonyms) passes something like `blaze (AI idea for "nova")` instead, so a result built from a synonym never reads as if the user had typed it themselves. */
+function buildKeywordTier(words: WordEntry[], keyword: string, label: string = keyword): CandidateTier {
   const L = words.length;
   return {
     total: 2 * L,
@@ -59,14 +60,14 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
         const w = words[shuffled];
         return {
           name: `${keyword}${w.word}`,
-          meaning: `${keyword} · ${describe(w.word, w.definition)}`,
+          meaning: `${label} · ${describe(w.word, w.definition)}`,
           parts: [keyword, w.word],
         };
       }
       const w = words[shuffled - L];
       return {
         name: `${w.word}${keyword}`,
-        meaning: `${describe(w.word, w.definition)} · ${keyword}`,
+        meaning: `${describe(w.word, w.definition)} · ${label}`,
         parts: [w.word, keyword],
       };
     },
@@ -93,7 +94,14 @@ function buildKeywordTier(words: WordEntry[], keyword: string): CandidateTier {
  * With a keyword, every candidate pairs the keyword with one pool word, in
  * both orders (keyword+word, word+keyword), so every result relates to
  * that keyword, the way "include a word" filters work in commercial name
- * generators.
+ * generators. Each string in `aiSynonyms` (see suggestKeywordSynonyms in
+ * lib/synonyms.ts) gets the exact same treatment as its own additional
+ * keyword tier — so e.g. a "nova" search with the AI synonym "blaze" also
+ * searches blaze+word/word+blaze, on top of nova+word/word+nova — since
+ * that's the whole point: a literal keyword search can only ever find
+ * "nova" spelled out, never a name related to what "nova" *means*. The
+ * synonym tiers are listed BEFORE the literal keyword tier — see the
+ * comment above that return for why order matters here.
  */
 interface PairTierSpec {
   kind: "pair";
@@ -106,12 +114,16 @@ interface KeywordTierSpec {
   kind: "keyword";
   words: WordEntry[];
   keyword: string;
+  label: string;
 }
 
-type TierSpec = PairTierSpec | KeywordTierSpec;
+// AI-invented names (see buildInventedTier below) aren't picked via a spec
+// here — they're independent of the keyword/no-keyword branching this
+// function does, so buildCandidateSpace appends that tier directly instead
+// of routing it through this selection.
 
-/** Picks which tier(s) buildCandidateSpace/countCandidatesWithinLength search — see buildCandidateSpace's doc comment for the selection rules. Shared so the two stay in sync by construction rather than by convention. */
-function selectTierSpecs(pool: WordEntry[], keyword?: string): TierSpec[] {
+/** Picks which tier(s) buildCandidateSpace/countCandidatesWithinLength search for the dictionary-pairing/keyword-synonym part of the space — see buildCandidateSpace's doc comment for the selection rules. Shared so the two stay in sync by construction rather than by convention. Never returns an "invented" spec itself — buildCandidateSpace appends that separately, since AI-invented names are independent of whether there's a keyword at all. */
+function selectTierSpecs(pool: WordEntry[], keyword?: string, aiSynonyms: string[] = []): (PairTierSpec | KeywordTierSpec)[] {
   if (!keyword) {
     const modifiers = pool.filter((w) => isModifier(w.word, w.langs));
     // Not just "isn't a modifier" — a word can be neither a usable
@@ -149,15 +161,60 @@ function selectTierSpecs(pool: WordEntry[], keyword?: string): TierSpec[] {
   }
 
   const commonPool = pool.filter((w) => w.common);
-  return [{ kind: "keyword", words: commonPool.length > 0 ? commonPool : pool, keyword }];
+  const words = commonPool.length > 0 ? commonPool : pool;
+  // AI synonym tiers listed before the literal keyword tier. Tier order
+  // barely matters now — claimCandidate in discovery.ts claims round-robin
+  // across all tiers, not sequentially, so every non-empty tier gets a
+  // roughly even share regardless of position — but this is still a
+  // reasonable tie-break: it's what the search does first if the run ends
+  // early (stopped, or the target's reached mid-round).
+  return [
+    ...aiSynonyms.map(
+      (synonym): KeywordTierSpec => ({
+        kind: "keyword",
+        words,
+        keyword: synonym,
+        label: `${synonym} (AI idea for "${keyword}")`,
+      })
+    ),
+    { kind: "keyword", words, keyword, label: keyword },
+  ];
 }
 
-export function buildCandidateSpace(pool: WordEntry[], keyword?: string): CandidateSpace {
-  const tiers = selectTierSpecs(pool, keyword).map((spec) =>
+/** Each invented word is a complete candidate on its own — not concatenated from two literal strings the way every other Candidate is, so `parts` is `[name, ""]`: validateParts/splitIntoWords in collision.ts both treat a falsy second half as "no two-word split exists", which is exactly true here. */
+function buildInventedTier(words: string[], keyword?: string): CandidateTier {
+  return {
+    total: words.length,
+    candidateAt(i) {
+      const name = words[i];
+      return {
+        name,
+        meaning: keyword ? `${name} (AI-invented name for "${keyword}")` : `${name} (AI-invented name)`,
+        parts: [name, ""],
+      };
+    },
+  };
+}
+
+export function buildCandidateSpace(
+  pool: WordEntry[],
+  keyword?: string,
+  aiSynonyms: string[] = [],
+  inventedNames: string[] = []
+): CandidateSpace {
+  const tiers = selectTierSpecs(pool, keyword, aiSynonyms).map((spec) =>
     spec.kind === "pair"
       ? buildPairTier(spec.rows, spec.cols, spec.makeCandidate)
-      : buildKeywordTier(spec.words, spec.keyword)
+      : buildKeywordTier(spec.words, spec.keyword, spec.label)
   );
+  // Prepended, not appended — see the tier-order comment above selectTierSpecs's
+  // return for the AI synonym tiers: claimCandidate claims round-robin
+  // across every tier now, so this is a tie-break for an early-ending run
+  // rather than the difference between this tier ever being reached at all.
+  // Independent of the keyword/no-keyword branch above — AI-invented names
+  // exist whether or not there's a keyword at all, only using it to theme
+  // the batch (see suggestInventedNames).
+  if (inventedNames.length > 0) tiers.unshift(buildInventedTier(inventedNames, keyword));
   return { tiers };
 }
 
