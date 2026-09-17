@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DiscoveryGates } from "@/lib/discovery";
 
 // English only — Latin/Esperanto/French/Spanish were dropped (no
 // WordNet-equivalent lexicon source existed for them). Kept as a Lang
@@ -94,7 +95,22 @@ interface PersistedState {
   enabledTlds: Record<Tld, boolean>;
   maxLength: number;
   keywordInput: string;
+  gates: DiscoveryGates;
+  autoRank: boolean;
 }
+
+// A type-only import, so (unlike TLDS/MIN_COMBINED_LENGTH above) this
+// doesn't pull discovery.ts's runtime code — or its dictionary-data
+// dependency — into the client bundle; it's erased at compile time. Every
+// gate defaults to on (true) — the same behavior the app had before these
+// were exposed — so a fresh install, or a persisted state from before this
+// existed, comes back unchanged.
+const DEFAULT_GATES: DiscoveryGates = {
+  requireInstagram: true,
+  filterPronounceable: true,
+  filterTypos: true,
+  filterNiceness: true,
+};
 
 const STORAGE_KEY = "namerag:state:v1";
 // Pre-rename key — read once as a fallback during hydration (see below) so
@@ -176,8 +192,6 @@ export default function Home() {
   const [favorites, setFavorites] = useState<FoundEntry[]>([]);
   const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [importMessage, setImportMessage] = useState<string | null>(null);
-  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const [enabledLangs, setEnabledLangs] = useState<Record<Lang, boolean>>(() =>
     Object.fromEntries(LANGS.map((l) => [l, true])) as Record<Lang, boolean>
   );
@@ -186,6 +200,12 @@ export default function Home() {
   );
   const [maxLength, setMaxLength] = useState(DEFAULT_COMBINED_LENGTH);
   const [keywordInput, setKeywordInput] = useState("");
+  const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
+  // Off by default: the rankability check (see checkCollisionFor) hits a
+  // paid, metered API (Brave Search + an LLM call) per name, so
+  // auto-running it for every found result — rather than only the ones a
+  // user picks via "Rank" — is a real cost, not just a convenience switch.
+  const [autoRank, setAutoRank] = useState(false);
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results
   // (tagged with the runId that found them) are persisted across reloads
@@ -200,6 +220,7 @@ export default function Home() {
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   const [showPreviousResults, setShowPreviousResults] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   const selectedLangs = useMemo(
     () => (Object.keys(enabledLangs) as Lang[]).filter((l) => enabledLangs[l]),
@@ -273,6 +294,13 @@ export default function Home() {
         setMaxLength(Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, parsed.maxLength)));
       }
       if (typeof parsed.keywordInput === "string") setKeywordInput(parsed.keywordInput);
+      // Merged over the defaults (rather than replacing wholesale) so a
+      // state persisted before a given gate existed — including every
+      // state persisted before gates existed at all — still defaults that
+      // gate to on, instead of `undefined` silently propagating into a
+      // query param and being parsed back as "off".
+      if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
+      if (typeof parsed.autoRank === "boolean") setAutoRank(parsed.autoRank);
       if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
@@ -297,12 +325,14 @@ export default function Home() {
         enabledTlds,
         maxLength,
         keywordInput,
+        gates,
+        autoRank,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
       // ignore write failures — persistence is a nice-to-have
     }
-  }, [hasHydrated, foundHistory, favorites, enabledLangs, enabledTlds, maxLength, keywordInput]);
+  }, [hasHydrated, foundHistory, favorites, enabledLangs, enabledTlds, maxLength, keywordInput, gates, autoRank]);
 
   useEffect(() => {
     // Scroll only the log's own internal scrollbox to its latest entry —
@@ -326,6 +356,56 @@ export default function Home() {
     setLog((prev) => prev.map((entry) => (entry.id === name ? { ...entry, status } : entry)));
   }, []);
 
+  // On-demand (via the "Rank" button/CollisionBadge) or automatically per
+  // found result when autoRank is on — see the "found" case in start()
+  // below. Declared before start() since it's a dependency of that
+  // callback. Neither of these two bits of state is persisted — a stuck
+  // "loading" badge or stale error message shouldn't survive a reload.
+  const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
+  const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
+
+  const checkCollisionFor = useCallback((name: string, parts: [string, string] | undefined) => {
+    setCheckingCollisionNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+    setCollisionErrors((prev) => {
+      if (!(name in prev)) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
+    (async () => {
+      try {
+        const partsParam = parts
+          ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
+          : "";
+        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}${partsParam}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+        const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
+        // Keyed by bare name (not domain — a result found under several
+        // TLDs shares one score), so every matching entry across both
+        // arrays gets updated, not just the one card that was clicked.
+        const applyScore = (entry: FoundEntry): FoundEntry =>
+          entry.domain.split(".")[0] === name
+            ? { ...entry, rankabilityScore, collisionSummary: summary }
+            : entry;
+        setFoundHistory((prev) => prev.map(applyScore));
+        setFavorites((prev) => prev.map(applyScore));
+      } catch (err) {
+        setCollisionErrors((prev) => ({
+          ...prev,
+          [name]: err instanceof Error ? err.message : "Check failed",
+        }));
+      } finally {
+        setCheckingCollisionNames((prev) => {
+          if (!prev.has(name)) return prev;
+          const next = new Set(prev);
+          next.delete(name);
+          return next;
+        });
+      }
+    })();
+  }, []);
+
   const start = useCallback(async () => {
     if (abortRef.current) return;
     // Every start is a brand new, independently seeded search — this tab's
@@ -343,7 +423,9 @@ export default function Home() {
 
     try {
       const res = await fetch(
-        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}`,
+        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}` +
+          `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
+          `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}`,
         { signal: controller.signal }
       );
       if (!res.body) throw new Error("No response stream");
@@ -418,6 +500,7 @@ export default function Home() {
                 ];
               });
               resolveLog(event.domain, "available");
+              if (autoRank) checkCollisionFor(event.domain.split(".")[0], event.parts);
               break;
             }
             case "complete":
@@ -442,7 +525,7 @@ export default function Home() {
     } finally {
       abortRef.current = null;
     }
-  }, [addChecking, resolveLog, langsParam, maxLength, keywordParam, tldsParam]);
+  }, [addChecking, resolveLog, langsParam, maxLength, keywordParam, tldsParam, gates, autoRank, checkCollisionFor]);
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -459,123 +542,12 @@ export default function Home() {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
-  // On-demand only — see CollisionBadge/"Rank" and "Rescore".
-  // Neither of these two bits of state is persisted — a stuck "loading"
-  // badge or stale error message shouldn't survive a reload.
-  const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
-  const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
-
-  const checkCollisionFor = useCallback((name: string, parts: [string, string] | undefined) => {
-    setCheckingCollisionNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
-    setCollisionErrors((prev) => {
-      if (!(name in prev)) return prev;
-      const next = { ...prev };
-      delete next[name];
-      return next;
-    });
-    (async () => {
-      try {
-        const partsParam = parts
-          ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
-          : "";
-        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}${partsParam}`);
-        const body = await res.json();
-        if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
-        const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
-        // Keyed by bare name (not domain — a result found under several
-        // TLDs shares one score), so every matching entry across both
-        // arrays gets updated, not just the one card that was clicked.
-        const applyScore = (entry: FoundEntry): FoundEntry =>
-          entry.domain.split(".")[0] === name
-            ? { ...entry, rankabilityScore, collisionSummary: summary }
-            : entry;
-        setFoundHistory((prev) => prev.map(applyScore));
-        setFavorites((prev) => prev.map(applyScore));
-      } catch (err) {
-        setCollisionErrors((prev) => ({
-          ...prev,
-          [name]: err instanceof Error ? err.message : "Check failed",
-        }));
-      } finally {
-        setCheckingCollisionNames((prev) => {
-          if (!prev.has(name)) return prev;
-          const next = new Set(prev);
-          next.delete(name);
-          return next;
-        });
-      }
-    })();
-  }, []);
-
   const toggleFavorite = useCallback((entry: FoundEntry) => {
     setFavorites((prev) =>
       prev.some((f) => f.domain === entry.domain)
         ? prev.filter((f) => f.domain !== entry.domain)
         : [entry, ...prev]
     );
-  }, []);
-
-  const copyNames = useCallback(async (entries: FoundEntry[]) => {
-    // Bare names only, one per line — domain here is always name + "." +
-    // tld (no subdomains), so splitting on the first "." reliably strips
-    // it, same as searchDomain above.
-    const names = entries.map((entry) => entry.domain.split(".")[0]).join("\n");
-    try {
-      await navigator.clipboard.writeText(names);
-      setCopyMessage(`Copied ${entries.length} name${entries.length === 1 ? "" : "s"}.`);
-    } catch {
-      setCopyMessage("Couldn't copy — check clipboard permissions.");
-    }
-    setTimeout(() => setCopyMessage(null), 2500);
-  }, []);
-
-  const exportBackup = useCallback(() => {
-    const payload = { exportedAt: new Date().toISOString(), favorites, foundHistory };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `namerag-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, [favorites, foundHistory]);
-
-  const importInputRef = useRef<HTMLInputElement | null>(null);
-
-  const importBackup = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const parsed = JSON.parse(String(reader.result));
-        const importedFavorites: FoundEntry[] = Array.isArray(parsed.favorites) ? parsed.favorites : [];
-        const importedHistory: FoundEntry[] = Array.isArray(parsed.foundHistory) ? parsed.foundHistory : [];
-
-        setFavorites((prev) => {
-          const seen = new Set(prev.map((f) => f.domain));
-          const additions = importedFavorites.filter(
-            (e) => e?.domain && typeof e.domain === "string" && !seen.has(e.domain)
-          );
-          return [...prev, ...additions];
-        });
-        setFoundHistory((prev) => {
-          const seen = new Set(prev.map((f) => f.domain));
-          const additions = importedHistory.filter(
-            (e) => e?.domain && typeof e.domain === "string" && !seen.has(e.domain)
-          );
-          return dedupeByDomain([...prev, ...additions]);
-        });
-
-        setImportMessage(
-          `Imported ${importedFavorites.length} favorite(s) and ${importedHistory.length} result(s) (duplicates skipped).`
-        );
-      } catch {
-        setImportMessage("Couldn't read that file — make sure it's a Namerag backup export.");
-      }
-      setTimeout(() => setImportMessage(null), 4000);
-    };
-    reader.readAsText(file);
   }, []);
 
   const isRunning = runStatus === "running";
@@ -591,14 +563,28 @@ export default function Home() {
   // finds render in discovery order — first found stays put, each new one
   // appends after it — instead of reshuffling the whole grid every find.
   const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
+  // Shown in place of an empty screen on load (see the render below): the
+  // best BATCH_SIZE previously-scored results, so returning to an idle app
+  // still has something to look at instead of nothing until you search
+  // again. Only counts entries actually scored via "Rank" — an unscored
+  // result isn't "top" anything, it's just unmeasured, so this stays empty
+  // until at least one result has been ranked.
+  const topResults = foundHistory
+    .filter((e) => e.runId !== activeRunId && e.rankabilityScore !== undefined)
+    .slice()
+    .sort((a, b) => (b.rankabilityScore ?? 0) - (a.rankabilityScore ?? 0))
+    .slice(0, BATCH_SIZE);
+  const topResultIds = new Set(topResults.map((e) => e.id));
   // Ranked best-first (highest rankabilityScore — easiest to actually rank
   // #1 for — at the top), unlike currentRunResults above which preserves
   // discovery order: once a result has aged into history, how promising it
   // is matters more than when it happened to turn up. Entries with no
   // score yet (never checked — see FoundEntry) sort last, via the ?? -1
-  // fallback, rather than being scattered among real 0-100 scores.
+  // fallback, rather than being scattered among real 0-100 scores. Excludes
+  // whatever's already shown in topResults above so the archive doesn't
+  // repeat the same cards.
   const previousResults = foundHistory
-    .filter((e) => e.runId !== activeRunId)
+    .filter((e) => e.runId !== activeRunId && !topResultIds.has(e.id))
     .slice()
     .sort((a, b) => (b.rankabilityScore ?? -1) - (a.rankabilityScore ?? -1));
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
@@ -625,21 +611,33 @@ export default function Home() {
         className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
       >
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
-          {/* 1. SEARCH CONFIGURATION — the primary, most-used control
-              surface, grouped as one cohesive card instead of loose
-              independently-bordered widgets. Just the English dictionary
-              now (Latin/Esperanto/French/Spanish were dropped — no
-              WordNet-equivalent lexicon existed for them), so there's
-              nothing to pick between; the pool size is shown as a plain
-              stat rather than a now-pointless single-item toggle. */}
-          {!stats && (
+          {/* 1. SEARCH CONFIGURATION — collapsed by default (same pattern
+              as "Previous results"/"More TLDs" below): the defaults are
+              good enough that most searches never need to touch this, so
+              it shouldn't cost a screenful of controls on every load. The
+              closed toggle summarizes the settings that are actually in
+              effect, so nothing is hidden without a trace. */}
+          <button
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+            className={`flex min-h-11 items-center justify-between rounded-xl border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
+          >
+            <span className="truncate">
+              Filters · {maxLength} chars ·{" "}
+              {selectedTlds.length === 1 ? `.${selectedTlds[0]}` : `${selectedTlds.length} TLDs`}
+              {stats && ` · ${formatNumber(stats.totalCombinations)} combinations`}
+              {keywordParam && ` · "${keywordParam}"`}
+            </span>
+            <span className="shrink-0">{showFilters ? "▲" : "▾"}</span>
+          </button>
+          {showFilters && !stats && (
             <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15" aria-hidden="true">
               <div className="h-4 w-32 animate-pulse rounded bg-black/5 dark:bg-white/5" />
               <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
               <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
             </section>
           )}
-          {stats && (
+          {showFilters && stats && (
             <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15">
               <div className="flex flex-col gap-2">
                 <div className="relative">
@@ -721,6 +719,37 @@ export default function Home() {
                   </button>
                 )}
               </div>
+
+              <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
+                <GateToggle
+                  label="Require Instagram handle"
+                  checked={gates.requireInstagram}
+                  onChange={(v) => setGates((g) => ({ ...g, requireInstagram: v }))}
+                />
+                <GateToggle
+                  label="Pronounceable only"
+                  checked={gates.filterPronounceable}
+                  onChange={(v) => setGates((g) => ({ ...g, filterPronounceable: v }))}
+                />
+                <GateToggle
+                  label="Skip typo-like names"
+                  checked={gates.filterTypos}
+                  onChange={(v) => setGates((g) => ({ ...g, filterTypos: v }))}
+                />
+                <GateToggle
+                  label="Skip awkward names"
+                  checked={gates.filterNiceness}
+                  onChange={(v) => setGates((g) => ({ ...g, filterNiceness: v }))}
+                />
+              </div>
+
+              <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
+                <GateToggle label="Auto-check rankability" checked={autoRank} onChange={setAutoRank} />
+                <p className="text-xs text-black/45 dark:text-white/45">
+                  Runs the paid AI rankability check on every result found, not just the ones you pick — off by
+                  default to avoid the extra cost.
+                </p>
+              </div>
             </section>
           )}
 
@@ -744,20 +773,6 @@ export default function Home() {
                   Available domains
                 </h2>
                 <div className="flex items-baseline gap-2">
-                  {copyMessage && (
-                    <span className="animate-fade-in-up text-xs text-black/55 dark:text-white/55">
-                      {copyMessage}
-                    </span>
-                  )}
-                  {currentRunResults.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => copyNames(currentRunResults)}
-                      className={`text-xs text-black/65 underline decoration-black/30 underline-offset-2 transition-colors hover:text-black/85 dark:text-white/65 dark:decoration-white/30 dark:hover:text-white/85 ${FOCUS_RING}`}
-                    >
-                      Copy names
-                    </button>
-                  )}
                   {isRunning && (
                     <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
                       {currentRunFound}/{BATCH_SIZE}
@@ -789,6 +804,68 @@ export default function Home() {
                       className="h-[76px] animate-pulse rounded-xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
                     />
                   ))}
+              </div>
+            </section>
+          )}
+
+          {/* Top ranked — fills the same slot as "Available domains" once
+              there's no live run to show, so loading the app isn't an
+              empty screen until you search again: the best BATCH_SIZE
+              already-scored results from history, ranked best-first. */}
+          {currentRunResults.length === 0 && !isRunning && topResults.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
+                Top ranked
+              </h2>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {topResults.map((entry) => (
+                  <ResultCard
+                    key={entry.id}
+                    entry={entry}
+                    favorited={favoriteDomains.has(entry.domain)}
+                    collision={{
+                      score: entry.rankabilityScore,
+                      summary: entry.collisionSummary,
+                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
+                      error: collisionErrors[entry.domain.split(".")[0]],
+                    }}
+                    onSearch={() => searchDomain(entry)}
+                    onToggleFavorite={() => toggleFavorite(entry)}
+                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* PROCESS DETAIL — how the current run is going. Grouped with
+              the results above it (not down with Favorites/Previous
+              results, which are archival and unrelated to what's actively
+              running) since both are "what this run is doing right now".
+              Rendered only once there's actually something to show — an
+              empty log box with a placeholder illustration was pure filler
+              on every load before the first search. */}
+          {log.length > 0 && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
+                Live log
+              </h2>
+              <div
+                ref={logBoxRef}
+                className="thin-scrollbar max-h-[45vh] overflow-y-auto rounded-xl border border-black/15 p-3 font-mono text-sm dark:border-white/15"
+                aria-live="polite"
+              >
+                <ul className="space-y-0.5">
+                  {log.map((entry) => (
+                    <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
+                      <LogDot status={entry.status} />
+                      <span className="truncate text-black/90 dark:text-white/90">{entry.name}</span>
+                      <span className="ml-auto shrink-0 text-xs text-black/45 dark:text-white/45">
+                        {LOG_STATUS_LABEL[entry.status]}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </section>
           )}
@@ -855,74 +932,6 @@ export default function Home() {
               )}
             </section>
           )}
-
-          {/* 3. PROCESS DETAIL — how the search is going, useful while
-              running but secondary to the results themselves. */}
-          <section className="flex flex-col gap-2">
-            <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
-              Live log
-            </h2>
-            <div
-              ref={logBoxRef}
-              className="thin-scrollbar min-h-[160px] max-h-[45vh] overflow-y-auto rounded-xl border border-black/15 p-3 font-mono text-sm dark:border-white/15"
-              aria-live="polite"
-            >
-              {log.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-8 text-center text-black/55 dark:text-white/55">
-                  <SearchIcon />
-                  <p>Press &ldquo;{primaryLabel}&rdquo; to begin checking domains.</p>
-                </div>
-              ) : (
-                <ul className="space-y-0.5">
-                  {log.map((entry) => (
-                    <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
-                      <LogDot status={entry.status} />
-                      <span className="truncate text-black/90 dark:text-white/90">{entry.name}</span>
-                      <span className="ml-auto shrink-0 text-xs text-black/45 dark:text-white/45">
-                        {LOG_STATUS_LABEL[entry.status]}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </section>
-
-          {/* 4. UTILITY — lowest-frequency action, operating on the data
-              above rather than the search itself, so it belongs last. */}
-          <section className="flex flex-col items-center gap-1.5 border-t border-black/10 pt-4 dark:border-white/10">
-            <div className="flex items-center gap-3 text-xs">
-              <button
-                type="button"
-                onClick={exportBackup}
-                className={`text-black/65 underline decoration-black/30 underline-offset-2 transition-colors hover:text-black/85 dark:text-white/65 dark:decoration-white/30 dark:hover:text-white/85 ${FOCUS_RING}`}
-              >
-                Export backup
-              </button>
-              <span className="text-black/30 dark:text-white/30">·</span>
-              <button
-                type="button"
-                onClick={() => importInputRef.current?.click()}
-                className={`text-black/65 underline decoration-black/30 underline-offset-2 transition-colors hover:text-black/85 dark:text-white/65 dark:decoration-white/30 dark:hover:text-white/85 ${FOCUS_RING}`}
-              >
-                Import backup
-              </button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept="application/json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) importBackup(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            {importMessage && (
-              <p className="animate-fade-in-up text-xs text-black/65 dark:text-white/65">{importMessage}</p>
-            )}
-          </section>
         </div>
       </main>
 
@@ -1000,6 +1009,39 @@ function ResultCard({
       </div>
       <span className="text-xs text-black/55 md:text-sm dark:text-white/55">{entry.meaning}</span>
       <CollisionBadge collision={collision} onCheck={onCheckCollision} />
+    </div>
+  );
+}
+
+/** A labeled on/off switch for one DiscoveryGates flag — emerald when on, matching the app's one-accent-color convention, with the thumb position (not just color) carrying the state. */
+function GateToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-3 text-xs text-black/65 dark:text-white/65">
+      <span>{label}</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${FOCUS_RING} ${
+          checked ? "bg-emerald-500" : "bg-black/15 dark:bg-white/20"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+            checked ? "translate-x-5" : "translate-x-0"
+          }`}
+        />
+      </button>
     </div>
   );
 }

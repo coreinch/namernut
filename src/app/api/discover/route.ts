@@ -1,4 +1,4 @@
-import { runDiscovery, type DiscoveryEvent } from "@/lib/discovery";
+import { parseGates, runDiscovery, type DiscoveryEvent } from "@/lib/discovery";
 import { getSelectedPool, parseLangs, parseMaxLength } from "@/lib/dictionary";
 import { parseCount, parseKeyword, parseTlds } from "@/lib/candidates";
 
@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   const keyword = parseKeyword(searchParams.get("keyword"));
   const count = parseCount(searchParams.get("count"));
   const tlds = parseTlds(searchParams.get("tlds"));
+  const gates = parseGates(searchParams);
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
         } catch {
           // controller already closed
         }
-      }, abortController.signal, maxLength).finally(() => {
+      }, abortController.signal, maxLength, gates).finally(() => {
         if (heartbeat) clearInterval(heartbeat);
         try {
           controller.close();

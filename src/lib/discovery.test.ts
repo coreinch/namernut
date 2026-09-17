@@ -15,8 +15,17 @@ import { checkDomain } from "./rdap";
 import { checkDomainWhois } from "./whois";
 import { checkInstagramUsername } from "./instagram";
 import { buildNicenessIndex } from "./niceness";
-import { runDiscovery, type DiscoveryEvent } from "./discovery";
+import { parseGates, runDiscovery, type DiscoveryEvent, type DiscoveryGates } from "./discovery";
 import type { WordEntry } from "./dictionary";
+
+// The default for every test that isn't specifically exercising a gate
+// toggle — matches runDiscovery's pre-gates behavior (everything on).
+const ALL_GATES_ON: DiscoveryGates = {
+  requireInstagram: true,
+  filterPronounceable: true,
+  filterTypos: true,
+  filterNiceness: true,
+};
 
 describe("runDiscovery", () => {
   // Every test drives checkDomain/checkDomainWhois explicitly, but most of
@@ -50,7 +59,7 @@ describe("runDiscovery", () => {
 
     // Large enough target that every non-colliding candidate in this tiny
     // 4x4 pool gets visited, so the collision would surface if not deduped.
-    await runDiscovery(pool, undefined, ["com"], 100, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 100, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     const checkingNames = events.filter((e) => e.type === "checking").map((e) => e.name);
@@ -79,7 +88,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const found = events.filter((e) => e.type === "found");
     const complete = events.find((e) => e.type === "complete");
@@ -99,7 +108,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const found = events.filter((e) => e.type === "found");
     expect(found.length).toBe(2);
@@ -121,7 +130,7 @@ describe("runDiscovery", () => {
     const controller = new AbortController();
     // Two TLDs so a single name can match more than once, to verify the
     // Instagram lookup is cached rather than repeated per TLD/match.
-    await runDiscovery(pool, undefined, ["com", "net"], 4, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com", "net"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     // Every domain match has its Instagram username taken, so none of them
     // qualify as a result — the whole 2x2 pool gets exhausted instead of
@@ -155,7 +164,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     // Without the circuit breaker this would filter every match forever
     // and never reach the target — instead, after a handful of blocked
@@ -172,6 +181,67 @@ describe("runDiscovery", () => {
     ).toBe(true);
   });
 
+  it("does not require (or even check) Instagram availability when requireInstagram is off", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(checkInstagramUsername).mockResolvedValue("taken");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20, {
+      ...ALL_GATES_ON,
+      requireInstagram: false,
+    });
+
+    const found = events.filter((e) => e.type === "found");
+    expect(found.length).toBe(2);
+    // Starts already "disabled" (same path the blocked-streak breaker
+    // drops into at runtime) rather than checking and then ignoring the
+    // result, so it's never called at all.
+    expect(checkInstagramUsername).not.toHaveBeenCalled();
+  });
+
+  it("rejects a candidate that isn't pronounceable", async () => {
+    // "str"+"ngth" and every other combination in this pool has no vowels
+    // at all, so none of them are pronounceable.
+    const pool: WordEntry[] = [
+      { word: "str", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "ngth", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.filter((e) => e.type === "found").length).toBe(0);
+    // Rejected before ever reaching a domain check, same as the niceness gate below.
+    expect(events.filter((e) => e.type === "checking").length).toBe(0);
+  });
+
+  it("does not reject unpronounceable candidates when filterPronounceable is off", async () => {
+    const pool: WordEntry[] = [
+      { word: "str", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "ngth", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, {
+      ...ALL_GATES_ON,
+      filterPronounceable: false,
+    });
+
+    expect(events.filter((e) => e.type === "found").length).toBeGreaterThan(0);
+  });
+
   it("rejects a candidate outright when it doesn't score as a natural-sounding name", async () => {
     // Only "catdog" clears the (mocked) niceness bar; every other
     // combination in this 2x2 pool doesn't, so it should never be checked
@@ -186,7 +256,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const found = events.filter((e) => e.type === "found");
     expect(found.length).toBe(1);
@@ -197,6 +267,65 @@ describe("runDiscovery", () => {
     // out, the same as isPronounceable.
     const checkingNames = events.filter((e) => e.type === "checking").map((e) => e.name);
     expect(checkingNames).toEqual(["catdog.com"]);
+  });
+
+  it("does not reject low-niceness candidates when filterNiceness is off", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(buildNicenessIndex).mockReturnValue({ score: (name) => (name === "catdog" ? 1 : 0) });
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, {
+      ...ALL_GATES_ON,
+      filterNiceness: false,
+    });
+
+    // With the gate off, the low-scoring combinations aren't rejected
+    // outright — all 4 pairings in this 2x2 pool reach a real check.
+    expect(events.filter((e) => e.type === "found").length).toBe(4);
+  });
+
+  it("rejects a candidate that reads as a typo of a common word (no keyword)", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+      { word: "s", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    // "cats" and "scat" both read as a one-letter-off typo of "cat" and get
+    // rejected outright; only "catcat" (not close to either "cat" or "s")
+    // reaches a real check.
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(foundDomains).toEqual(["catcat.com"]);
+  });
+
+  it("does not reject typo-like candidates when filterTypos is off", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+      { word: "s", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, {
+      ...ALL_GATES_ON,
+      filterTypos: false,
+    });
+
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(foundDomains).toEqual(expect.arrayContaining(["cats.com", "scat.com"]));
   });
 
   it("with a keyword, doesn't reject a candidate for merely reading as a typo of the word it's paired with", async () => {
@@ -214,7 +343,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, "c", ["com"], 1, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, "c", ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const found = events.filter((e) => e.type === "found");
     expect(found.length).toBe(1);
@@ -234,7 +363,7 @@ describe("runDiscovery", () => {
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
-    await runDiscovery(pool, "xx", ["com"], 1, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, "xx", ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     const found = events.filter((e) => e.type === "found");
     expect(found.length).toBe(1);
@@ -251,9 +380,31 @@ describe("runDiscovery", () => {
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
     controller.abort();
-    await runDiscovery(pool, undefined, ["com"], 10, (e) => events.push(e), controller.signal, 20);
+    await runDiscovery(pool, undefined, ["com"], 10, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
 
     expect(events.some((e) => e.type === "stopped")).toBe(true);
     expect(events.some((e) => e.type === "complete")).toBe(false);
+  });
+});
+
+describe("parseGates", () => {
+  it("defaults every gate on for an empty/missing query string", () => {
+    expect(parseGates(new URLSearchParams(""))).toEqual(ALL_GATES_ON);
+  });
+
+  it("turns a gate off only when its param is exactly the string 'false'", () => {
+    expect(parseGates(new URLSearchParams("requireInstagram=false"))).toEqual({
+      ...ALL_GATES_ON,
+      requireInstagram: false,
+    });
+    expect(parseGates(new URLSearchParams("filterPronounceable=false&filterTypos=false"))).toEqual({
+      ...ALL_GATES_ON,
+      filterPronounceable: false,
+      filterTypos: false,
+    });
+  });
+
+  it("fails safe (on) for a malformed value rather than silently disabling the gate", () => {
+    expect(parseGates(new URLSearchParams("filterNiceness=nope"))).toEqual(ALL_GATES_ON);
   });
 });

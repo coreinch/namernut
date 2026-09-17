@@ -35,6 +35,36 @@ export type DiscoveryEvent =
   | { type: "stopped"; checkedCount: number }
   | { type: "error"; message: string };
 
+/**
+ * Which of runDiscovery's candidate-rejection gates are actually active —
+ * user-configurable (see the "Filters" section in page.tsx), each
+ * defaulting to true (on) so the out-of-the-box behavior is unchanged from
+ * before these were exposed. Turning a gate off doesn't relax it — it
+ * removes that check entirely, so more candidates (including lower-quality
+ * ones) reach a real domain/Instagram check.
+ */
+export interface DiscoveryGates {
+  /** A result also requires an available Instagram username for the name — see the instagramGateDisabled logic below. */
+  requireInstagram: boolean;
+  /** Reject candidates isPronounceable() flags as unpronounceable. */
+  filterPronounceable: boolean;
+  /** Reject candidates that read as a likely typo of a common word — see typocheck.ts. Only ever applies with no keyword (see worker() below). */
+  filterTypos: boolean;
+  /** Reject candidates with a rare/awkward letter pair — see niceness.ts. Only ever applies with no keyword (see worker() below). */
+  filterNiceness: boolean;
+}
+
+/** Parses the four gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
+export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
+  const on = (key: string) => searchParams.get(key) !== "false";
+  return {
+    requireInstagram: on("requireInstagram"),
+    filterPronounceable: on("filterPronounceable"),
+    filterTypos: on("filterTypos"),
+    filterNiceness: on("filterNiceness"),
+  };
+}
+
 const CONCURRENCY = 4;
 const CHECK_DELAY_MS = 350;
 const RATE_LIMIT_BACKOFF_MS = 5000;
@@ -189,6 +219,7 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * candidate name's length (e.g. modifier+core, or keyword+word) — the
  * dictionary itself spans a range of word lengths, so this is what
  * actually limits how long a result can be, not any per-word restriction.
+ * `gates` toggles each rejection check independently — see DiscoveryGates.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -197,7 +228,8 @@ export async function runDiscovery(
   targetCount: number,
   onEvent: (event: DiscoveryEvent) => void,
   signal: AbortSignal,
-  maxLength: number
+  maxLength: number,
+  gates: DiscoveryGates
 ) {
   const space = buildCandidateSpace(pool, keyword);
   const typoIndex = buildTypoIndex(pool.filter((w) => w.common).map((w) => w.word));
@@ -222,7 +254,11 @@ export async function runDiscovery(
   // and stops gating results — a domain match counts on its own again,
   // same as before Instagram checking existed.
   let instagramBlockedStreak = 0;
-  let instagramGateDisabled = false;
+  // Starting "disabled" when the Instagram gate is turned off reuses the
+  // exact same fallback path the blocked-streak breaker below drops into
+  // once it trips at runtime — a domain match counts on its own, with no
+  // separate code path needed for "never required" vs. "no longer required".
+  let instagramGateDisabled = !gates.requireInstagram;
   // Word concatenation has no separator, so two different underlying word
   // pairs can occasionally produce the identical candidate string (e.g. a
   // 3+4 split landing on the same characters as a different 4+3 split) —
@@ -260,7 +296,7 @@ export async function runDiscovery(
       if (seenNames.has(name)) continue;
       seenNames.add(name);
       if (name.length > maxLength) continue;
-      if (!isPronounceable(name)) continue;
+      if (gates.filterPronounceable && !isPronounceable(name)) continue;
       // Skipped when a keyword is present: both checks judge the whole
       // name as if it were algorithmically generated, but a keyword is a
       // fixed, user-chosen string glued onto a word, not another generated
@@ -270,11 +306,11 @@ export async function runDiscovery(
         // letter off) rather than an intentional invented name — see
         // typocheck.ts for why this is a local dictionary check rather than
         // a live search engine's spelling correction.
-        if (typoIndex.findMatch(name)) continue;
+        if (gates.filterTypos && typoIndex.findMatch(name)) continue;
         // Contains a letter pair that barely occurs anywhere in real English
         // words (e.g. "mw") — reads as clunky rather than a natural-sounding
         // invented name. See niceness.ts.
-        if (nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
+        if (gates.filterNiceness && nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
       }
 
       // Instagram is checked once per name (it has no TLD), lazily — only
