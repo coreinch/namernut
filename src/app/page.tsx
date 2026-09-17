@@ -184,6 +184,16 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-US");
 }
 
+// TODO(affiliate): once we're signed up with Namecheap's affiliate program,
+// tag this URL with whatever tracking it requires. Left as a single named
+// spot rather than guessing now, since the exact mechanism (a query param
+// appended here vs. wrapping the whole URL in a redirect through the
+// affiliate network's own domain, e.g. Awin/CJ) depends on which program we
+// actually join.
+function namecheapRegisterUrl(domain: string): string {
+  return `https://www.namecheap.com/domains/registration/results/?domain=${encodeURIComponent(domain)}`;
+}
+
 export default function Home() {
   const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -542,6 +552,10 @@ export default function Home() {
     window.open(url, "_blank", "noopener,noreferrer");
   }, []);
 
+  const registerDomain = useCallback((entry: FoundEntry) => {
+    window.open(namecheapRegisterUrl(entry.domain), "_blank", "noopener,noreferrer");
+  }, []);
+
   const toggleFavorite = useCallback((entry: FoundEntry) => {
     setFavorites((prev) =>
       prev.some((f) => f.domain === entry.domain)
@@ -795,6 +809,7 @@ export default function Home() {
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                     onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
+                    onRegister={() => registerDomain(entry)}
                   />
                 ))}
                 {isRunning &&
@@ -832,6 +847,7 @@ export default function Home() {
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                     onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
+                    onRegister={() => registerDomain(entry)}
                   />
                 ))}
               </div>
@@ -891,6 +907,7 @@ export default function Home() {
                     onSearch={() => searchDomain(entry)}
                     onToggleFavorite={() => toggleFavorite(entry)}
                     onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
+                    onRegister={() => registerDomain(entry)}
                   />
                 ))}
               </div>
@@ -926,6 +943,7 @@ export default function Home() {
                       onSearch={() => searchDomain(entry)}
                       onToggleFavorite={() => toggleFavorite(entry)}
                       onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
+                      onRegister={() => registerDomain(entry)}
                     />
                   ))}
                 </div>
@@ -969,6 +987,7 @@ function ResultCard({
   onSearch,
   onToggleFavorite,
   onCheckCollision,
+  onRegister,
 }: {
   entry: FoundEntry;
   favorited: boolean;
@@ -976,6 +995,7 @@ function ResultCard({
   onSearch: () => void;
   onToggleFavorite: () => void;
   onCheckCollision: () => void;
+  onRegister: () => void;
 }) {
   return (
     <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-black/15 p-3 transition-colors hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.03]">
@@ -1009,6 +1029,12 @@ function ResultCard({
       </div>
       <span className="text-xs text-black/55 md:text-sm dark:text-white/55">{entry.meaning}</span>
       <CollisionBadge collision={collision} onCheck={onCheckCollision} />
+      <button
+        onClick={onRegister}
+        className={`flex min-h-11 w-full items-center justify-center rounded-lg bg-emerald-600 text-xs font-semibold text-white transition-all active:scale-95 hover:bg-emerald-500 md:text-sm dark:bg-emerald-500 dark:text-black dark:hover:bg-emerald-400 ${FOCUS_RING}`}
+      >
+        Register on Namecheap
+      </button>
     </div>
   );
 }
