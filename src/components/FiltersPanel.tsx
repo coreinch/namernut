@@ -138,15 +138,24 @@ export function FiltersPanel({
             )}
           </div>
 
-          {/* AI generation — two independent, always-visible toggles (never
-              one hiding in place of the other): "AI synonyms" expands the
-              typed keyword into related words to pair with the dictionary
-              (so it's inert with nothing to expand until a keyword exists
-              — shown disabled, not hidden, so that's visible rather than
-              looking like it vanished); "AI-invented names" is a wholly
-              separate mechanism — complete made-up words, no dictionary
-              pairing at all — that works with or without a keyword. */}
+          {/* Name generation — every toggle that widens WHICH candidate
+              names get searched, grouped together and set off from the
+              filters below (which only narrow down candidates the search
+              already generates). Three independent, always-visible toggles
+              (none ever hides in place of another): "AI synonyms" expands
+              the typed keyword into related words to pair with the
+              dictionary (inert with nothing to expand until a keyword
+              exists — shown disabled, not hidden, so it stays visible
+              rather than reading as if it vanished); "AI-invented names" is
+              a wholly separate mechanism — complete made-up words, no
+              dictionary pairing at all — that works with or without a
+              keyword; "Alternate spellings" is a third, non-AI mechanism —
+              deterministic respellings of the keyword, also keyword-gated
+              like AI synonyms. */}
           <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/40 dark:text-white/40">
+              Name generation
+            </span>
             <div className="flex flex-col gap-1">
               <GateToggle
                 label="AI synonyms"
@@ -264,6 +273,9 @@ export function FiltersPanel({
           </div>
 
           <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-black/40 dark:text-white/40">
+              Filters
+            </span>
             <GateToggle
               label="Require Instagram handle"
               checked={gates.requireInstagram}
