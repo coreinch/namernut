@@ -94,6 +94,7 @@ interface PersistedState {
   enabledLangs: Record<Lang, boolean>;
   enabledTlds: Record<Tld, boolean>;
   maxLength: number;
+  resultCount: number;
   keywordInput: string;
   gates: DiscoveryGates;
   autoRank: boolean;
@@ -129,12 +130,25 @@ interface DictionaryStats {
 type RunStatus = "idle" | "running" | "stopped" | "found" | "error";
 
 const MAX_LOG_ENTRIES = 200;
-const BATCH_SIZE = 12;
+// Must stay in sync with parseCount's own clamp in src/lib/candidates.ts
+// (same duplicate-rather-than-import reasoning as TLDS/MIN_COMBINED_LENGTH
+// above).
+const MIN_RESULT_COUNT = 1;
+const MAX_RESULT_COUNT = 30;
+const DEFAULT_RESULT_COUNT = 12;
 
 // Consistent keyboard-focus styling for every interactive element, so tab
 // navigation reads as one deliberate system instead of the browser default.
 const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+
+// Shared by the header, main content, and footer's inner wrappers so all
+// three stay center-aligned to the same column at every width — grows a
+// little on larger screens (rather than staying fixed at max-w-2xl
+// forever) so the result-card grid isn't stuck at a mobile-era width on an
+// actual desktop monitor, but still caps out well short of full-bleed so
+// text never has to stretch across the whole screen to be read.
+const CONTENT_WIDTH = "max-w-2xl lg:max-w-3xl xl:max-w-4xl";
 
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or
 // localhost) — this app is also used over plain HTTP on a LAN (e.g.
@@ -211,6 +225,7 @@ export default function Home() {
     Object.fromEntries(TLDS.map((t) => [t, t === "com"])) as Record<Tld, boolean>
   );
   const [maxLength, setMaxLength] = useState(DEFAULT_COMBINED_LENGTH);
+  const [resultCount, setResultCount] = useState(DEFAULT_RESULT_COUNT);
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   // Off by default: the rankability check (see checkCollisionFor) hits a
@@ -320,6 +335,9 @@ export default function Home() {
       if (typeof parsed.maxLength === "number") {
         setMaxLength(Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, parsed.maxLength)));
       }
+      if (typeof parsed.resultCount === "number") {
+        setResultCount(Math.min(MAX_RESULT_COUNT, Math.max(MIN_RESULT_COUNT, Math.trunc(parsed.resultCount))));
+      }
       if (typeof parsed.keywordInput === "string") setKeywordInput(parsed.keywordInput);
       // Merged over the defaults (rather than replacing wholesale) so a
       // state persisted before a given gate existed — including every
@@ -353,6 +371,7 @@ export default function Home() {
         enabledLangs,
         enabledTlds,
         maxLength,
+        resultCount,
         keywordInput,
         gates,
         autoRank,
@@ -370,6 +389,7 @@ export default function Home() {
     enabledLangs,
     enabledTlds,
     maxLength,
+    resultCount,
     keywordInput,
     gates,
     autoRank,
@@ -468,7 +488,7 @@ export default function Home() {
 
     try {
       const res = await fetch(
-        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${BATCH_SIZE}` +
+        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${resultCount}` +
           `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}`,
@@ -582,6 +602,7 @@ export default function Home() {
     resolveLog,
     langsParam,
     maxLength,
+    resultCount,
     keywordParam,
     tldsParam,
     gates,
@@ -620,7 +641,7 @@ export default function Home() {
 
   const isRunning = runStatus === "running";
   const primaryLabel = isRunning
-    ? `Searching… (${currentRunFound}/${BATCH_SIZE})`
+    ? `Searching… (${currentRunFound}/${resultCount})`
     : runStatus === "idle"
       ? "Start discovery"
       : "Search again";
@@ -632,7 +653,7 @@ export default function Home() {
   // appends after it — instead of reshuffling the whole grid every find.
   const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
   // Shown in place of an empty screen on load (see the render below): the
-  // best BATCH_SIZE previously-scored results, so returning to an idle app
+  // best resultCount previously-scored results, so returning to an idle app
   // still has something to look at instead of nothing until you search
   // again. Only counts entries actually scored via "Rank" — an unscored
   // result isn't "top" anything, it's just unmeasured, so this stays empty
@@ -641,7 +662,7 @@ export default function Home() {
     .filter((e) => e.runId !== activeRunId && e.rankabilityScore !== undefined)
     .slice()
     .sort((a, b) => (b.rankabilityScore ?? 0) - (a.rankabilityScore ?? 0))
-    .slice(0, BATCH_SIZE);
+    .slice(0, resultCount);
   const topResultIds = new Set(topResults.map((e) => e.id));
   // Ranked best-first (highest rankabilityScore — easiest to actually rank
   // #1 for — at the top), unlike currentRunResults above which preserves
@@ -661,7 +682,7 @@ export default function Home() {
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       {/* Top app bar */}
       <header className="shrink-0 border-b border-black/15 bg-background/80 px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-3 backdrop-blur-md dark:border-white/15">
-        <div className="flex items-center gap-3">
+        <div className={`mx-auto flex w-full items-center gap-3 ${CONTENT_WIDTH}`}>
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold tracking-tight">Namerag</h1>
             <p className="truncate text-xs text-black/65 dark:text-white/65">
@@ -678,7 +699,7 @@ export default function Home() {
       <main
         className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
       >
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
+        <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH}`}>
           {/* 1. SEARCH CONFIGURATION — collapsed by default (same pattern
               as "Previous results"/"More TLDs" below): the defaults are
               good enough that most searches never need to touch this, so
@@ -688,10 +709,15 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setShowFilters((v) => !v)}
-            className={`flex min-h-11 items-center justify-between rounded-xl border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
+            className={`flex min-h-11 items-start gap-2 rounded-xl border border-dashed border-black/20 px-3.5 py-2.5 text-left text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
           >
-            <span className="truncate">
-              Filters · {maxLength} chars ·{" "}
+            {/* Wraps rather than truncating — on a narrow screen with a
+                keyword set, a single-line ellipsis was cutting off
+                whichever settings came last (often the keyword itself),
+                hiding them with no way to see them without opening the
+                whole panel. */}
+            <span className="min-w-0 flex-1">
+              Filters · {resultCount} results · {maxLength} chars ·{" "}
               {selectedTlds.length === 1 ? `.${selectedTlds[0]}` : `${selectedTlds.length} TLDs`}
               {stats && ` · ${formatNumber(stats.totalCombinations)} combinations`}
               {keywordParam && ` · "${keywordParam}"`}
@@ -800,6 +826,23 @@ export default function Home() {
                 </p>
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
+                  <span>Results to find</span>
+                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">{resultCount}</span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_RESULT_COUNT}
+                  max={MAX_RESULT_COUNT}
+                  step={1}
+                  value={resultCount}
+                  onChange={(e) => setResultCount(Number(e.target.value))}
+                  aria-label="Number of available results to find"
+                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
+                />
+              </div>
+
               <div className="flex flex-wrap gap-2">
                 {visibleTlds.map((tld) => (
                   <button
@@ -882,7 +925,7 @@ export default function Home() {
                 <div className="flex items-baseline gap-2">
                   {isRunning && (
                     <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
-                      {currentRunFound}/{BATCH_SIZE}
+                      {currentRunFound}/{resultCount}
                     </span>
                   )}
                 </div>
@@ -898,7 +941,7 @@ export default function Home() {
                   {aiInventedWords.join(", ")}
                 </p>
               )}
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
                 {currentRunResults.map((entry) => (
                   <ResultCard
                     key={entry.id}
@@ -917,7 +960,7 @@ export default function Home() {
                   />
                 ))}
                 {isRunning &&
-                  Array.from({ length: Math.max(0, BATCH_SIZE - currentRunResults.length) }).map((_, i) => (
+                  Array.from({ length: Math.max(0, resultCount - currentRunResults.length) }).map((_, i) => (
                     <div
                       key={`pending-${i}`}
                       className="h-[76px] animate-pulse rounded-xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
@@ -929,14 +972,14 @@ export default function Home() {
 
           {/* Top ranked — fills the same slot as "Available domains" once
               there's no live run to show, so loading the app isn't an
-              empty screen until you search again: the best BATCH_SIZE
+              empty screen until you search again: the best resultCount
               already-scored results from history, ranked best-first. */}
           {currentRunResults.length === 0 && !isRunning && topResults.length > 0 && (
             <section className="flex flex-col gap-2">
               <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                 Top ranked
               </h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
                 {topResults.map((entry) => (
                   <ResultCard
                     key={entry.id}
@@ -996,7 +1039,7 @@ export default function Home() {
               <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                 Favorites
               </h2>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
                 {favorites.map((entry) => (
                   <ResultCard
                     key={entry.id}
@@ -1032,7 +1075,7 @@ export default function Home() {
                 <span>{showPreviousResults ? "▲" : "▾"}</span>
               </button>
               {showPreviousResults && (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
                   {previousResults.map((entry) => (
                     <ResultCard
                       key={entry.id}
@@ -1059,7 +1102,7 @@ export default function Home() {
 
       {/* Bottom action bar */}
       <footer className="shrink-0 border-t border-black/15 bg-background/80 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] backdrop-blur-md dark:border-white/15">
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-2">
+        <div className={`mx-auto flex w-full flex-col gap-2 ${CONTENT_WIDTH}`}>
           {isRunning ? (
             <button
               onClick={stop}
