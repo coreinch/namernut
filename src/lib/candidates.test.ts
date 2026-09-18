@@ -223,6 +223,39 @@ describe("buildCandidateSpace (with keyword and AI synonyms)", () => {
   });
 });
 
+describe("buildCandidateSpace (with keyword and alternate spellings)", () => {
+  const space = buildCandidateSpace(pool, "nova", [], [], ["novva"]);
+
+  it("adds one keyword-shaped tier per alternate spelling, on top of the literal keyword tier", () => {
+    expect(space.tiers.length).toBe(2);
+    expect(space.tiers[0].total).toBe(2 * pool.length);
+    expect(space.tiers[1].total).toBe(2 * pool.length);
+  });
+
+  it("the alt-spelling tier pairs the respelling itself, not the literal keyword", () => {
+    const names = new Set(allNames({ tiers: [space.tiers[0]] }));
+    expect(names).toEqual(new Set(["novvacat", "novvadog", "novvarex", "catnovva", "dognovva", "rexnovva"]));
+  });
+
+  it("labels an alt-spelling candidate's meaning as a respelling of the original keyword, not the bare respelling", () => {
+    expect(space.tiers[0].candidateAt(0)).toEqual({
+      name: "novvacat",
+      meaning: 'novva (alt spelling of "nova") · cat: a small domesticated animal',
+      parts: ["novva", "cat"],
+    });
+  });
+
+  it("combines with AI synonyms as independent, additional tiers rather than replacing them", () => {
+    const combined = buildCandidateSpace(pool, "nova", ["blaze"], [], ["novva"]);
+    expect(combined.tiers.length).toBe(3); // synonym tier + alt-spelling tier + literal keyword tier
+  });
+
+  it("with no alt spellings passed, behaves exactly like the keyword-only case", () => {
+    expect(buildCandidateSpace(pool, "nova", [], [], []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+  });
+});
+
 describe("buildCandidateSpace (AI-invented names)", () => {
   it("adds one extra tier, independent of whether there's a keyword, ahead of the dictionary-pairing tier(s)", () => {
     // Prepended (tiers[0]), not appended — see buildCandidateSpace's

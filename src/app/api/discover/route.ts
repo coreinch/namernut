@@ -3,6 +3,7 @@ import { getSelectedPool, parseLangs, parseMaxLength } from "@/lib/dictionary";
 import { parseCount, parseKeyword, parseTlds } from "@/lib/candidates";
 import { suggestKeywordSynonyms } from "@/lib/synonyms";
 import { suggestInventedNames } from "@/lib/inventedNames";
+import { alternateSpellings } from "@/lib/alternateSpelling";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,13 @@ export async function GET(request: Request) {
   const gates = parseGates(searchParams);
   const useAiSynonyms = searchParams.get("aiSynonyms") !== "false";
   const useAiInvented = searchParams.get("aiInvented") !== "false";
+  // Opposite default polarity from the two AI toggles above: this is
+  // opt-in (absent/malformed input means off), since it's a newer, less
+  // proven candidate source. No LLM call behind it, though (see
+  // alternateSpellings in lib/alternateSpelling.ts), so it's computed
+  // synchronously below rather than joining the Promise.all AI-fetch below.
+  const useAltSpellings = searchParams.get("altSpellings") === "true";
+  const altSpellings = keyword && useAltSpellings ? alternateSpellings(keyword) : [];
   const willFetchSynonyms = Boolean(keyword && useAiSynonyms);
   const willFetchInvented = useAiInvented;
 
@@ -85,7 +93,19 @@ export async function GET(request: Request) {
         return;
       }
 
-      runDiscovery(pool, keyword, tlds, count, emit, abortController.signal, maxLength, gates, aiSynonyms, inventedNames).finally(() => {
+      runDiscovery(
+        pool,
+        keyword,
+        tlds,
+        count,
+        emit,
+        abortController.signal,
+        maxLength,
+        gates,
+        aiSynonyms,
+        inventedNames,
+        altSpellings
+      ).finally(() => {
         if (heartbeat) clearInterval(heartbeat);
         try {
           controller.close();

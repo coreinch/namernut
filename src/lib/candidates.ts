@@ -123,7 +123,12 @@ interface KeywordTierSpec {
 // of routing it through this selection.
 
 /** Picks which tier(s) buildCandidateSpace/countCandidatesWithinLength search for the dictionary-pairing/keyword-synonym part of the space — see buildCandidateSpace's doc comment for the selection rules. Shared so the two stay in sync by construction rather than by convention. Never returns an "invented" spec itself — buildCandidateSpace appends that separately, since AI-invented names are independent of whether there's a keyword at all. */
-function selectTierSpecs(pool: WordEntry[], keyword?: string, aiSynonyms: string[] = []): (PairTierSpec | KeywordTierSpec)[] {
+function selectTierSpecs(
+  pool: WordEntry[],
+  keyword?: string,
+  aiSynonyms: string[] = [],
+  altSpellings: string[] = []
+): (PairTierSpec | KeywordTierSpec)[] {
   if (!keyword) {
     const modifiers = pool.filter((w) => isModifier(w.word, w.langs));
     // Not just "isn't a modifier" — a word can be neither a usable
@@ -177,6 +182,18 @@ function selectTierSpecs(pool: WordEntry[], keyword?: string, aiSynonyms: string
         label: `${synonym} (AI idea for "${keyword}")`,
       })
     ),
+    // Deterministic respellings of the literal keyword itself (see
+    // lib/alternateSpelling.ts) — same keyword-tier shape as an AI synonym,
+    // just a different label so a result never reads as if it came from the
+    // AI-suggestion mechanism when it didn't (no LLM call involved at all).
+    ...altSpellings.map(
+      (spelling): KeywordTierSpec => ({
+        kind: "keyword",
+        words,
+        keyword: spelling,
+        label: `${spelling} (alt spelling of "${keyword}")`,
+      })
+    ),
     { kind: "keyword", words, keyword, label: keyword },
   ];
 }
@@ -200,9 +217,10 @@ export function buildCandidateSpace(
   pool: WordEntry[],
   keyword?: string,
   aiSynonyms: string[] = [],
-  inventedNames: string[] = []
+  inventedNames: string[] = [],
+  altSpellings: string[] = []
 ): CandidateSpace {
-  const tiers = selectTierSpecs(pool, keyword, aiSynonyms).map((spec) =>
+  const tiers = selectTierSpecs(pool, keyword, aiSynonyms, altSpellings).map((spec) =>
     spec.kind === "pair"
       ? buildPairTier(spec.rows, spec.cols, spec.makeCandidate)
       : buildKeywordTier(spec.words, spec.keyword, spec.label)

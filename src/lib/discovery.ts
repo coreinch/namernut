@@ -30,6 +30,12 @@ export type DiscoveryEvent =
   // lib/inventedNames.ts — a distinct event since these are complete
   // standalone candidate names, not halves paired with a dictionary word.
   | { type: "invented"; words: string[] }
+  // Same posture again, but for alternateSpellings in
+  // lib/alternateSpelling.ts — deterministic respellings of the literal
+  // keyword (e.g. "lyft" for "lift"), not an AI suggestion at all. Emitted
+  // synchronously (no "preparing" wait needed, since there's no LLM call
+  // behind it) once runDiscovery starts, only when the list is non-empty.
+  | { type: "altSpellings"; words: string[] }
   | { type: "checking"; name: string; checkedCount: number }
   | { type: "taken"; name: string; checkedCount: number }
   | { type: "unknown"; name: string; checkedCount: number }
@@ -251,6 +257,9 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * whether or not there's a keyword at all. Every candidate from either
  * tier still passes through the exact same maxLength/gates checks below
  * as any other candidate — neither is special-cased in the worker loop.
+ * `altSpellings` (only ever meaningful alongside `keyword`, like
+ * aiSynonyms) adds one keyword-shaped tier per deterministic respelling of
+ * the literal keyword — see alternateSpellings in lib/alternateSpelling.ts.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -262,11 +271,13 @@ export async function runDiscovery(
   maxLength: number,
   gates: DiscoveryGates,
   aiSynonyms: string[] = [],
-  inventedNames: string[] = []
+  inventedNames: string[] = [],
+  altSpellings: string[] = []
 ) {
-  const space = buildCandidateSpace(pool, keyword, aiSynonyms, inventedNames);
+  const space = buildCandidateSpace(pool, keyword, aiSynonyms, inventedNames, altSpellings);
   if (aiSynonyms.length > 0) onEvent({ type: "synonyms", words: aiSynonyms });
   if (inventedNames.length > 0) onEvent({ type: "invented", words: inventedNames });
+  if (altSpellings.length > 0) onEvent({ type: "altSpellings", words: altSpellings });
   const typoIndex = buildTypoIndex(pool.filter((w) => w.common).map((w) => w.word));
   const nicenessIndex = buildNicenessIndex(pool.map((w) => w.word));
   const seed = crypto.randomInt(0, 2 ** 31);

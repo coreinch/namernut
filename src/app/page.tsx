@@ -36,6 +36,7 @@ interface PersistedState {
   autoRank: boolean;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
+  useAltSpellings: boolean;
 }
 
 // A type-only import, so (unlike TLDS/MIN_COMBINED_LENGTH above) this
@@ -157,6 +158,14 @@ export default function Home() {
   // typed at all: see suggestInventedNames in lib/inventedNames.ts.
   const [useAiInvented, setUseAiInvented] = useState(true);
   const [aiInventedWords, setAiInventedWords] = useState<string[]>([]);
+  // Off by default — opposite polarity from the two AI toggles above. Not
+  // because it costs anything (it's a deterministic regex respelling of
+  // the keyword, see lib/alternateSpelling.ts, no LLM call at all) but
+  // because it's a newer, less-proven candidate source that can produce
+  // odd-looking names (e.g. "kool" for "cool") — opt-in rather than
+  // assumed wanted. Only ever meaningful when a keyword is typed.
+  const [useAltSpellings, setUseAltSpellings] = useState(false);
+  const [altSpellingWords, setAltSpellingWords] = useState<string[]>([]);
   // True from the moment the server's "preparing" event arrives (see
   // DiscoveryEvent in lib/discovery.ts) until the first real event —
   // "synonyms"/"invented" or the first "checking" — closes the otherwise
@@ -264,6 +273,7 @@ export default function Home() {
       if (typeof parsed.autoRank === "boolean") setAutoRank(parsed.autoRank);
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
+      if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
       if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
@@ -293,6 +303,7 @@ export default function Home() {
         autoRank,
         useAiSynonyms,
         useAiInvented,
+        useAltSpellings,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -311,6 +322,7 @@ export default function Home() {
     autoRank,
     useAiSynonyms,
     useAiInvented,
+    useAltSpellings,
   ]);
 
   useEffect(() => {
@@ -399,6 +411,7 @@ export default function Home() {
     setLog([]);
     setAiSynonymWords([]);
     setAiInventedWords([]);
+    setAltSpellingWords([]);
     setGettingIdeas(false);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -408,7 +421,7 @@ export default function Home() {
         `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${resultCount}` +
           `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
-          `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}`,
+          `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
         { signal: controller.signal }
       );
       if (!res.body) throw new Error("No response stream");
@@ -444,6 +457,9 @@ export default function Home() {
               break;
             case "invented":
               setAiInventedWords(event.words);
+              break;
+            case "altSpellings":
+              setAltSpellingWords(event.words);
               break;
             case "checking":
               addChecking(event.name);
@@ -539,6 +555,7 @@ export default function Home() {
     checkCollisionFor,
     useAiSynonyms,
     useAiInvented,
+    useAltSpellings,
   ]);
 
   const stop = useCallback(() => {
@@ -630,6 +647,8 @@ export default function Home() {
             onUseAiSynonymsChange={setUseAiSynonyms}
             useAiInvented={useAiInvented}
             onUseAiInventedChange={setUseAiInvented}
+            useAltSpellings={useAltSpellings}
+            onUseAltSpellingsChange={setUseAltSpellings}
             maxLength={maxLength}
             onMaxLengthChange={setMaxLength}
             resultCount={resultCount}
@@ -682,6 +701,11 @@ export default function Home() {
                 <p className="text-xs text-black/45 dark:text-white/45">
                   Also searching AI-invented name{aiInventedWords.length === 1 ? "" : "s"}:{" "}
                   {aiInventedWords.join(", ")}
+                </p>
+              )}
+              {altSpellingWords.length > 0 && (
+                <p className="text-xs text-black/45 dark:text-white/45">
+                  Also searching alt spelling{altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
                 </p>
               )}
               <ResultsGrid

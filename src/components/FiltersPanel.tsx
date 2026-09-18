@@ -35,6 +35,8 @@ export function FiltersPanel({
   onUseAiSynonymsChange,
   useAiInvented,
   onUseAiInventedChange,
+  useAltSpellings,
+  onUseAltSpellingsChange,
   maxLength,
   onMaxLengthChange,
   resultCount,
@@ -60,6 +62,8 @@ export function FiltersPanel({
   onUseAiSynonymsChange: (value: boolean) => void;
   useAiInvented: boolean;
   onUseAiInventedChange: (value: boolean) => void;
+  useAltSpellings: boolean;
+  onUseAltSpellingsChange: (value: boolean) => void;
   maxLength: number;
   onMaxLengthChange: (value: number) => void;
   resultCount: number;
@@ -168,6 +172,24 @@ export function FiltersPanel({
                 Also searches fully AI-invented brandable words (like &ldquo;Zuvio&rdquo; or &ldquo;Fovixia&rdquo;) —
                 not built from any dictionary word.
                 {keywordParam && ` Themed around "${keywordParam}" since it's typed above.`}
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <GateToggle
+                label="Alternate spellings"
+                checked={useAltSpellings}
+                onChange={onUseAltSpellingsChange}
+                disabled={!keywordParam}
+              />
+              <p className="text-xs text-black/45 dark:text-white/45">
+                {keywordParam ? (
+                  <>
+                    Also pairs the dictionary with respellings of &ldquo;{keywordParam}&rdquo; (e.g. &ldquo;lyft&rdquo;
+                    for &ldquo;lift&rdquo;) — a deterministic rule, not AI, so it costs nothing extra to turn on.
+                  </>
+                ) : (
+                  "Type a keyword above to enable — respells it (e.g. “lyft” for “lift”), no AI involved."
+                )}
               </p>
             </div>
           </div>

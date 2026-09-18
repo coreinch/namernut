@@ -515,6 +515,53 @@ describe("runDiscovery", () => {
 
     expect(events.some((e) => e.type === "invented")).toBe(false);
   });
+
+  it("widens the candidate space with alternate-spelling tiers and announces them via an 'altSpellings' event", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      "nova",
+      ["com"],
+      4,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON,
+      [],
+      [],
+      ["novva"]
+    );
+
+    expect(events[0]).toEqual({ type: "altSpellings", words: ["novva"] });
+
+    // The literal keyword ("nova") and its respelling ("novva") both
+    // search — the alt-spelling tier is additive, not a replacement.
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(new Set(foundDomains)).toEqual(
+      new Set(["novacat.com", "catnova.com", "novvacat.com", "catnovva.com"])
+    );
+  });
+
+  it("does not emit an 'altSpellings' event when there are no alternate spellings", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, "nova", ["com"], 2, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.some((e) => e.type === "altSpellings")).toBe(false);
+  });
 });
 
 describe("parseGates", () => {
