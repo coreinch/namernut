@@ -3,59 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiscoveryGates } from "@/lib/discovery";
 import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
-import { FOCUS_RING } from "@/components/constants";
-import { ResultCard } from "@/components/ResultCard";
-import { GateToggle } from "@/components/GateToggle";
-import { StatusBadge } from "@/components/StatusBadge";
-import { LogDot, LOG_STATUS_LABEL } from "@/components/LogDot";
-
-// English only — Latin/Esperanto/French/Spanish were dropped (no
-// WordNet-equivalent lexicon source existed for them). Kept as a Lang
-// union/array of one, matching the shape src/lib/dictionary.ts and
-// src/lib/modifiers.ts use, rather than special-casing a bare string.
-type Lang = "english";
-const LANGS: Lang[] = ["english"];
-
-// Kept as a small local literal (not imported from the server-side lib)
-// so this client bundle doesn't pull in the dictionary data file. Ordered
-// by real-world popularity — must stay in sync with SUPPORTED_TLDS in
-// src/lib/candidates.ts. The first PRIMARY_TLD_COUNT show by default; the
-// rest fold behind a "More" toggle.
-const TLDS = [
-  "com",
-  "net",
-  "org",
-  "io",
-  "co",
-  "ai",
-  "xyz",
-  "app",
-  "dev",
-  "uk",
-  "me",
-  "us",
-  "de",
-  "eu",
-  "info",
-  "shop",
-  "tech",
-  "club",
-  "biz",
-  "cloud",
-  "name",
-] as const;
-type Tld = (typeof TLDS)[number];
-const PRIMARY_TLD_COUNT = 6;
-
-// Must stay in sync with MIN/MAX/DEFAULT_COMBINED_LENGTH in
-// src/lib/dictionary.ts (same reasoning as TLDS above: duplicated locally
-// rather than imported, so this client bundle doesn't pull in the
-// dictionary data file). The max accounts for the keyword path (a 15-char
-// keyword plus an 8-letter word, rounded up to 24); the min and default
-// favor output quality over the shortest theoretically possible pairing.
-const MIN_COMBINED_LENGTH = 5;
-const MAX_COMBINED_LENGTH = 24;
-const DEFAULT_COMBINED_LENGTH = 8;
+import {
+  DEFAULT_COMBINED_LENGTH,
+  DEFAULT_RESULT_COUNT,
+  LANGS,
+  MAX_COMBINED_LENGTH,
+  MAX_RESULT_COUNT,
+  MIN_COMBINED_LENGTH,
+  MIN_RESULT_COUNT,
+  PRIMARY_TLD_COUNT,
+  TLDS,
+  type DictionaryStats,
+  type Lang,
+  type Tld,
+} from "@/lib/searchConfig";
+import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
+import { Header } from "@/components/Header";
+import { Footer } from "@/components/Footer";
+import { FiltersPanel } from "@/components/FiltersPanel";
+import { ResultsGrid } from "@/components/ResultsGrid";
+import { LiveLogSection } from "@/components/LiveLogSection";
 
 interface PersistedState {
   foundHistory: FoundEntry[];
@@ -90,27 +57,7 @@ const STORAGE_KEY = "namerag:state:v1";
 // instead of silently becoming unreachable under the new key.
 const LEGACY_STORAGE_KEY = "domain-finder:state:v1";
 
-interface DictionaryStats {
-  english: number;
-  combinedUnique: number;
-  totalCombinations: number;
-}
-
 const MAX_LOG_ENTRIES = 200;
-// Must stay in sync with parseCount's own clamp in src/lib/candidates.ts
-// (same duplicate-rather-than-import reasoning as TLDS/MIN_COMBINED_LENGTH
-// above).
-const MIN_RESULT_COUNT = 1;
-const MAX_RESULT_COUNT = 30;
-const DEFAULT_RESULT_COUNT = 12;
-
-// Shared by the header, main content, and footer's inner wrappers so all
-// three stay center-aligned to the same column at every width — grows a
-// little on larger screens (rather than staying fixed at max-w-2xl
-// forever) so the result-card grid isn't stuck at a mobile-era width on an
-// actual desktop monitor, but still caps out well short of full-bleed so
-// text never has to stretch across the whole screen to be read.
-const CONTENT_WIDTH = "max-w-2xl lg:max-w-3xl xl:max-w-4xl";
 
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or
 // localhost) — this app is also used over plain HTTP on a LAN (e.g.
@@ -663,241 +610,47 @@ export default function Home() {
     .slice()
     .sort((a, b) => (b.rankabilityScore ?? -1) - (a.rankabilityScore ?? -1));
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
+  const subtitle = `AI rankability scores · ${selectedTlds.map((t) => `.${t}`).join(" ")}`;
+  const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      {/* Top app bar */}
-      <header className="shrink-0 border-b border-black/15 bg-background/80 px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-3 backdrop-blur-md dark:border-white/15">
-        <div className={`mx-auto flex w-full items-center gap-3 ${CONTENT_WIDTH}`}>
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold tracking-tight">Namerag</h1>
-            <p className="truncate text-xs text-black/65 dark:text-white/65">
-              AI rankability scores · {selectedTlds.map((t) => `.${t}`).join(" ")}
-            </p>
-          </div>
-          <div className="ml-auto shrink-0">
-            <StatusBadge status={runStatus} />
-          </div>
-        </div>
-      </header>
+      <Header status={runStatus} subtitle={subtitle} />
 
-      {/* Scrollable content */}
-      <main
-        className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4"
-      >
+      <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH}`}>
-          {/* 1. SEARCH CONFIGURATION — collapsed by default (same pattern
-              as "Previous results"/"More TLDs" below): the defaults are
-              good enough that most searches never need to touch this, so
-              it shouldn't cost a screenful of controls on every load. The
-              closed toggle summarizes the settings that are actually in
-              effect, so nothing is hidden without a trace. */}
-          <button
-            type="button"
-            onClick={() => setShowFilters((v) => !v)}
-            className={`flex min-h-11 items-start gap-2 rounded-xl border border-dashed border-black/20 px-3.5 py-2.5 text-left text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-          >
-            {/* Wraps rather than truncating — on a narrow screen with a
-                keyword set, a single-line ellipsis was cutting off
-                whichever settings came last (often the keyword itself),
-                hiding them with no way to see them without opening the
-                whole panel. */}
-            <span className="min-w-0 flex-1">
-              Filters · {resultCount} results · {maxLength} chars ·{" "}
-              {selectedTlds.length === 1 ? `.${selectedTlds[0]}` : `${selectedTlds.length} TLDs`}
-              {stats && ` · ${formatNumber(stats.totalCombinations)} combinations`}
-              {keywordParam && ` · "${keywordParam}"`}
-            </span>
-            <span className="shrink-0">{showFilters ? "▲" : "▾"}</span>
-          </button>
-          {showFilters && !stats && (
-            <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15" aria-hidden="true">
-              <div className="h-4 w-32 animate-pulse rounded bg-black/5 dark:bg-white/5" />
-              <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
-              <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
-            </section>
-          )}
-          {showFilters && stats && (
-            <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15">
-              <div className="flex flex-col gap-2">
-                <div className="relative">
-                  <input
-                    type="text"
-                    inputMode="text"
-                    value={keywordInput}
-                    onChange={(e) => setKeywordInput(e.target.value)}
-                    placeholder="Include a word (optional), e.g. nova"
-                    maxLength={20}
-                    className={`min-h-12 w-full rounded-xl border border-black/15 bg-transparent px-4 text-base outline-none transition-colors placeholder:text-black/45 focus:border-emerald-500/50 dark:border-white/15 dark:placeholder:text-white/45 ${FOCUS_RING}`}
-                  />
-                  {keywordInput && (
-                    <button
-                      type="button"
-                      onClick={() => setKeywordInput("")}
-                      aria-label="Clear keyword"
-                      className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-black/55 transition-colors hover:bg-black/5 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                {keywordParam && (
-                  <p className="text-xs text-black/55 dark:text-white/55">
-                    Every result will include &ldquo;{keywordParam}&rdquo;.
-                  </p>
-                )}
-              </div>
-
-              {/* AI generation — two independent, always-visible toggles
-                  (never one hiding in place of the other): "AI synonyms"
-                  expands the typed keyword into related words to pair with
-                  the dictionary (so it's inert with nothing to expand until
-                  a keyword exists — shown disabled, not hidden, so that's
-                  visible rather than looking like it vanished); "AI-invented
-                  names" is a wholly separate mechanism — complete made-up
-                  words, no dictionary pairing at all — that works with or
-                  without a keyword. */}
-              <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
-                <div className="flex flex-col gap-1">
-                  <GateToggle
-                    label="AI synonyms"
-                    checked={useAiSynonyms}
-                    onChange={setUseAiSynonyms}
-                    disabled={!keywordParam}
-                  />
-                  <p className="text-xs text-black/45 dark:text-white/45">
-                    {keywordParam ? (
-                      <>
-                        Also pairs the dictionary with AI-suggested synonyms of &ldquo;{keywordParam}&rdquo; (e.g.
-                        &ldquo;blaze&rdquo; for &ldquo;fast&rdquo;) — dictionary pairing on the literal word always
-                        runs either way, this only adds more to it.
-                      </>
-                    ) : (
-                      "Type a keyword above to enable — expands it into related words to pair with the dictionary."
-                    )}
-                  </p>
-                </div>
-                <div className="flex flex-col gap-1">
-                  <GateToggle label="AI-invented names" checked={useAiInvented} onChange={setUseAiInvented} />
-                  <p className="text-xs text-black/45 dark:text-white/45">
-                    Also searches fully AI-invented brandable words (like &ldquo;Zuvio&rdquo; or &ldquo;Fovixia&rdquo;)
-                    — not built from any dictionary word.
-                    {keywordParam && ` Themed around "${keywordParam}" since it's typed above.`}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
-                  <span>Max combination length</span>
-                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                    {maxLength} characters
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={MIN_COMBINED_LENGTH}
-                  max={MAX_COMBINED_LENGTH}
-                  step={1}
-                  value={maxLength}
-                  onChange={(e) => setMaxLength(Number(e.target.value))}
-                  aria-label="Maximum combined result length"
-                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
-                />
-                <p className="text-xs text-black/55 dark:text-white/55">
-                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                    {formatNumber(stats.totalCombinations)}
-                  </span>{" "}
-                  possible combinations at this length
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
-                  <span>Results to find</span>
-                  <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">{resultCount}</span>
-                </div>
-                <input
-                  type="range"
-                  min={MIN_RESULT_COUNT}
-                  max={MAX_RESULT_COUNT}
-                  step={1}
-                  value={resultCount}
-                  onChange={(e) => setResultCount(Number(e.target.value))}
-                  aria-label="Number of available results to find"
-                  className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {visibleTlds.map((tld) => (
-                  <button
-                    key={tld}
-                    type="button"
-                    onClick={() => toggleTld(tld)}
-                    aria-pressed={enabledTlds[tld]}
-                    className={`min-h-11 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
-                      enabledTlds[tld]
-                        ? "border-emerald-500/40 bg-emerald-500/10 font-medium text-emerald-700 dark:text-emerald-300"
-                        : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
-                    }`}
-                  >
-                    .{tld}
-                  </button>
-                ))}
-                {TLDS.length > PRIMARY_TLD_COUNT && (
-                  <button
-                    type="button"
-                    onClick={() => setShowMoreTlds((v) => !v)}
-                    className={`min-h-11 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-                  >
-                    {effectiveShowMoreTlds ? "Less ▲" : `More ▾`}
-                  </button>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-                <GateToggle
-                  label="Require Instagram handle"
-                  checked={gates.requireInstagram}
-                  onChange={(v) => setGates((g) => ({ ...g, requireInstagram: v }))}
-                />
-                <GateToggle
-                  label="Pronounceable only"
-                  checked={gates.filterPronounceable}
-                  onChange={(v) => setGates((g) => ({ ...g, filterPronounceable: v }))}
-                />
-                <GateToggle
-                  label="Skip typo-like names"
-                  checked={gates.filterTypos}
-                  onChange={(v) => setGates((g) => ({ ...g, filterTypos: v }))}
-                />
-                <GateToggle
-                  label="Skip awkward names"
-                  checked={gates.filterNiceness}
-                  onChange={(v) => setGates((g) => ({ ...g, filterNiceness: v }))}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-                <GateToggle label="Auto-check rankability" checked={autoRank} onChange={setAutoRank} />
-                <p className="text-xs text-black/45 dark:text-white/45">
-                  Runs the paid AI rankability check on every result found, not just the ones you pick — off by
-                  default to avoid the extra cost.
-                </p>
-              </div>
-            </section>
-          )}
+          <FiltersPanel
+            showFilters={showFilters}
+            onToggleShowFilters={() => setShowFilters((v) => !v)}
+            stats={stats}
+            keywordInput={keywordInput}
+            onKeywordInputChange={setKeywordInput}
+            keywordParam={keywordParam}
+            useAiSynonyms={useAiSynonyms}
+            onUseAiSynonymsChange={setUseAiSynonyms}
+            useAiInvented={useAiInvented}
+            onUseAiInventedChange={setUseAiInvented}
+            maxLength={maxLength}
+            onMaxLengthChange={setMaxLength}
+            resultCount={resultCount}
+            onResultCountChange={setResultCount}
+            selectedTlds={selectedTlds}
+            visibleTlds={visibleTlds}
+            enabledTlds={enabledTlds}
+            onToggleTld={toggleTld}
+            effectiveShowMoreTlds={effectiveShowMoreTlds}
+            onToggleShowMoreTlds={() => setShowMoreTlds((v) => !v)}
+            gates={gates}
+            onGatesChange={setGates}
+            autoRank={autoRank}
+            onAutoRankChange={setAutoRank}
+          />
 
           {errorMessage && (
             <p className="animate-fade-in-up rounded-xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400">
               {errorMessage}
             </p>
           )}
-
-          {/* 2. RESULTS — the output of the primary task, in order of
-              immediacy: what this run just found, your persistent curated
-              picks, then the archive of everything earlier. */}
 
           {/* Results grid — only the current run, so the screen doesn't
               accumulate clutter across repeated searches. Older finds move
@@ -908,13 +661,11 @@ export default function Home() {
                 <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                   Available domains
                 </h2>
-                <div className="flex items-baseline gap-2">
-                  {isRunning && (
-                    <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
-                      {currentRunFound}/{resultCount}
-                    </span>
-                  )}
-                </div>
+                {isRunning && (
+                  <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
+                    {currentRunFound}/{resultCount}
+                  </span>
+                )}
               </div>
               {gettingIdeas && (
                 <p className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
@@ -933,32 +684,17 @@ export default function Home() {
                   {aiInventedWords.join(", ")}
                 </p>
               )}
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
-                {currentRunResults.map((entry) => (
-                  <ResultCard
-                    key={entry.id}
-                    entry={entry}
-                    favorited={favoriteDomains.has(entry.domain)}
-                    collision={{
-                      score: entry.rankabilityScore,
-                      summary: entry.collisionSummary,
-                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
-                      error: collisionErrors[entry.domain.split(".")[0]],
-                    }}
-                    onSearch={() => searchDomain(entry)}
-                    onToggleFavorite={() => toggleFavorite(entry)}
-                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
-                    onRegister={() => registerDomain(entry)}
-                  />
-                ))}
-                {isRunning &&
-                  Array.from({ length: Math.max(0, resultCount - currentRunResults.length) }).map((_, i) => (
-                    <div
-                      key={`pending-${i}`}
-                      className="h-[76px] animate-pulse rounded-xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
-                    />
-                  ))}
-              </div>
+              <ResultsGrid
+                entries={currentRunResults}
+                favoriteDomains={favoriteDomains}
+                checkingCollisionNames={checkingCollisionNames}
+                collisionErrors={collisionErrors}
+                onSearch={searchDomain}
+                onToggleFavorite={toggleFavorite}
+                onCheckCollision={checkCollisionFor}
+                onRegister={registerDomain}
+                pendingCount={isRunning ? Math.max(0, resultCount - currentRunResults.length) : 0}
+              />
             </section>
           )}
 
@@ -971,85 +707,36 @@ export default function Home() {
               <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                 Top ranked
               </h2>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
-                {topResults.map((entry) => (
-                  <ResultCard
-                    key={entry.id}
-                    entry={entry}
-                    favorited={favoriteDomains.has(entry.domain)}
-                    collision={{
-                      score: entry.rankabilityScore,
-                      summary: entry.collisionSummary,
-                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
-                      error: collisionErrors[entry.domain.split(".")[0]],
-                    }}
-                    onSearch={() => searchDomain(entry)}
-                    onToggleFavorite={() => toggleFavorite(entry)}
-                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
-                    onRegister={() => registerDomain(entry)}
-                  />
-                ))}
-              </div>
+              <ResultsGrid
+                entries={topResults}
+                favoriteDomains={favoriteDomains}
+                checkingCollisionNames={checkingCollisionNames}
+                collisionErrors={collisionErrors}
+                onSearch={searchDomain}
+                onToggleFavorite={toggleFavorite}
+                onCheckCollision={checkCollisionFor}
+                onRegister={registerDomain}
+              />
             </section>
           )}
 
-          {/* PROCESS DETAIL — how the current run is going. Grouped with
-              the results above it (not down with Favorites/Previous
-              results, which are archival and unrelated to what's actively
-              running) since both are "what this run is doing right now".
-              Rendered only once there's actually something to show — an
-              empty log box with a placeholder illustration was pure filler
-              on every load before the first search. */}
-          {log.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
-                Live log
-              </h2>
-              <div
-                ref={logBoxRef}
-                className="thin-scrollbar max-h-[45vh] overflow-y-auto rounded-xl border border-black/15 p-3 font-mono text-sm dark:border-white/15"
-                aria-live="polite"
-              >
-                <ul className="space-y-0.5">
-                  {log.map((entry) => (
-                    <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
-                      <LogDot status={entry.status} />
-                      <span className="truncate text-black/90 dark:text-white/90">{entry.name}</span>
-                      <span className="ml-auto shrink-0 text-xs text-black/45 dark:text-white/45">
-                        {LOG_STATUS_LABEL[entry.status]}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </section>
-          )}
+          <LiveLogSection log={log} logBoxRef={logBoxRef} />
 
-          {/* Favorites */}
           {favorites.length > 0 && (
             <section className="flex flex-col gap-2">
               <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
                 Favorites
               </h2>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
-                {favorites.map((entry) => (
-                  <ResultCard
-                    key={entry.id}
-                    entry={entry}
-                    favorited
-                    collision={{
-                      score: entry.rankabilityScore,
-                      summary: entry.collisionSummary,
-                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
-                      error: collisionErrors[entry.domain.split(".")[0]],
-                    }}
-                    onSearch={() => searchDomain(entry)}
-                    onToggleFavorite={() => toggleFavorite(entry)}
-                    onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
-                    onRegister={() => registerDomain(entry)}
-                  />
-                ))}
-              </div>
+              <ResultsGrid
+                entries={favorites}
+                favoriteDomains={favoriteDomains}
+                checkingCollisionNames={checkingCollisionNames}
+                collisionErrors={collisionErrors}
+                onSearch={searchDomain}
+                onToggleFavorite={toggleFavorite}
+                onCheckCollision={checkCollisionFor}
+                onRegister={registerDomain}
+              />
             </section>
           )}
 
@@ -1067,54 +754,29 @@ export default function Home() {
                 <span>{showPreviousResults ? "▲" : "▾"}</span>
               </button>
               {showPreviousResults && (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
-                  {previousResults.map((entry) => (
-                    <ResultCard
-                      key={entry.id}
-                      entry={entry}
-                      favorited={favoriteDomains.has(entry.domain)}
-                      collision={{
-                      score: entry.rankabilityScore,
-                      summary: entry.collisionSummary,
-                      loading: checkingCollisionNames.has(entry.domain.split(".")[0]),
-                      error: collisionErrors[entry.domain.split(".")[0]],
-                    }}
-                      onSearch={() => searchDomain(entry)}
-                      onToggleFavorite={() => toggleFavorite(entry)}
-                      onCheckCollision={() => checkCollisionFor(entry.domain.split(".")[0], entry.parts)}
-                      onRegister={() => registerDomain(entry)}
-                    />
-                  ))}
-                </div>
+                <ResultsGrid
+                  entries={previousResults}
+                  favoriteDomains={favoriteDomains}
+                  checkingCollisionNames={checkingCollisionNames}
+                  collisionErrors={collisionErrors}
+                  onSearch={searchDomain}
+                  onToggleFavorite={toggleFavorite}
+                  onCheckCollision={checkCollisionFor}
+                  onRegister={registerDomain}
+                />
               )}
             </section>
           )}
         </div>
       </main>
 
-      {/* Bottom action bar */}
-      <footer className="shrink-0 border-t border-black/15 bg-background/80 px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] backdrop-blur-md dark:border-white/15">
-        <div className={`mx-auto flex w-full flex-col gap-2 ${CONTENT_WIDTH}`}>
-          {isRunning ? (
-            <button
-              onClick={stop}
-              className={`min-h-12 w-full rounded-full border border-black/25 text-base font-semibold transition-transform active:scale-[0.98] hover:bg-black/5 dark:border-white/30 dark:hover:bg-white/10 ${FOCUS_RING}`}
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={start}
-              className={`min-h-12 w-full rounded-full bg-foreground text-base font-semibold text-background transition-transform active:scale-[0.98] hover:opacity-90 ${FOCUS_RING}`}
-            >
-              {primaryLabel}
-            </button>
-          )}
-          <div className="flex items-center justify-center text-xs tabular-nums text-black/65 dark:text-white/65">
-            {gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`}
-          </div>
-        </div>
-      </footer>
+      <Footer
+        isRunning={isRunning}
+        primaryLabel={primaryLabel}
+        statusText={statusText}
+        onStart={start}
+        onStop={stop}
+      />
     </div>
   );
 }

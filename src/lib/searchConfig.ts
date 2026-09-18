@@ -1,0 +1,63 @@
+// App-level search configuration — constants and their derived types, kept
+// as plain client-side literals (not imported from the server-side libs
+// under src/lib/*.ts that actually enforce them, e.g. candidates.ts's
+// parseTlds/parseCount or dictionary.ts's parseMaxLength) so this client
+// bundle doesn't pull in the ~3MB dictionary data file those modules load
+// at import time. Each constant here is a documented duplicate of its
+// server-side counterpart — see the comment on each below for exactly
+// which one it must stay in sync with.
+
+// English only — Latin/Esperanto/French/Spanish were dropped (no
+// WordNet-equivalent lexicon source existed for them). Kept as a Lang
+// union/array of one, matching the shape src/lib/dictionary.ts and
+// src/lib/modifiers.ts use, rather than special-casing a bare string.
+export type Lang = "english";
+export const LANGS: Lang[] = ["english"];
+
+// Ordered by real-world popularity — must stay in sync with SUPPORTED_TLDS
+// in src/lib/candidates.ts. The first PRIMARY_TLD_COUNT show by default;
+// the rest fold behind a "More" toggle.
+export const TLDS = [
+  "com",
+  "net",
+  "org",
+  "io",
+  "co",
+  "ai",
+  "xyz",
+  "app",
+  "dev",
+  "uk",
+  "me",
+  "us",
+  "de",
+  "eu",
+  "info",
+  "shop",
+  "tech",
+  "club",
+  "biz",
+  "cloud",
+  "name",
+] as const;
+export type Tld = (typeof TLDS)[number];
+export const PRIMARY_TLD_COUNT = 6;
+
+// Must stay in sync with MIN/MAX/DEFAULT_COMBINED_LENGTH in
+// src/lib/dictionary.ts. The max accounts for the keyword path (a 15-char
+// keyword plus an 8-letter word, rounded up to 24); the min and default
+// favor output quality over the shortest theoretically possible pairing.
+export const MIN_COMBINED_LENGTH = 5;
+export const MAX_COMBINED_LENGTH = 24;
+export const DEFAULT_COMBINED_LENGTH = 8;
+
+// Must stay in sync with parseCount's own clamp in src/lib/candidates.ts.
+export const MIN_RESULT_COUNT = 1;
+export const MAX_RESULT_COUNT = 30;
+export const DEFAULT_RESULT_COUNT = 12;
+
+export interface DictionaryStats {
+  english: number;
+  combinedUnique: number;
+  totalCombinations: number;
+}
