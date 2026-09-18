@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DiscoveryGates } from "@/lib/discovery";
+import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
+import { FOCUS_RING } from "@/components/constants";
+import { ResultCard } from "@/components/ResultCard";
+import { GateToggle } from "@/components/GateToggle";
+import { StatusBadge } from "@/components/StatusBadge";
+import { LogDot, LOG_STATUS_LABEL } from "@/components/LogDot";
 
 // English only — Latin/Esperanto/French/Spanish were dropped (no
 // WordNet-equivalent lexicon source existed for them). Kept as a Lang
@@ -51,43 +57,6 @@ const MIN_COMBINED_LENGTH = 5;
 const MAX_COMBINED_LENGTH = 24;
 const DEFAULT_COMBINED_LENGTH = 8;
 
-// "filtered": the domain itself was available, but its Instagram username
-// wasn't (or the check was inconclusive) — see the "instagram" filter,
-// which requires both to count as a result.
-type LogStatus = "checking" | "taken" | "unknown" | "available" | "filtered";
-
-interface LogEntry {
-  id: string;
-  name: string;
-  status: LogStatus;
-}
-
-type InstagramStatus = "available" | "taken" | "unknown";
-
-interface FoundEntry {
-  id: string;
-  domain: string;
-  meaning: string;
-  // The two literal strings domain's name was concatenated from — see
-  // Candidate.parts in lib/candidates.ts — passed to checkCollisionFor so
-  // it can search the name as two separate words. Optional so entries
-  // persisted before this field existed still hydrate fine; absent means
-  // checkCollisionFor falls back to collision.ts's own dictionary-based
-  // guess (splitIntoWords) instead.
-  parts?: [string, string];
-  checkedCount: number;
-  runId: string;
-  // Optional so entries persisted before this field existed still hydrate
-  // fine — treated as "unknown" wherever it's read (see InstagramBadge).
-  instagram?: InstagramStatus;
-  // Populated on demand via checkCollisionFor (the "Rank" button in
-  // CollisionBadge) — absent until checked, or if the check
-  // failed. 0 = as unrankable as "Google" itself; 100 = a long random
-  // string with no real-world usage anywhere to compete with.
-  rankabilityScore?: number;
-  collisionSummary?: string;
-}
-
 interface PersistedState {
   foundHistory: FoundEntry[];
   favorites: FoundEntry[];
@@ -127,8 +96,6 @@ interface DictionaryStats {
   totalCombinations: number;
 }
 
-type RunStatus = "idle" | "running" | "stopped" | "found" | "error";
-
 const MAX_LOG_ENTRIES = 200;
 // Must stay in sync with parseCount's own clamp in src/lib/candidates.ts
 // (same duplicate-rather-than-import reasoning as TLDS/MIN_COMBINED_LENGTH
@@ -136,11 +103,6 @@ const MAX_LOG_ENTRIES = 200;
 const MIN_RESULT_COUNT = 1;
 const MAX_RESULT_COUNT = 30;
 const DEFAULT_RESULT_COUNT = 12;
-
-// Consistent keyboard-focus styling for every interactive element, so tab
-// navigation reads as one deliberate system instead of the browser default.
-const FOCUS_RING =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 // Shared by the header, main content, and footer's inner wrappers so all
 // three stay center-aligned to the same column at every width — grows a
@@ -1156,267 +1118,3 @@ export default function Home() {
     </div>
   );
 }
-
-function ResultCard({
-  entry,
-  favorited,
-  collision,
-  onSearch,
-  onToggleFavorite,
-  onCheckCollision,
-  onRegister,
-}: {
-  entry: FoundEntry;
-  favorited: boolean;
-  collision: CollisionDisplay;
-  onSearch: () => void;
-  onToggleFavorite: () => void;
-  onCheckCollision: () => void;
-  onRegister: () => void;
-}) {
-  return (
-    <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-black/15 p-3 transition-colors hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.03]">
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-sm font-semibold text-emerald-700 md:text-base dark:text-emerald-400">
-            {entry.domain}
-          </span>
-          <InstagramBadge status={entry.instagram} />
-        </div>
-        <div className="-mr-2 flex shrink-0 items-center">
-          <button
-            onClick={onSearch}
-            aria-label="Open a Google search for this name in a new tab"
-            title="Google search"
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black/35 transition-colors hover:text-black/55 dark:text-white/35 dark:hover:text-white/55 ${FOCUS_RING}`}
-          >
-            <SearchIcon size={14} />
-          </button>
-          <button
-            onClick={onToggleFavorite}
-            aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={favorited}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
-              favorited ? "text-emerald-500" : "text-black/35 hover:text-black/55 dark:text-white/35 dark:hover:text-white/55"
-            }`}
-          >
-            {favorited ? "★" : "☆"}
-          </button>
-        </div>
-      </div>
-      <span className="text-xs text-black/55 md:text-sm dark:text-white/55">{entry.meaning}</span>
-      <CollisionBadge collision={collision} onCheck={onCheckCollision} />
-      <button
-        onClick={onRegister}
-        className={`flex min-h-11 w-full items-center justify-center rounded-lg bg-emerald-600 text-xs font-semibold text-white transition-all active:scale-95 hover:bg-emerald-500 md:text-sm dark:bg-emerald-500 dark:text-black dark:hover:bg-emerald-400 ${FOCUS_RING}`}
-      >
-        Register on Namecheap
-      </button>
-    </div>
-  );
-}
-
-/** A labeled on/off switch for one DiscoveryGates flag — emerald when on, matching the app's one-accent-color convention, with the thumb position (not just color) carrying the state. */
-function GateToggle({
-  label,
-  checked,
-  onChange,
-  disabled,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-  /** Renders the switch inert and dimmed — e.g. "AI synonyms" has nothing to synonym-expand without a keyword typed, but still stays visible (rather than disappearing) so it never reads as if a different toggle took its place. */
-  disabled?: boolean;
-}) {
-  return (
-    <div
-      className={`flex min-h-9 items-center justify-between gap-3 text-xs text-black/65 dark:text-white/65 ${disabled ? "opacity-40" : ""}`}
-    >
-      <span>{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${disabled ? "cursor-not-allowed" : ""} ${FOCUS_RING} ${
-          checked ? "bg-emerald-500" : "bg-black/15 dark:bg-white/20"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
-      </button>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: RunStatus }) {
-  // Emerald is reserved for "found" (the one positive outcome) and red for
-  // "error" (the one failure state) — every other status is grayscale,
-  // told apart by its label and (for "running") motion rather than a
-  // third accent color.
-  const map: Record<RunStatus, { label: string; dot: string }> = {
-    idle: { label: "Idle", dot: "bg-black/35 dark:bg-white/35" },
-    running: { label: "Running", dot: "bg-black/50 animate-pulse dark:bg-white/50" },
-    stopped: { label: "Stopped", dot: "bg-black/35 dark:bg-white/35" },
-    found: { label: "Found", dot: "bg-emerald-500" },
-    error: { label: "Error", dot: "bg-red-500" },
-  };
-  const { label, dot } = map[status];
-  return (
-    <span className="flex items-center gap-1.5 text-xs font-medium text-black/70 dark:text-white/70">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
-      {label}
-    </span>
-  );
-}
-
-// Emerald marks the one positive outcome ("available"); every other status
-// is grayscale, told apart by motion ("checking" pulses, nothing else does)
-// and by the status word LOG_STATUS_LABEL prints next to it — never by hue
-// alone, so the log stays legible without relying on color perception.
-const LOG_STATUS_LABEL: Record<LogStatus, string> = {
-  checking: "checking…",
-  taken: "taken",
-  unknown: "unknown",
-  available: "available",
-  filtered: "filtered",
-};
-
-function LogDot({ status }: { status: LogStatus }) {
-  const className =
-    status === "checking"
-      ? "bg-black/40 animate-pulse dark:bg-white/40"
-      : status === "available"
-        ? "bg-emerald-500"
-        : "bg-black/30 dark:bg-white/30";
-  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${className}`} />;
-}
-
-// "unknown" (Instagram's response was inconclusive, e.g. rate-limited) or
-// no field at all (an entry persisted before this existed) both render
-// nothing — there's nothing useful to tell the user in either case, and the
-// "Instagram" button below still works either way.
-// Every result in this list already passed the "domain + Instagram both
-// available" gate in runDiscovery (see discovery.ts) — so "available" is
-// the expected, unremarkable case for a card that exists at all, and
-// saying so on every single card is noise, not information. "taken" only
-// happens via the rare fallback where Instagram checking got disabled
-// mid-search (see INSTAGRAM_BLOCKED_STREAK_THRESHOLD) and a domain-only
-// match started counting — that's the one outcome actually worth flagging,
-// so it's the only one rendered here. "unknown" (inconclusive check) is
-// unremarkable in the same way "available" is and also renders nothing.
-function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
-  if (status !== "taken") return null;
-  return (
-    <span
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-black/40 dark:text-white/40"
-      title="This name's domain is available, but the matching Instagram handle isn't"
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black/30 dark:bg-white/30" />
-      IG taken
-    </span>
-  );
-}
-
-// Domain/Instagram availability (see above) says nothing about whether a
-// name already means something real in the world — see lib/collision.ts.
-// score is 0-100: 0 as unrankable as "Google" itself, 100 as wide open as a
-// long random string with no real-world usage anywhere. undefined until
-// checked on demand via the "Rank" button below; once scored,
-// "Rescore" re-runs the same check (search results change over time, and
-// so does the checker's own logic).
-interface CollisionDisplay {
-  score: number | undefined;
-  summary: string | undefined;
-  loading: boolean;
-  error: string | undefined;
-}
-
-/** Emerald at 100 down to red at 0, passing through the same lime → amber →
- * orange progression a traffic-light-style meter would use. */
-function scoreColorClass(score: number): string {
-  if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 60) return "text-lime-600 dark:text-lime-400";
-  if (score >= 40) return "text-amber-600 dark:text-amber-400";
-  if (score >= 20) return "text-orange-600 dark:text-orange-400";
-  return "text-red-600 dark:text-red-400";
-}
-
-function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; onCheck: () => void }) {
-  if (collision.loading) {
-    return (
-      <span className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
-        <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
-        Checking…
-      </span>
-    );
-  }
-  if (collision.error) {
-    return (
-      <button
-        type="button"
-        onClick={onCheck}
-        className={`self-start text-xs font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
-        title={collision.error}
-      >
-        Check failed — retry
-      </button>
-    );
-  }
-  if (collision.score === undefined) {
-    return (
-      <button
-        type="button"
-        onClick={onCheck}
-        className={`flex min-h-11 w-full items-center justify-center rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 md:text-sm dark:text-emerald-300 ${FOCUS_RING}`}
-      >
-        Rank
-      </button>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        <span className={`text-xs font-semibold tabular-nums md:text-sm ${scoreColorClass(collision.score)}`}>
-          {collision.score}% rankable
-        </span>
-        <button
-          type="button"
-          onClick={onCheck}
-          className={`text-xs font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 md:text-sm dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
-        >
-          Rescore
-        </button>
-      </div>
-      {collision.summary && (
-        <span className="text-xs leading-snug text-black/55 md:text-sm dark:text-white/55">{collision.summary}</span>
-      )}
-    </div>
-  );
-}
-
-function SearchIcon({ size = 28 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
-  );
-}
-
