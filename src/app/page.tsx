@@ -248,6 +248,13 @@ export default function Home() {
   // typed at all: see suggestInventedNames in lib/inventedNames.ts.
   const [useAiInvented, setUseAiInvented] = useState(true);
   const [aiInventedWords, setAiInventedWords] = useState<string[]>([]);
+  // True from the moment the server's "preparing" event arrives (see
+  // DiscoveryEvent in lib/discovery.ts) until the first real event —
+  // "synonyms"/"invented" or the first "checking" — closes the otherwise
+  // real, multi-second silent gap while the server awaits the AI calls
+  // with a concrete "Getting AI ideas…" state instead of a run that looks
+  // like it hasn't started.
+  const [gettingIdeas, setGettingIdeas] = useState(false);
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results
   // (tagged with the runId that found them) are persisted across reloads
@@ -483,6 +490,7 @@ export default function Home() {
     setLog([]);
     setAiSynonymWords([]);
     setAiInventedWords([]);
+    setGettingIdeas(false);
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -514,7 +522,14 @@ export default function Home() {
           if (!dataLine) continue;
           const event = JSON.parse(dataLine.slice(6));
 
+          // Any real event other than "preparing" itself means the wait is
+          // over — closes the "Getting AI ideas…" state no matter which
+          // event turns out to be the first one to actually arrive.
+          setGettingIdeas(event.type === "preparing");
+
           switch (event.type) {
+            case "preparing":
+              break;
             case "synonyms":
               setAiSynonymWords(event.words);
               break;
@@ -596,6 +611,11 @@ export default function Home() {
       }
     } finally {
       abortRef.current = null;
+      // Covers a genuine error (not just Stop, already handled in stop()
+      // itself) arriving during the AI-fetch phase, before any SSE event
+      // — otherwise "Getting AI ideas…" would stay stuck in the footer
+      // the same way an unhandled Stop-during-that-phase used to.
+      setGettingIdeas(false);
     }
   }, [
     addChecking,
@@ -616,6 +636,11 @@ export default function Home() {
     abortRef.current?.abort();
     abortRef.current = null;
     setRunStatus("stopped");
+    // Aborting during the AI-fetch phase (see gettingIdeas) means no more
+    // SSE events ever arrive — the fetch just rejects — so nothing else
+    // would ever clear this, leaving "Getting AI ideas…" stuck in the
+    // footer indefinitely.
+    setGettingIdeas(false);
   }, []);
 
   const searchDomain = useCallback((entry: FoundEntry) => {
@@ -640,11 +665,10 @@ export default function Home() {
   }, []);
 
   const isRunning = runStatus === "running";
-  const primaryLabel = isRunning
-    ? `Searching… (${currentRunFound}/${resultCount})`
-    : runStatus === "idle"
-      ? "Start discovery"
-      : "Search again";
+  // Only ever rendered while !isRunning (see the footer below, which shows
+  // a fixed "Stop" button instead while a search is active) — no
+  // "Searching…" branch needed here.
+  const primaryLabel = runStatus === "idle" ? "Start discovery" : "Search again";
   // foundHistory is stored newest-first (new finds are prepended, so
   // Favorites/Previous-results archives read newest-first). But within the
   // *current* run's grid, that ordering made each new find jump to the
@@ -930,6 +954,12 @@ export default function Home() {
                   )}
                 </div>
               </div>
+              {gettingIdeas && (
+                <p className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
+                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
+                  Getting AI ideas before this search starts checking domains…
+                </p>
+              )}
               {aiSynonymWords.length > 0 && (
                 <p className="text-xs text-black/45 dark:text-white/45">
                   Also searching AI synonym{aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
@@ -1119,7 +1149,7 @@ export default function Home() {
             </button>
           )}
           <div className="flex items-center justify-center text-xs tabular-nums text-black/65 dark:text-white/65">
-            {formatNumber(checkedCount)} checked this search
+            {gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`}
           </div>
         </div>
       </footer>

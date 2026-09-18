@@ -23,25 +23,25 @@ export async function GET(request: Request) {
   const count = parseCount(searchParams.get("count"));
   const tlds = parseTlds(searchParams.get("tlds"));
   const gates = parseGates(searchParams);
-  // Both fetched once, up front, rather than inside runDiscovery: each is
-  // one call per search (not per candidate), and buildCandidateSpace needs
-  // the full lists synchronously to build its tiers, so there's nothing to
-  // stream incrementally here anyway. Run in parallel when both apply,
-  // rather than doubling the added latency. Synonyms only make sense
-  // alongside an actual keyword; invented names don't need one at all.
   const useAiSynonyms = searchParams.get("aiSynonyms") !== "false";
   const useAiInvented = searchParams.get("aiInvented") !== "false";
-  const [aiSynonyms, inventedNames] = await Promise.all([
-    keyword && useAiSynonyms ? suggestKeywordSynonyms(keyword) : Promise.resolve<string[]>([]),
-    useAiInvented ? suggestInventedNames(keyword) : Promise.resolve<string[]>([]),
-  ]);
+  const willFetchSynonyms = Boolean(keyword && useAiSynonyms);
+  const willFetchInvented = useAiInvented;
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
   let heartbeat: ReturnType<typeof setInterval> | null = null;
 
   const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
+    // Async, and doing the AI-fetch work itself (rather than awaiting it
+    // before this stream is even constructed): the previous version
+    // awaited suggestKeywordSynonyms/suggestInventedNames before returning
+    // the Response at all, which meant the client's fetch() didn't resolve
+    // — no connection, no heartbeat, nothing — for however long that call
+    // took. Doing it here instead means the connection opens immediately,
+    // so a "preparing" event (see DiscoveryEvent) can go out right away,
+    // distinct from silence, before these two (still the only) awaits.
+    async start(controller) {
       heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(": heartbeat\n\n"));
@@ -50,13 +50,42 @@ export async function GET(request: Request) {
         }
       }, 20000);
 
-      runDiscovery(pool, keyword, tlds, count, (event) => {
+      const emit = (event: DiscoveryEvent) => {
         try {
           controller.enqueue(encoder.encode(sse(event)));
         } catch {
           // controller already closed
         }
-      }, abortController.signal, maxLength, gates, aiSynonyms, inventedNames).finally(() => {
+      };
+
+      if (willFetchSynonyms || willFetchInvented) emit({ type: "preparing" });
+
+      // Run in parallel when both apply, rather than doubling the added
+      // latency. Each is one call per search (not per candidate), and
+      // buildCandidateSpace needs the full lists synchronously to build
+      // its tiers, so there's nothing to stream incrementally here beyond
+      // the "preparing" event above. Both take the same abort signal as
+      // runDiscovery below, so hitting Stop during this wait actually
+      // cancels the in-flight LLM calls instead of letting them finish
+      // uselessly.
+      const [aiSynonyms, inventedNames] = await Promise.all([
+        keyword && useAiSynonyms
+          ? suggestKeywordSynonyms(keyword, abortController.signal)
+          : Promise.resolve<string[]>([]),
+        willFetchInvented ? suggestInventedNames(keyword, abortController.signal) : Promise.resolve<string[]>([]),
+      ]);
+
+      if (abortController.signal.aborted) {
+        if (heartbeat) clearInterval(heartbeat);
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+        return;
+      }
+
+      runDiscovery(pool, keyword, tlds, count, emit, abortController.signal, maxLength, gates, aiSynonyms, inventedNames).finally(() => {
         if (heartbeat) clearInterval(heartbeat);
         try {
           controller.close();

@@ -10,6 +10,15 @@ import { checkDomainWhois } from "@/lib/whois";
 import { checkInstagramUsername, type InstagramStatus } from "@/lib/instagram";
 
 export type DiscoveryEvent =
+  // Emitted by the /api/discover route itself (never by runDiscovery below)
+  // right after the SSE connection opens, only when at least one AI
+  // candidate source is actually about to be fetched — the route awaits
+  // suggestKeywordSynonyms/suggestInventedNames before it has anything else
+  // to send, and without this the client sees total silence for however
+  // long that call takes (a real multi-second gap, not a rare edge case),
+  // easily read as "stuck" rather than "the AI step is not done making up
+  // words yet". Purely informational, like "synonyms"/"invented" below.
+  | { type: "preparing" }
   // Emitted once, before any "checking" events, only when aiSynonyms is
   // non-empty — see suggestKeywordSynonyms in lib/synonyms.ts. Purely
   // informational: the words are already baked into the candidate space
