@@ -260,6 +260,11 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * `altSpellings` (only ever meaningful alongside `keyword`, like
  * aiSynonyms) adds one keyword-shaped tier per deterministic respelling of
  * the literal keyword — see alternateSpellings in lib/alternateSpelling.ts.
+ * Unlike every other tier, an alt-spelling candidate is exempt from the
+ * pronounceable gate specifically (see altSpellingSet in the worker below)
+ * — a respelling is built by deliberately dropping a vowel or doubling a
+ * letter, which isPronounceable would otherwise reject as unpronounceable
+ * on sight, defeating the point of the feature.
  */
 export async function runDiscovery(
   pool: WordEntry[],
@@ -323,6 +328,17 @@ export async function runDiscovery(
   // twice in one run.
   const seenNames = new Set<string>();
 
+  // A respelling is deliberately built to drop a vowel or double a letter
+  // (see lib/alternateSpelling.ts) — "lyft" reads as an intentional brand
+  // the way isPronounceable can't tell apart from a random unpronounceable
+  // string, so it would reject nearly every alt-spelling candidate outright
+  // if the check applied to them the same as everything else. Checking
+  // parts against this set (rather than tagging Candidate itself) is a
+  // cheap, worker-local way to know which candidates came from an
+  // alt-spelling tier specifically, without threading tier provenance
+  // through the whole CandidateSpace/Candidate shape for just this one gate.
+  const altSpellingSet = new Set(altSpellings);
+
   // Synchronous claim (no `await` before the mutation), so concurrent
   // workers never race over the same (tier, index) pair or overshoot the
   // target. Advances past exhausted or empty tiers to the next one.
@@ -355,7 +371,9 @@ export async function runDiscovery(
       if (seenNames.has(name)) continue;
       seenNames.add(name);
       if (name.length > maxLength) continue;
-      if (gates.filterPronounceable && !isPronounceable(name)) continue;
+      // Alt-spelling candidates are exempt — see altSpellingSet above.
+      const isAltSpelling = altSpellingSet.has(parts[0]) || altSpellingSet.has(parts[1]);
+      if (gates.filterPronounceable && !isAltSpelling && !isPronounceable(name)) continue;
       // Skipped when a keyword is present: both checks judge the whole
       // name as if it were algorithmically generated, but a keyword is a
       // fixed, user-chosen string glued onto a word, not another generated

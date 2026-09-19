@@ -16,6 +16,7 @@ import { checkDomainWhois } from "./whois";
 import { checkInstagramUsername } from "./instagram";
 import { buildNicenessIndex } from "./niceness";
 import { parseGates, runDiscovery, type DiscoveryEvent, type DiscoveryGates } from "./discovery";
+import { isPronounceable } from "./pronounceable";
 import type { WordEntry } from "./dictionary";
 
 // The default for every test that isn't specifically exercising a gate
@@ -547,6 +548,82 @@ describe("runDiscovery", () => {
     expect(new Set(foundDomains)).toEqual(
       new Set(["novacat.com", "catnova.com", "novvacat.com", "catnovva.com"])
     );
+  });
+
+  it("exempts alt-spelling candidates from the pronounceable gate, even though the same combination would otherwise fail it", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    // Sanity check: "lyft"+"cat" genuinely fails isPronounceable — this
+    // test only proves something if the exemption is actually doing work.
+    expect(isPronounceable("lyftcat")).toBe(false);
+    expect(isPronounceable("catlyft")).toBe(false);
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      "lift",
+      ["com"],
+      // A single-word pool only has 2 possible candidates per tier
+      // (keyword+word, word+keyword) — asking for all 4 across both tiers
+      // (the literal "lift" tier and the alt-spelling "lyft" tier) forces
+      // both to be fully drained, so the alt-spelling ones are guaranteed
+      // to show up if (and only if) the exemption actually let them through.
+      4,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON, // filterPronounceable: true
+      [],
+      [],
+      ["lyft"]
+    );
+
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(new Set(foundDomains)).toEqual(
+      new Set(["lyftcat.com", "catlyft.com", "liftcat.com", "catlift.com"])
+    );
+  });
+
+  it("still applies the pronounceable gate to the literal keyword tier when an alt-spelling tier is also present", async () => {
+    // "lift"+"cat" is pronounceable on its own — this isolates the
+    // exemption to alt-spelling candidates specifically, rather than the
+    // whole run once any alt-spelling tier exists.
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: true, noun: true },
+      // "grxpt" fails isPronounceable however it's paired, and isn't an
+      // alt spelling of anything here — a control to prove the literal
+      // keyword tier still gets gated normally.
+      { word: "grxpt", langs: ["english"], definition: "", common: true, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+    expect(isPronounceable("liftgrxpt")).toBe(false);
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(
+      pool,
+      "lift",
+      ["com"],
+      10,
+      (e) => events.push(e),
+      controller.signal,
+      20,
+      ALL_GATES_ON,
+      [],
+      [],
+      ["lyft"]
+    );
+
+    const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
+    expect(foundDomains).not.toContain("liftgrxpt.com");
+    expect(foundDomains).not.toContain("grxptlift.com");
   });
 
   it("does not emit an 'altSpellings' event when there are no alternate spellings", async () => {

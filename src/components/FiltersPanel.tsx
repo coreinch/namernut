@@ -195,6 +195,8 @@ export function FiltersPanel({
                   <>
                     Also pairs the dictionary with respellings of &ldquo;{keywordParam}&rdquo; (e.g. &ldquo;lyft&rdquo;
                     for &ldquo;lift&rdquo;) — a deterministic rule, not AI, so it costs nothing extra to turn on.
+                    These results skip the &ldquo;Pronounceable only&rdquo; filter below, since a deliberately
+                    respelled word (dropped vowel, doubled letter) would otherwise almost always get rejected by it.
                   </>
                 ) : (
                   "Type a keyword above to enable — respells it (e.g. “lyft” for “lift”), no AI involved."

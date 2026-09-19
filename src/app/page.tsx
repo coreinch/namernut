@@ -162,8 +162,12 @@ export default function Home() {
   // because it costs anything (it's a deterministic regex respelling of
   // the keyword, see lib/alternateSpelling.ts, no LLM call at all) but
   // because it's a newer, less-proven candidate source that can produce
-  // odd-looking names (e.g. "kool" for "cool") — opt-in rather than
-  // assumed wanted. Only ever meaningful when a keyword is typed.
+  // odd-looking names (e.g. "kool" for "cool"), and its candidates skip
+  // the "Pronounceable only" gate entirely (see altSpellingSet in
+  // runDiscovery) — a respelling like "lyft" would otherwise almost always
+  // get rejected by that check, so this generator bypasses it on purpose.
+  // Opt-in rather than assumed wanted. Only ever meaningful when a keyword
+  // is typed.
   const [useAltSpellings, setUseAltSpellings] = useState(false);
   const [altSpellingWords, setAltSpellingWords] = useState<string[]>([]);
   // True from the moment the server's "preparing" event arrives (see
