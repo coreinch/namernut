@@ -710,6 +710,13 @@ export default function Home() {
               {altSpellingWords.length > 0 && (
                 <p className="text-xs text-black/45 dark:text-white/45">
                   Also searching alt spelling{altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
+                  {gates.filterPronounceable &&
+                    // Only worth saying while the gate is actually on —
+                    // with it off there's nothing being skipped to call
+                    // out. Surfaced here (not just in the collapsed
+                    // Filters panel) since this is the live, no-need-to-
+                    // expand-anything view of what a run is actually doing.
+                    ' — these skip the "Pronounceable only" filter below.'}
                 </p>
               )}
               <ResultsGrid
