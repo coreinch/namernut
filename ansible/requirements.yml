@@ -1,0 +1,7 @@
+---
+# Install with: ansible-galaxy collection install -r requirements.yml
+# community.docker provides the docker_compose_v2 module used in
+# playbooks/deploy.yml.
+collections:
+  - name: community.docker
+    version: ">=3.4.0"

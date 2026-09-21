@@ -1,0 +1,9 @@
+services:
+  app:
+    image: "{{ ghcr_image }}:{{ image_tag }}"
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      # 127.0.0.1-only — the nginx vhost is the only public entry point.
+      - "127.0.0.1:{{ app_port }}:3000"

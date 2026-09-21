@@ -1,0 +1,12 @@
+# Copy this to hosts.ini (gitignored) for local ansible-playbook runs:
+#   cp ansible/inventory/hosts.ini.example ansible/inventory/hosts.ini
+# and fill in the real host. The IP itself is deliberately never
+# committed — CI generates hosts.ini at runtime from the DEPLOY_HOST
+# secret instead (see .github/workflows/ci-cd.yml).
+#
+# No ansible_ssh_private_key_file here on purpose: which private key is
+# correct depends on where this runs from (your machine vs. the CI
+# runner's temp key file). Always pass --private-key explicitly:
+#   ansible-playbook playbooks/deploy.yml --private-key ~/.ssh/id_rsa
+[production]
+vps ansible_host=YOUR_VPS_IP ansible_user=root

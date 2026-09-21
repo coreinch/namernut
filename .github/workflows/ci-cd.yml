@@ -1,0 +1,134 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR image paths must be lowercase; a GitHub username/repo can
+      # contain uppercase letters.
+      - name: Compute lowercase image repository name
+        id: repo
+        run: echo "name=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Compute deploy image tag
+        id: vars
+        run: echo "image_tag=main-$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short,prefix={{branch}}-
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # Build always runs, even on a PR — a Dockerfile break should
+          # fail CI loudly. Only the push to the registry is gated to
+          # actual pushes to main.
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ansible and required collections
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install ansible
+          ansible-galaxy collection install -r ansible/requirements.yml
+
+      # The VPS IP lives only in the DEPLOY_HOST secret, never in the
+      # repo — the committed inventory is just hosts.ini.example. This
+      # file only ever exists on the ephemeral runner.
+      - name: Generate inventory from secret
+        run: |
+          mkdir -p ansible/inventory
+          printf '[production]\nvps ansible_host=%s ansible_user=root\n' "${{ secrets.DEPLOY_HOST }}" > ansible/inventory/hosts.ini
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run Ansible deploy playbook
+        env:
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
+          GHCR_PAT: ${{ secrets.GHCR_PULL_PAT }}
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
+          KILOCODE_MODEL: ${{ secrets.KILOCODE_MODEL }}
+          INSTAGRAM_SESSION_ID: ${{ secrets.INSTAGRAM_SESSION_ID }}
+        run: |
+          # Built via jq rather than interpolated straight into the
+          # ansible-playbook command line: INSTAGRAM_SESSION_ID in
+          # particular is an opaque cookie value that can contain shell
+          # metacharacters, and jq --arg escapes arbitrary content
+          # safely regardless of what's in it.
+          jq -n \
+            --arg image_tag "$IMAGE_TAG" \
+            --arg ghcr_pat "$GHCR_PAT" \
+            --arg brave_api_key "$BRAVE_API_KEY" \
+            --arg kilocode_api_key "$KILOCODE_API_KEY" \
+            --arg kilocode_model "$KILOCODE_MODEL" \
+            --arg instagram_session_id "$INSTAGRAM_SESSION_ID" \
+            '$ARGS.named' > /tmp/extra-vars.json
+
+          ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy.yml \
+            --private-key ~/.ssh/deploy_key \
+            -e @/tmp/extra-vars.json

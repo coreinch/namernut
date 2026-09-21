@@ -1,0 +1,74 @@
+---
+- name: Deploy namerag
+  hosts: production
+  gather_facts: false
+
+  tasks:
+    - name: Verify Docker and the compose plugin are available
+      ansible.builtin.command: docker compose version
+      register: compose_check
+      changed_when: false
+      failed_when: compose_check.rc != 0
+
+    - name: Ensure deploy directory exists
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render production docker-compose.yml
+      ansible.builtin.template:
+        src: ../templates/docker-compose.prod.yml.j2
+        dest: "{{ deploy_dir }}/docker-compose.yml"
+        mode: "0644"
+
+    # Contains the app's runtime API keys — 0600, and templated from
+    # extra-vars passed at runtime (see ci-cd.yml), never committed.
+    - name: Render .env
+      ansible.builtin.template:
+        src: ../templates/env.j2
+        dest: "{{ deploy_dir }}/.env"
+        mode: "0600"
+
+    # Only needed while the GHCR package is private. Checks non-empty,
+    # not just "is defined" — CI always passes -e ghcr_pat=..., even
+    # when the secret is unset, in which case GitHub Actions substitutes
+    # an empty string rather than omitting the flag.
+    - name: Log in to GHCR
+      community.docker.docker_login:
+        registry_url: ghcr.io
+        username: "{{ ghcr_owner }}"
+        password: "{{ ghcr_pat }}"
+      when: ghcr_pat is defined and ghcr_pat | length > 0
+
+    # pull: always forces a fresh pull even when the tag string (e.g.
+    # "main") is unchanged — the tag is mutable and CI repoints it to a
+    # new image on every push.
+    - name: Pull image and (re)start the stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ deploy_dir }}"
+        pull: always
+        state: present
+
+    # Touches nginx config shared with every other site on this VPS
+    # (cicd-lab, wordpress, and others) — only a new file is written, no
+    # existing vhost is touched, and the reload handler refuses to
+    # reload if `nginx -t` doesn't pass first.
+    - name: Render nginx vhost
+      ansible.builtin.template:
+        src: ../templates/namerag.promptbox.club.conf.j2
+        dest: "/etc/nginx/conf.d/{{ domain }}.conf"
+        mode: "0644"
+      notify:
+        - Test nginx config
+        - Reload nginx
+
+  handlers:
+    - name: Test nginx config
+      ansible.builtin.command: nginx -t
+      changed_when: false
+
+    - name: Reload nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded

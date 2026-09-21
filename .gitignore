@@ -32,9 +32,14 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
+
+# ansible: the real inventory holds the VPS IP and is never committed —
+# see ansible/inventory/hosts.ini.example
+/ansible/inventory/hosts.ini
 
 # typescript
 *.tsbuildinfo

@@ -1,0 +1,25 @@
+---
+# Where the compose stack lives on the VPS.
+deploy_dir: /opt/namerag
+
+# 8090/8091 are already taken by cicd-lab on this VPS; 8092 was confirmed
+# free via `ss -tlnp`. Bound to 127.0.0.1 only in
+# templates/docker-compose.prod.yml.j2 — reachable only from the VPS
+# itself, via the nginx vhost below. No reason for the app to be
+# reachable directly from the internet on its own port.
+app_port: 8092
+
+# Must match the GHCR path GitHub Actions pushes to: lowercase
+# "owner/repo" from ci-cd.yml.
+ghcr_owner: glassrun
+ghcr_repo: namerag
+ghcr_image: "ghcr.io/{{ ghcr_owner }}/{{ ghcr_repo }}"
+
+# Overridden per-run from the command line, e.g.:
+#   ansible-playbook playbooks/deploy.yml -e image_tag=main-a1b2c3d
+image_tag: main
+
+# Public hostname for the vhost. *.promptbox.club is already wildcard-
+# proxied through Cloudflare to this VPS, so no DNS changes are needed
+# for a new subdomain — only the nginx vhost below.
+domain: namerag.promptbox.club
