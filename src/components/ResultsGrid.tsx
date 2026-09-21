@@ -54,11 +54,25 @@ export function ResultsGrid({
         );
       })}
       {Array.from({ length: pendingCount }).map((_, i) => (
-        <div
-          key={`pending-${i}`}
-          className="h-16 animate-pulse rounded-2xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
-        />
+        <PendingCard key={`pending-${i}`} />
       ))}
+    </div>
+  );
+}
+
+// Mirrors a real ResultCard's own structure (name+actions row, then a
+// meaning line) at the same padding/gap, rather than a fixed-height box —
+// a hardcoded height drifts out of sync with the real card's actual height
+// (which varies with how long the meaning text wraps) and causes a visible
+// jump each time a placeholder resolves into a real card.
+function PendingCard() {
+  return (
+    <div className="flex animate-pulse flex-col gap-2 rounded-2xl border border-dashed border-black/15 bg-black/[0.02] p-3.5 dark:border-white/15 dark:bg-white/[0.02]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="h-4 w-32 rounded bg-black/10 dark:bg-white/10" />
+        <div className="h-9 w-24 rounded-full bg-black/10 dark:bg-white/10" />
+      </div>
+      <div className="h-3 w-3/5 rounded bg-black/10 dark:bg-white/10" />
     </div>
   );
 }
