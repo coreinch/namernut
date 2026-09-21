@@ -80,12 +80,18 @@ function StyleChip({
   label,
   active,
   disabled,
+  disabledReason,
   onClick,
 }: {
   icon: React.ReactNode;
   label: string;
   active: boolean;
   disabled?: boolean;
+  /** Announced (via aria-label) and shown as a tooltip when disabled — a
+   * disabled control with no stated reason is a dead end for a
+   * screen-reader user, who can't see the dashed border sighted users use
+   * to infer "type a keyword first". */
+  disabledReason?: string;
   onClick?: () => void;
 }) {
   const inert = !onClick;
@@ -96,6 +102,8 @@ function StyleChip({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={inert ? undefined : active}
+      aria-label={disabled && disabledReason ? `${label} — ${disabledReason}` : inert ? `${label} (always on)` : undefined}
+      title={disabled ? disabledReason : undefined}
       className={`flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium transition-all ${
         inert ? "" : "active:scale-95"
       } ${FOCUS_RING} ${
@@ -202,6 +210,7 @@ export function FiltersPanel({
         <input
           type="text"
           inputMode="text"
+          aria-label="Keyword to include (optional)"
           value={keywordInput}
           onChange={(e) => onKeywordInputChange(e.target.value)}
           placeholder="Include a word (optional), e.g. nova"
@@ -226,6 +235,7 @@ export function FiltersPanel({
           label="AI synonyms"
           active={useAiSynonyms}
           disabled={!keywordParam}
+          disabledReason="type a keyword above to enable"
           onClick={() => onUseAiSynonymsChange(!useAiSynonyms)}
         />
         <StyleChip
@@ -239,6 +249,7 @@ export function FiltersPanel({
           label="Alt-spellings"
           active={useAltSpellings}
           disabled={!keywordParam}
+          disabledReason="type a keyword above to enable"
           onClick={() => onUseAltSpellingsChange(!useAltSpellings)}
         />
       </div>
@@ -247,6 +258,8 @@ export function FiltersPanel({
         <button
           type="button"
           onClick={onToggleShowAdvanced}
+          aria-expanded={showAdvanced}
+          aria-controls="advanced-filters-panel"
           className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
         >
           Advanced filters ({activeGateCount} active)
@@ -255,7 +268,10 @@ export function FiltersPanel({
       </div>
 
       {showAdvanced && (
-        <section className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none">
+        <section
+          id="advanced-filters-panel"
+          className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none"
+        >
           {keywordParam && (
             <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
           )}

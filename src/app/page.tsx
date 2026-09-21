@@ -17,8 +17,8 @@ import {
   type Lang,
   type Tld,
 } from "@/lib/searchConfig";
-import { CONTENT_WIDTH } from "@/components/constants";
-import { Header, type ResultsTab } from "@/components/Header";
+import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
+import { Header, tabButtonId, tabPanelId, type ResultsTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { FiltersPanel } from "@/components/FiltersPanel";
 import { ResultsGrid } from "@/components/ResultsGrid";
@@ -679,7 +679,13 @@ export default function Home() {
           )}
 
           {activeTab === "current" && (
-            <section className="flex flex-col gap-2">
+            <section
+              role="tabpanel"
+              id={tabPanelId("current")}
+              aria-labelledby={tabButtonId("current")}
+              tabIndex={0}
+              className={`flex flex-col gap-2 ${FOCUS_RING}`}
+            >
               {isRunning && (
                 <div className="flex items-center justify-end">
                   <span className="text-xs tabular-nums text-muted">
@@ -739,7 +745,13 @@ export default function Home() {
           )}
 
           {activeTab === "favorites" && (
-            <section className="flex flex-col gap-2">
+            <section
+              role="tabpanel"
+              id={tabPanelId("favorites")}
+              aria-labelledby={tabButtonId("favorites")}
+              tabIndex={0}
+              className={`flex flex-col gap-2 ${FOCUS_RING}`}
+            >
               {favorites.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted">
                   Tap the star on a result to save it here.
@@ -760,7 +772,13 @@ export default function Home() {
           )}
 
           {activeTab === "archive" && (
-            <section className="flex flex-col gap-2">
+            <section
+              role="tabpanel"
+              id={tabPanelId("archive")}
+              aria-labelledby={tabButtonId("archive")}
+              tabIndex={0}
+              className={`flex flex-col gap-2 ${FOCUS_RING}`}
+            >
               {archiveResults.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted">
                   Past searches will collect here once you run more than one.

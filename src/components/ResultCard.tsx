@@ -57,6 +57,12 @@ export function ResultCard({
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          {/* The left border color-codes the source (see SOURCE_STYLE), but
+              color alone isn't accessible — a screen reader never sees a
+              border, and a hover-only `title` isn't reliably exposed by
+              assistive tech either. This sr-only span gives the same
+              information as real, always-available text. */}
+          <span className="sr-only">{sourceStyle.label}: </span>
           <span className="font-display text-base font-semibold" title={sourceStyle.label}>
             {name}
             <span className="font-normal text-muted">{tld}</span>
@@ -182,7 +188,10 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
   const { text, bg } = scoreColorClass(collision.score);
   return (
     <div className="flex shrink-0 items-center gap-1">
-      <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${text} ${bg}`}>
+      <span
+        className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${text} ${bg}`}
+        aria-label={`${collision.score}% rankable`}
+      >
         {collision.score}%
       </span>
       <button
