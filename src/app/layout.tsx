@@ -1,15 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Space_Grotesk, Sora } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Display face — headline, wordmark, and every domain name shown in a
+// result card, so the app's one distinctive typographic voice is also the
+// thing it's actually selling.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-display",
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Body face for everything else — labels, meanings, buttons.
+const sora = Sora({
+  variable: "--font-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600"],
 });
 
 const TITLE = "Namerag – Domain Name Generator + AI Rankability Score";
@@ -45,8 +51,8 @@ export const viewport: Viewport = {
   userScalable: false,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: light)", color: "#F7F5FF" },
+    { media: "(prefers-color-scheme: dark)", color: "#181233" },
   ],
 };
 
@@ -54,7 +60,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased overscroll-none`}
+      className={`${spaceGrotesk.variable} ${sora.variable} h-full antialiased overscroll-none`}
     >
       <body className="h-full flex flex-col overscroll-none">{children}</body>
     </html>

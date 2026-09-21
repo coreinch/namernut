@@ -1,3 +1,4 @@
+import type { CandidateSource } from "@/lib/candidates";
 import type { FoundEntry, InstagramStatus } from "@/lib/types";
 import { FOCUS_RING } from "./constants";
 
@@ -14,6 +15,19 @@ export interface CollisionDisplay {
   loading: boolean;
   error: string | undefined;
 }
+
+// One accent per generation mechanism — shown as a left border on the
+// card, real data carried through from FoundEntry.source (see
+// CandidateSource) rather than re-derived from `meaning`'s display text.
+// Dictionary and AI-invented reuse the app's two brand accents (they're the
+// two most common sources); AI synonym and alt-spelling get their own hues
+// so all four stay visually distinct at a glance.
+const SOURCE_STYLE: Record<CandidateSource, { border: string; label: string }> = {
+  dictionary: { border: "border-l-accent-2", label: "Dictionary pairing" },
+  aiSynonym: { border: "border-l-teal-500 dark:border-l-teal-400", label: "AI synonym" },
+  invented: { border: "border-l-accent", label: "AI-invented name" },
+  altSpelling: { border: "border-l-pink-500 dark:border-l-pink-400", label: "Alternate spelling" },
+};
 
 export function ResultCard({
   entry,
@@ -32,44 +46,66 @@ export function ResultCard({
   onCheckCollision: () => void;
   onRegister: () => void;
 }) {
+  const dotIndex = entry.domain.indexOf(".");
+  const name = dotIndex >= 0 ? entry.domain.slice(0, dotIndex) : entry.domain;
+  const tld = dotIndex >= 0 ? entry.domain.slice(dotIndex) : "";
+  const sourceStyle = SOURCE_STYLE[entry.source ?? "dictionary"];
+
   return (
-    <div className="animate-fade-in-up flex flex-col gap-2 rounded-xl border border-black/15 p-3 transition-colors hover:bg-black/[0.03] dark:border-white/15 dark:hover:bg-white/[0.03]">
-      <div className="flex items-start justify-between gap-1.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate font-mono text-sm font-semibold text-emerald-700 md:text-base dark:text-emerald-400">
-            {entry.domain}
+    <div
+      className={`animate-fade-in-up flex flex-col gap-2 rounded-2xl border-l-4 bg-card p-3.5 shadow-[0_1px_3px_rgba(27,21,51,0.05)] dark:shadow-none ${sourceStyle.border}`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+          <span className="font-display text-base font-semibold" title={sourceStyle.label}>
+            {name}
+            <span className="font-normal text-muted">{tld}</span>
           </span>
           <InstagramBadge status={entry.instagram} />
         </div>
-        <div className="-mr-2 flex shrink-0 items-center">
-          <button
-            onClick={onSearch}
-            aria-label="Open a Google search for this name in a new tab"
-            title="Google search"
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-black/35 transition-colors hover:text-black/55 dark:text-white/35 dark:hover:text-white/55 ${FOCUS_RING}`}
-          >
-            <SearchIcon size={14} />
-          </button>
+
+        {/* flex-wrap here too (not shrink-0-and-rigid) — on a narrow phone
+            this group (score badge/Rank, favorite, search, Register) can
+            exceed the card's width on its own even after the name row
+            above has already wrapped away from it; wrapping internally,
+            right-aligned, keeps every control fully reachable instead of
+            clipping or forcing the card to scroll horizontally. */}
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <CollisionBadge collision={collision} onCheck={onCheckCollision} />
           <button
             onClick={onToggleFavorite}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={favorited}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
-              favorited ? "text-emerald-500" : "text-black/35 hover:text-black/55 dark:text-white/35 dark:hover:text-white/55"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
+              favorited ? "text-accent" : "text-black/30 hover:text-black/55 dark:text-white/30 dark:hover:text-white/55"
             }`}
           >
             {favorited ? "★" : "☆"}
           </button>
+          <button
+            onClick={onSearch}
+            aria-label="Open a Google search for this name in a new tab"
+            title="Google search"
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-black/30 transition-colors hover:text-black/55 dark:text-white/30 dark:hover:text-white/55 ${FOCUS_RING}`}
+          >
+            <SearchIcon size={14} />
+          </button>
+          <button
+            onClick={onRegister}
+            title="Register this domain on Namecheap"
+            className={`flex min-h-9 shrink-0 items-center justify-center rounded-full bg-foreground px-4 text-xs font-semibold text-background transition-all active:scale-95 hover:opacity-90 ${FOCUS_RING}`}
+          >
+            Register
+          </button>
         </div>
       </div>
-      <span className="text-xs text-black/55 md:text-sm dark:text-white/55">{entry.meaning}</span>
-      <CollisionBadge collision={collision} onCheck={onCheckCollision} />
-      <button
-        onClick={onRegister}
-        className={`flex min-h-11 w-full items-center justify-center rounded-lg bg-emerald-600 text-xs font-semibold text-white transition-all active:scale-95 hover:bg-emerald-500 md:text-sm dark:bg-emerald-500 dark:text-black dark:hover:bg-emerald-400 ${FOCUS_RING}`}
-      >
-        Register on Namecheap
-      </button>
+      {/* Its own full-width line, not squeezed into whatever space is left
+          next to the action buttons above — that layout (meaning sharing a
+          flex row with Rank/favorite/search/Register) let the actions
+          crowd it down to a sliver of width, or nothing at all, on
+          anything but a wide screen. */}
+      <p className="text-xs leading-snug text-muted">{entry.meaning}</p>
+      {collision.summary && <p className="text-xs leading-snug text-muted">{collision.summary}</p>}
     </div>
   );
 }
@@ -91,7 +127,7 @@ function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
   if (status !== "taken") return null;
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-black/40 dark:text-white/40"
+      className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted"
       title="This name's domain is available, but the matching Instagram handle isn't"
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black/30 dark:bg-white/30" />
@@ -101,19 +137,20 @@ function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
 }
 
 /** Emerald at 100 down to red at 0, passing through the same lime → amber →
- * orange progression a traffic-light-style meter would use. */
-function scoreColorClass(score: number): string {
-  if (score >= 80) return "text-emerald-600 dark:text-emerald-400";
-  if (score >= 60) return "text-lime-600 dark:text-lime-400";
-  if (score >= 40) return "text-amber-600 dark:text-amber-400";
-  if (score >= 20) return "text-orange-600 dark:text-orange-400";
-  return "text-red-600 dark:text-red-400";
+ * orange progression a traffic-light-style meter would use — a semantic
+ * scale kept independent of the brand accent colors. */
+function scoreColorClass(score: number): { text: string; bg: string } {
+  if (score >= 80) return { text: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-500/12" };
+  if (score >= 60) return { text: "text-lime-700 dark:text-lime-300", bg: "bg-lime-500/12" };
+  if (score >= 40) return { text: "text-amber-700 dark:text-amber-300", bg: "bg-amber-500/12" };
+  if (score >= 20) return { text: "text-orange-700 dark:text-orange-300", bg: "bg-orange-500/12" };
+  return { text: "text-red-700 dark:text-red-300", bg: "bg-red-500/12" };
 }
 
 function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; onCheck: () => void }) {
   if (collision.loading) {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
+      <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-muted">
         <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
         Checking…
       </span>
@@ -124,10 +161,10 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
       <button
         type="button"
         onClick={onCheck}
-        className={`self-start text-xs font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
+        className={`whitespace-nowrap text-xs font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
         title={collision.error}
       >
-        Check failed — retry
+        Retry
       </button>
     );
   }
@@ -136,29 +173,25 @@ function CollisionBadge({ collision, onCheck }: { collision: CollisionDisplay; o
       <button
         type="button"
         onClick={onCheck}
-        className={`flex min-h-11 w-full items-center justify-center rounded-lg border border-emerald-600/30 text-xs font-medium text-emerald-700 transition-all active:scale-95 hover:bg-emerald-500/10 md:text-sm dark:text-emerald-300 ${FOCUS_RING}`}
+        className={`min-h-9 shrink-0 whitespace-nowrap rounded-full border border-accent-2/40 px-3.5 text-xs font-medium text-accent-2 transition-all active:scale-95 hover:bg-accent-2/10 ${FOCUS_RING}`}
       >
         Rank
       </button>
     );
   }
+  const { text, bg } = scoreColorClass(collision.score);
   return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-1.5">
-        <span className={`text-xs font-semibold tabular-nums md:text-sm ${scoreColorClass(collision.score)}`}>
-          {collision.score}% rankable
-        </span>
-        <button
-          type="button"
-          onClick={onCheck}
-          className={`text-xs font-medium text-black/45 underline decoration-black/25 underline-offset-2 transition-colors hover:text-black/65 md:text-sm dark:text-white/45 dark:decoration-white/25 dark:hover:text-white/65 ${FOCUS_RING}`}
-        >
-          Rescore
-        </button>
-      </div>
-      {collision.summary && (
-        <span className="text-xs leading-snug text-black/55 md:text-sm dark:text-white/55">{collision.summary}</span>
-      )}
+    <div className="flex shrink-0 items-center gap-1">
+      <span className={`whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${text} ${bg}`}>
+        {collision.score}%
+      </span>
+      <button
+        type="button"
+        onClick={onCheck}
+        className={`whitespace-nowrap text-xs font-medium text-muted underline decoration-black/25 underline-offset-2 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
+      >
+        Rescore
+      </button>
     </div>
   );
 }

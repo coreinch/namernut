@@ -61,12 +61,14 @@ describe("buildCandidateSpace (no keyword, no modifiers, no common words -> sing
       name: "catcat",
       meaning: "cat: a small domesticated animal · cat: a small domesticated animal",
       parts: ["cat", "cat"],
+      source: "dictionary",
     });
     // index 2 -> i1=0 (cat), i2=2 (rex)
     expect(tier.candidateAt(2)).toEqual({
       name: "catrex",
       meaning: "cat: a small domesticated animal · rex: a king",
       parts: ["cat", "rex"],
+      source: "dictionary",
     });
   });
 });
@@ -186,11 +188,13 @@ describe("buildCandidateSpace (with keyword)", () => {
       name: "novacat",
       meaning: "nova · cat: a small domesticated animal",
       parts: ["nova", "cat"],
+      source: "dictionary",
     });
     expect(tier.candidateAt(pool.length)).toEqual({
       name: "catnova",
       meaning: "cat: a small domesticated animal · nova",
       parts: ["cat", "nova"],
+      source: "dictionary",
     });
   });
 });
@@ -214,6 +218,7 @@ describe("buildCandidateSpace (with keyword and AI synonyms)", () => {
       name: "blazecat",
       meaning: 'blaze (AI idea for "nova") · cat: a small domesticated animal',
       parts: ["blaze", "cat"],
+      source: "aiSynonym",
     });
   });
 
@@ -242,6 +247,7 @@ describe("buildCandidateSpace (with keyword and alternate spellings)", () => {
       name: "novvacat",
       meaning: 'novva (alt spelling of "nova") · cat: a small domesticated animal',
       parts: ["novva", "cat"],
+      source: "altSpelling",
     });
   });
 
@@ -277,6 +283,7 @@ describe("buildCandidateSpace (AI-invented names)", () => {
       name: "zuvio",
       meaning: "zuvio (AI-invented name)",
       parts: ["zuvio", ""],
+      source: "invented",
     });
   });
 

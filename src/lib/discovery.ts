@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { WordEntry } from "@/lib/dictionary";
-import { buildCandidateSpace, type Candidate } from "@/lib/candidates";
+import { buildCandidateSpace, type Candidate, type CandidateSource } from "@/lib/candidates";
 import { isPronounceable } from "@/lib/pronounceable";
 import { buildTypoIndex } from "@/lib/typocheck";
 import { buildNicenessIndex } from "@/lib/niceness";
@@ -56,6 +56,8 @@ export type DiscoveryEvent =
       checkedCount: number;
       foundCount: number;
       instagram: InstagramStatus;
+      /** Which generation mechanism produced this candidate — see CandidateSource — carried through so the UI can tell a dictionary pairing apart from an AI synonym/invented name/alt-spelling without re-parsing `meaning`. */
+      source: CandidateSource;
     }
   | { type: "complete"; checkedCount: number; foundCount: number }
   | { type: "stopped"; checkedCount: number }
@@ -365,7 +367,7 @@ export async function runDiscovery(
       const candidate = claimCandidate();
       if (candidate === null) return;
 
-      const { name, meaning, parts } = candidate;
+      const { name, meaning, parts, source } = candidate;
       // Synchronous check-then-add, no `await` in between, so concurrent
       // workers can't both slip past this for the same name.
       if (seenNames.has(name)) continue;
@@ -462,7 +464,7 @@ export async function runDiscovery(
           // it (same overshoot race as above, closed the same way).
           if (foundCount >= targetCount) continue;
           foundCount++;
-          onEvent({ type: "found", domain, meaning, parts, checkedCount, foundCount, instagram });
+          onEvent({ type: "found", domain, meaning, parts, checkedCount, foundCount, instagram, source });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }

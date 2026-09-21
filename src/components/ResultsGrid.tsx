@@ -2,11 +2,13 @@ import type { FoundEntry } from "@/lib/types";
 import { ResultCard } from "./ResultCard";
 
 /**
- * The grid of ResultCards — shared by "Available domains", "Top ranked",
- * "Favorites", and "Previous results", which previously each duplicated
- * the same mapping/collision-prop-wiring block. `pendingCount` (only ever
- * passed by "Available domains", while a search is actively running) adds
- * that many dashed placeholder tiles after the real cards.
+ * The vertical list of ResultCards — shared by all three tabs (Current /
+ * Favorites / Archive), which previously each duplicated the same mapping/
+ * collision-prop-wiring block. A single-column list, not a grid — the
+ * guided, one-thing-at-a-time layout stays narrow at every width rather
+ * than spreading into columns on a wide screen. `pendingCount` (only ever
+ * passed by the Current tab, while a search is actively running) adds that
+ * many dashed placeholder rows after the real cards.
  */
 export function ResultsGrid({
   entries,
@@ -30,7 +32,7 @@ export function ResultsGrid({
   pendingCount?: number;
 }) {
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-2">
+    <div className="flex flex-col gap-2">
       {entries.map((entry) => {
         const name = entry.domain.split(".")[0];
         return (
@@ -54,7 +56,7 @@ export function ResultsGrid({
       {Array.from({ length: pendingCount }).map((_, i) => (
         <div
           key={`pending-${i}`}
-          className="h-[76px] animate-pulse rounded-xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
+          className="h-16 animate-pulse rounded-2xl border border-dashed border-black/15 bg-black/[0.02] dark:border-white/15 dark:bg-white/[0.02]"
         />
       ))}
     </div>

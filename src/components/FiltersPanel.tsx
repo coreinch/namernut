@@ -16,17 +16,120 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-US");
 }
 
+function BookIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12 2l1.8 5.6L19.5 9l-5.7 1.4L12 16l-1.8-5.6L4.5 9l5.7-1.4L12 2z" />
+    </svg>
+  );
+}
+
+function DiceIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="3" width="18" height="18" rx="4" />
+      <circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="8" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="8" cy="16" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="16" cy="16" r="1.3" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function SpellIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 20l4-10 4 10M6 16h4" />
+      <path d="M14 20l4-14M14 12h4" />
+    </svg>
+  );
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`transition-transform ${open ? "rotate-180" : ""}`}
+      aria-hidden="true"
+    >
+      <path d="M6 9l6 6 6-6" />
+    </svg>
+  );
+}
+
+/** One always-on-or-toggleable pill describing a name-generation mechanism — the merged replacement for three separate switches-with-paragraphs, following the same "style chip" pattern comparable name generators (e.g. Namelix) use for this exact kind of choice. `active` (not `disabled`) renders the always-on "Dictionary" chip, which has no click handler at all. */
+function StyleChip({
+  icon,
+  label,
+  active,
+  disabled,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  const inert = !onClick;
+  const Tag = inert ? "span" : "button";
+  return (
+    <Tag
+      type={inert ? undefined : "button"}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={inert ? undefined : active}
+      className={`flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium transition-all ${
+        inert ? "" : "active:scale-95"
+      } ${FOCUS_RING} ${
+        disabled
+          ? "cursor-not-allowed border border-dashed border-black/15 text-black/35 dark:border-white/15 dark:text-white/35"
+          : active
+            ? "bg-accent-2 text-white"
+            : "border border-black/15 text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
+      }`}
+    >
+      {icon}
+      {label}
+    </Tag>
+  );
+}
+
 /**
- * The collapsible "Filters" card — collapsed by default (the defaults are
- * good enough that most searches never need to touch this), with the
- * closed toggle summarizing every setting actually in effect so nothing is
- * hidden without a trace. Takes every value it renders and every setter it
- * calls as props rather than owning any state itself — page.tsx remains
- * the single source of truth (and the thing that persists it all).
+ * The search hero + advanced filters. Every toggle that widens which
+ * candidate names get searched now lives in one "Style" chip row —
+ * "Dictionary" is always on and unclickable (dictionary pairing on the
+ * literal word always runs either way), while "AI synonyms"/"AI-invented"/
+ * "Alt-spellings" toggle useAiSynonyms/useAiInvented/useAltSpellings.
+ * Everything that only narrows the search (TLDs, quality gates, length/
+ * count sliders, auto-rank) sits behind the collapsed "Advanced filters"
+ * link — narrowing controls are opt-in to look at, generation controls are
+ * always visible, matching the Namecheap Beast Mode split between
+ * "Transform" and "Filtering" controls. Takes every value it renders and
+ * every setter it calls as props rather than owning any state itself —
+ * page.tsx remains the single source of truth (and the thing that persists
+ * it all).
  */
 export function FiltersPanel({
-  showFilters,
-  onToggleShowFilters,
+  showAdvanced,
+  onToggleShowAdvanced,
   stats,
   keywordInput,
   onKeywordInputChange,
@@ -51,9 +154,13 @@ export function FiltersPanel({
   onGatesChange,
   autoRank,
   onAutoRankChange,
+  isRunning,
+  primaryLabel,
+  onStart,
+  onStop,
 }: {
-  showFilters: boolean;
-  onToggleShowFilters: () => void;
+  showAdvanced: boolean;
+  onToggleShowAdvanced: () => void;
   stats: DictionaryStats | null;
   keywordInput: string;
   onKeywordInputChange: (value: string) => void;
@@ -78,139 +185,85 @@ export function FiltersPanel({
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
   autoRank: boolean;
   onAutoRankChange: (value: boolean) => void;
+  isRunning: boolean;
+  primaryLabel: string;
+  onStart: () => void;
+  onStop: () => void;
 }) {
-  return (
-    <>
-      {/* 1. SEARCH CONFIGURATION — collapsed by default (same pattern as
-          "Previous results"/"More TLDs" below). */}
-      <button
-        type="button"
-        onClick={onToggleShowFilters}
-        className={`flex min-h-11 items-start gap-2 rounded-xl border border-dashed border-black/20 px-3.5 py-2.5 text-left text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-      >
-        {/* Wraps rather than truncating — on a narrow screen with a keyword
-            set, a single-line ellipsis was cutting off whichever settings
-            came last (often the keyword itself), hiding them with no way
-            to see them without opening the whole panel. */}
-        <span className="min-w-0 flex-1">
-          Filters · {resultCount} results · {maxLength} chars ·{" "}
-          {selectedTlds.length === 1 ? `.${selectedTlds[0]}` : `${selectedTlds.length} TLDs`}
-          {stats && ` · ${formatNumber(stats.totalCombinations)} combinations`}
-          {keywordParam && ` · "${keywordParam}"`}
-        </span>
-        <span className="shrink-0">{showFilters ? "▲" : "▾"}</span>
-      </button>
-      {showFilters && !stats && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15" aria-hidden="true">
-          <div className="h-4 w-32 animate-pulse rounded bg-black/5 dark:bg-white/5" />
-          <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
-          <div className="h-11 animate-pulse rounded-xl bg-black/5 dark:bg-white/5" />
-        </section>
-      )}
-      {showFilters && stats && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-black/15 p-4 dark:border-white/15">
-          <div className="flex flex-col gap-2">
-            <div className="relative">
-              <input
-                type="text"
-                inputMode="text"
-                value={keywordInput}
-                onChange={(e) => onKeywordInputChange(e.target.value)}
-                placeholder="Include a word (optional), e.g. nova"
-                maxLength={20}
-                className={`min-h-12 w-full rounded-xl border border-black/15 bg-transparent px-4 text-base outline-none transition-colors placeholder:text-black/45 focus:border-emerald-500/50 dark:border-white/15 dark:placeholder:text-white/45 ${FOCUS_RING}`}
-              />
-              {keywordInput && (
-                <button
-                  type="button"
-                  onClick={() => onKeywordInputChange("")}
-                  aria-label="Clear keyword"
-                  className={`absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-black/55 transition-colors hover:bg-black/5 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-                >
-                  ×
-                </button>
-              )}
-            </div>
-            {keywordParam && (
-              <p className="text-xs text-black/55 dark:text-white/55">
-                Every result will include &ldquo;{keywordParam}&rdquo;.
-              </p>
-            )}
-          </div>
+  const activeGateCount = Object.values(gates).filter(Boolean).length + (autoRank ? 1 : 0);
 
-          {/* Name generation — every toggle that widens WHICH candidate
-              names get searched, grouped together and set off from the
-              filters below (which only narrow down candidates the search
-              already generates). Three independent, always-visible toggles
-              (none ever hides in place of another): "AI synonyms" expands
-              the typed keyword into related words to pair with the
-              dictionary (inert with nothing to expand until a keyword
-              exists — shown disabled, not hidden, so it stays visible
-              rather than reading as if it vanished); "AI-invented names" is
-              a wholly separate mechanism — complete made-up words, no
-              dictionary pairing at all — that works with or without a
-              keyword; "Alternate spellings" is a third, non-AI mechanism —
-              deterministic respellings of the keyword, also keyword-gated
-              like AI synonyms. */}
-          <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-black/40 dark:text-white/40">
-              Name generation
-            </span>
-            <div className="flex flex-col gap-1">
-              <GateToggle
-                label="AI synonyms"
-                checked={useAiSynonyms}
-                onChange={onUseAiSynonymsChange}
-                disabled={!keywordParam}
-              />
-              <p className="text-xs text-black/45 dark:text-white/45">
-                {keywordParam ? (
-                  <>
-                    Also pairs the dictionary with AI-suggested synonyms of &ldquo;{keywordParam}&rdquo; (e.g.
-                    &ldquo;blaze&rdquo; for &ldquo;fast&rdquo;) — dictionary pairing on the literal word always runs
-                    either way, this only adds more to it.
-                  </>
-                ) : (
-                  "Type a keyword above to enable — expands it into related words to pair with the dictionary."
-                )}
-              </p>
-            </div>
-            <div className="flex flex-col gap-1">
-              <GateToggle label="AI-invented names" checked={useAiInvented} onChange={onUseAiInventedChange} />
-              <p className="text-xs text-black/45 dark:text-white/45">
-                Also searches fully AI-invented brandable words (like &ldquo;Zuvio&rdquo; or &ldquo;Fovixia&rdquo;) —
-                not built from any dictionary word.
-                {keywordParam && ` Themed around "${keywordParam}" since it's typed above.`}
-              </p>
-            </div>
-            <div className="flex flex-col gap-1">
-              <GateToggle
-                label="Alternate spellings"
-                checked={useAltSpellings}
-                onChange={onUseAltSpellingsChange}
-                disabled={!keywordParam}
-              />
-              <p className="text-xs text-black/45 dark:text-white/45">
-                {keywordParam ? (
-                  <>
-                    Also pairs the dictionary with respellings of &ldquo;{keywordParam}&rdquo; (e.g. &ldquo;lyft&rdquo;
-                    for &ldquo;lift&rdquo;) — a deterministic rule, not AI, so it costs nothing extra to turn on.
-                    These results skip the &ldquo;Pronounceable only&rdquo; filter below, since a deliberately
-                    respelled word (dropped vowel, doubled letter) would otherwise almost always get rejected by it.
-                  </>
-                ) : (
-                  "Type a keyword above to enable — respells it (e.g. “lyft” for “lift”), no AI involved."
-                )}
-              </p>
-            </div>
-          </div>
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
+        What&rsquo;s your idea?
+      </h1>
+
+      <div className="flex items-center gap-1.5 rounded-full bg-card p-1.5 shadow-[0_2px_10px_rgba(27,21,51,0.08)] dark:shadow-none">
+        <input
+          type="text"
+          inputMode="text"
+          value={keywordInput}
+          onChange={(e) => onKeywordInputChange(e.target.value)}
+          placeholder="Include a word (optional), e.g. nova"
+          maxLength={20}
+          className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 ${FOCUS_RING}`}
+        />
+        <button
+          type="button"
+          onClick={isRunning ? onStop : onStart}
+          className={`min-h-11 shrink-0 whitespace-nowrap rounded-full px-5 text-sm font-semibold text-white transition-all active:scale-95 ${
+            isRunning ? "bg-black/70 hover:bg-black/80 dark:bg-white/25 dark:hover:bg-white/35" : "bg-accent hover:opacity-90"
+          } ${FOCUS_RING}`}
+        >
+          {isRunning ? "Stop" : primaryLabel}
+        </button>
+      </div>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        <StyleChip icon={<BookIcon />} label="Dictionary" active />
+        <StyleChip
+          icon={<SparkleIcon />}
+          label="AI synonyms"
+          active={useAiSynonyms}
+          disabled={!keywordParam}
+          onClick={() => onUseAiSynonymsChange(!useAiSynonyms)}
+        />
+        <StyleChip
+          icon={<DiceIcon />}
+          label="AI-invented"
+          active={useAiInvented}
+          onClick={() => onUseAiInventedChange(!useAiInvented)}
+        />
+        <StyleChip
+          icon={<SpellIcon />}
+          label="Alt-spellings"
+          active={useAltSpellings}
+          disabled={!keywordParam}
+          onClick={() => onUseAltSpellingsChange(!useAltSpellings)}
+        />
+      </div>
+
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={onToggleShowAdvanced}
+          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
+        >
+          Advanced filters ({activeGateCount} active)
+          <ChevronIcon open={showAdvanced} />
+        </button>
+      </div>
+
+      {showAdvanced && (
+        <section className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none">
+          {keywordParam && (
+            <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
+          )}
 
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
+            <div className="flex items-center justify-between text-xs text-muted">
               <span>Max combination length</span>
-              <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                {maxLength} characters
-              </span>
+              <span className="font-semibold tabular-nums text-foreground">{maxLength} characters</span>
             </div>
             <input
               type="range"
@@ -220,20 +273,22 @@ export function FiltersPanel({
               value={maxLength}
               onChange={(e) => onMaxLengthChange(Number(e.target.value))}
               aria-label="Maximum combined result length"
-              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
+              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-accent dark:bg-white/10 ${FOCUS_RING}`}
             />
-            <p className="text-xs text-black/55 dark:text-white/55">
-              <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">
-                {formatNumber(stats.totalCombinations)}
-              </span>{" "}
-              possible combinations at this length
-            </p>
+            {stats && (
+              <p className="text-xs text-muted">
+                <span className="font-semibold tabular-nums text-foreground">
+                  {formatNumber(stats.totalCombinations)}
+                </span>{" "}
+                possible combinations at this length
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-xs text-black/55 dark:text-white/55">
+            <div className="flex items-center justify-between text-xs text-muted">
               <span>Results to find</span>
-              <span className="font-semibold tabular-nums text-black/80 dark:text-white/80">{resultCount}</span>
+              <span className="font-semibold tabular-nums text-foreground">{resultCount}</span>
             </div>
             <input
               type="range"
@@ -243,41 +298,43 @@ export function FiltersPanel({
               value={resultCount}
               onChange={(e) => onResultCountChange(Number(e.target.value))}
               aria-label="Number of available results to find"
-              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-emerald-600 dark:bg-white/10 dark:accent-emerald-500 ${FOCUS_RING}`}
+              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-accent dark:bg-white/10 ${FOCUS_RING}`}
             />
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {visibleTlds.map((tld) => (
-              <button
-                key={tld}
-                type="button"
-                onClick={() => onToggleTld(tld)}
-                aria-pressed={enabledTlds[tld]}
-                className={`min-h-11 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
-                  enabledTlds[tld]
-                    ? "border-emerald-500/40 bg-emerald-500/10 font-medium text-emerald-700 dark:text-emerald-300"
-                    : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
-                }`}
-              >
-                .{tld}
-              </button>
-            ))}
-            {TLDS.length > PRIMARY_TLD_COUNT && (
-              <button
-                type="button"
-                onClick={onToggleShowMoreTlds}
-                className={`min-h-11 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-              >
-                {effectiveShowMoreTlds ? "Less ▲" : `More ▾`}
-              </button>
-            )}
+          <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Extensions</span>
+            <div className="flex flex-wrap gap-2">
+              {visibleTlds.map((tld) => (
+                <button
+                  key={tld}
+                  type="button"
+                  onClick={() => onToggleTld(tld)}
+                  aria-pressed={enabledTlds[tld]}
+                  className={`min-h-9 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
+                    enabledTlds[tld]
+                      ? "border-accent-2/40 bg-accent-2/10 font-medium text-accent-2"
+                      : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
+                  }`}
+                >
+                  .{tld}
+                </button>
+              ))}
+              {TLDS.length > PRIMARY_TLD_COUNT && (
+                <button
+                  type="button"
+                  onClick={onToggleShowMoreTlds}
+                  className={`min-h-9 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-muted transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10 ${FOCUS_RING}`}
+                >
+                  {effectiveShowMoreTlds ? "Less ▲" : "More ▾"}
+                </button>
+              )}
+            </div>
+            {selectedTlds.length === 0 && <p className="text-xs text-muted">Select at least one extension.</p>}
           </div>
 
           <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-black/40 dark:text-white/40">
-              Filters
-            </span>
+            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Quality gates</span>
             <GateToggle
               label="Require Instagram handle"
               checked={gates.requireInstagram}
@@ -302,13 +359,13 @@ export function FiltersPanel({
 
           <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
             <GateToggle label="Auto-check rankability" checked={autoRank} onChange={onAutoRankChange} />
-            <p className="text-xs text-black/45 dark:text-white/45">
+            <p className="text-xs text-muted">
               Runs the paid AI rankability check on every result found, not just the ones you pick — off by default
               to avoid the extra cost.
             </p>
           </div>
         </section>
       )}
-    </>
+    </div>
   );
 }

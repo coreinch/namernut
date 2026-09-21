@@ -10,20 +10,18 @@ export function LiveLogSection({ log, logBoxRef }: { log: LogEntry[]; logBoxRef:
   if (log.length === 0) return null;
   return (
     <section className="flex flex-col gap-2">
-      <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">Live log</h2>
+      <h2 className="text-[11px] font-medium uppercase tracking-wide text-muted">Activity</h2>
       <div
         ref={logBoxRef}
-        className="thin-scrollbar max-h-[45vh] overflow-y-auto rounded-xl border border-black/15 p-3 font-mono text-sm dark:border-white/15"
+        className="thin-scrollbar max-h-[35vh] overflow-y-auto rounded-2xl bg-card p-3 text-sm shadow-[0_1px_3px_rgba(27,21,51,0.05)] dark:shadow-none"
         aria-live="polite"
       >
         <ul className="space-y-0.5">
           {log.map((entry) => (
             <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
               <LogDot status={entry.status} />
-              <span className="truncate text-black/90 dark:text-white/90">{entry.name}</span>
-              <span className="ml-auto shrink-0 text-xs text-black/45 dark:text-white/45">
-                {LOG_STATUS_LABEL[entry.status]}
-              </span>
+              <span className="truncate">{entry.name}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted">{LOG_STATUS_LABEL[entry.status]}</span>
             </li>
           ))}
         </ul>

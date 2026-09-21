@@ -3,6 +3,11 @@
 // component file doesn't need to import from page.tsx (the orchestrating
 // component) just to get at a shape it renders.
 
+// A type-only import — erased at compile time, so this doesn't pull
+// candidates.ts's runtime code (or its dictionary-data dependency) into the
+// client bundle. Same pattern as DiscoveryGates in page.tsx.
+import type { CandidateSource } from "@/lib/candidates";
+
 // "filtered": the domain itself was available, but its Instagram username
 // wasn't (or the check was inconclusive) — see the "instagram" filter,
 // which requires both to count as a result.
@@ -38,6 +43,10 @@ export interface FoundEntry {
   // string with no real-world usage anywhere to compete with.
   rankabilityScore?: number;
   collisionSummary?: string;
+  // Which generation mechanism produced this result — see CandidateSource.
+  // Optional so entries persisted before this field existed still hydrate
+  // fine; treated as "dictionary" wherever it's read (see ResultCard).
+  source?: CandidateSource;
 }
 
 export type RunStatus = "idle" | "running" | "stopped" | "found" | "error";

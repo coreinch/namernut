@@ -17,8 +17,8 @@ import {
   type Lang,
   type Tld,
 } from "@/lib/searchConfig";
-import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
-import { Header } from "@/components/Header";
+import { CONTENT_WIDTH } from "@/components/constants";
+import { Header, type ResultsTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { FiltersPanel } from "@/components/FiltersPanel";
 import { ResultsGrid } from "@/components/ResultsGrid";
@@ -190,8 +190,13 @@ export default function Home() {
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
-  const [showPreviousResults, setShowPreviousResults] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Which of the three result sections is on screen — replaces the old
+  // always-stacked current run / top ranked / favorites / previous results
+  // sections with one switch (see Header's tab control). Not persisted:
+  // reloading the page is a fresh look at the app, and "Current" is always
+  // the most relevant place to land.
+  const [activeTab, setActiveTab] = useState<ResultsTab>("current");
 
   const selectedLangs = useMemo(
     () => (Object.keys(enabledLangs) as Lang[]).filter((l) => enabledLangs[l]),
@@ -511,6 +516,7 @@ export default function Home() {
                     checkedCount: event.checkedCount,
                     runId,
                     instagram: event.instagram,
+                    source: event.source,
                   },
                   ...prev,
                 ];
@@ -600,49 +606,42 @@ export default function Home() {
   // "Searching…" branch needed here.
   const primaryLabel = runStatus === "idle" ? "Start discovery" : "Search again";
   // foundHistory is stored newest-first (new finds are prepended, so
-  // Favorites/Previous-results archives read newest-first). But within the
-  // *current* run's grid, that ordering made each new find jump to the
-  // front and push earlier ones down/right. Reverse just this slice so
-  // finds render in discovery order — first found stays put, each new one
-  // appends after it — instead of reshuffling the whole grid every find.
+  // Favorites/Archive read newest-first). But within the *current* run's
+  // list, that ordering made each new find jump to the front and push
+  // earlier ones down. Reverse just this slice so finds render in discovery
+  // order — first found stays put, each new one appends after it — instead
+  // of reshuffling the whole list every find.
   const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
-  // Shown in place of an empty screen on load (see the render below): the
-  // best resultCount previously-scored results, so returning to an idle app
-  // still has something to look at instead of nothing until you search
-  // again. Only counts entries actually scored via "Rank" — an unscored
-  // result isn't "top" anything, it's just unmeasured, so this stays empty
-  // until at least one result has been ranked.
-  const topResults = foundHistory
-    .filter((e) => e.runId !== activeRunId && e.rankabilityScore !== undefined)
-    .slice()
-    .sort((a, b) => (b.rankabilityScore ?? 0) - (a.rankabilityScore ?? 0))
-    .slice(0, resultCount);
-  const topResultIds = new Set(topResults.map((e) => e.id));
-  // Ranked best-first (highest rankabilityScore — easiest to actually rank
-  // #1 for — at the top), unlike currentRunResults above which preserves
-  // discovery order: once a result has aged into history, how promising it
-  // is matters more than when it happened to turn up. Entries with no
-  // score yet (never checked — see FoundEntry) sort last, via the ?? -1
-  // fallback, rather than being scattered among real 0-100 scores. Excludes
-  // whatever's already shown in topResults above so the archive doesn't
-  // repeat the same cards.
-  const previousResults = foundHistory
-    .filter((e) => e.runId !== activeRunId && !topResultIds.has(e.id))
+  // Everything not from the active run, ranked best-first (highest
+  // rankabilityScore — easiest to actually rank #1 for — at the top): once
+  // a result has aged out of the current run, how promising it is matters
+  // more than when it happened to turn up. Entries with no score yet
+  // (never checked — see FoundEntry) sort last, via the ?? -1 fallback,
+  // rather than being scattered among real 0-100 scores. Always reachable
+  // via the Archive tab (see Header) — there's no separate "top ranked"
+  // slot to fill an idle screen anymore, since the tab itself is always on
+  // screen.
+  const archiveResults = foundHistory
+    .filter((e) => e.runId !== activeRunId)
     .slice()
     .sort((a, b) => (b.rankabilityScore ?? -1) - (a.rankabilityScore ?? -1));
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
-  const subtitle = `AI rankability scores · ${selectedTlds.map((t) => `.${t}`).join(" ")}`;
   const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
+  const tabCounts: Record<ResultsTab, number> = {
+    current: currentRunResults.length,
+    favorites: favorites.length,
+    archive: archiveResults.length,
+  };
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <Header status={runStatus} subtitle={subtitle} />
+      <Header status={runStatus} activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
 
-      <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+      <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6">
         <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH}`}>
           <FiltersPanel
-            showFilters={showFilters}
-            onToggleShowFilters={() => setShowFilters((v) => !v)}
+            showAdvanced={showAdvanced}
+            onToggleShowAdvanced={() => setShowAdvanced((v) => !v)}
             stats={stats}
             keywordInput={keywordInput}
             onKeywordInputChange={setKeywordInput}
@@ -667,130 +666,108 @@ export default function Home() {
             onGatesChange={setGates}
             autoRank={autoRank}
             onAutoRankChange={setAutoRank}
+            isRunning={isRunning}
+            primaryLabel={primaryLabel}
+            onStart={start}
+            onStop={stop}
           />
 
           {errorMessage && (
-            <p className="animate-fade-in-up rounded-xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400">
+            <p className="animate-fade-in-up rounded-2xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400">
               {errorMessage}
             </p>
           )}
 
-          {/* Results grid — only the current run, so the screen doesn't
-              accumulate clutter across repeated searches. Older finds move
-              into the collapsed "Previous results" section below. */}
-          {(currentRunResults.length > 0 || isRunning) && (
+          {activeTab === "current" && (
             <section className="flex flex-col gap-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
-                  Available domains
-                </h2>
-                {isRunning && (
-                  <span className="text-xs tabular-nums text-black/55 dark:text-white/55">
+              {isRunning && (
+                <div className="flex items-center justify-end">
+                  <span className="text-xs tabular-nums text-muted">
                     {currentRunFound}/{resultCount}
                   </span>
-                )}
-              </div>
+                </div>
+              )}
               {gettingIdeas && (
-                <p className="flex items-center gap-1.5 text-xs text-black/45 dark:text-white/45">
+                <p className="flex items-center gap-1.5 text-xs text-muted">
                   <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
                   Getting AI ideas before this search starts checking domains…
                 </p>
               )}
               {aiSynonymWords.length > 0 && (
-                <p className="text-xs text-black/45 dark:text-white/45">
+                <p className="text-xs text-muted">
                   Also searching AI synonym{aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
                 </p>
               )}
               {aiInventedWords.length > 0 && (
-                <p className="text-xs text-black/45 dark:text-white/45">
+                <p className="text-xs text-muted">
                   Also searching AI-invented name{aiInventedWords.length === 1 ? "" : "s"}:{" "}
                   {aiInventedWords.join(", ")}
                 </p>
               )}
               {altSpellingWords.length > 0 && (
-                <p className="text-xs text-black/45 dark:text-white/45">
+                <p className="text-xs text-muted">
                   Also searching alt spelling{altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
                   {gates.filterPronounceable &&
                     // Only worth saying while the gate is actually on —
                     // with it off there's nothing being skipped to call
                     // out. Surfaced here (not just in the collapsed
-                    // Filters panel) since this is the live, no-need-to-
-                    // expand-anything view of what a run is actually doing.
+                    // Advanced filters panel) since this is the live,
+                    // no-need-to-expand-anything view of what a run is
+                    // actually doing.
                     ' — these skip the "Pronounceable only" filter below.'}
                 </p>
               )}
-              <ResultsGrid
-                entries={currentRunResults}
-                favoriteDomains={favoriteDomains}
-                checkingCollisionNames={checkingCollisionNames}
-                collisionErrors={collisionErrors}
-                onSearch={searchDomain}
-                onToggleFavorite={toggleFavorite}
-                onCheckCollision={checkCollisionFor}
-                onRegister={registerDomain}
-                pendingCount={isRunning ? Math.max(0, resultCount - currentRunResults.length) : 0}
-              />
-            </section>
-          )}
-
-          {/* Top ranked — fills the same slot as "Available domains" once
-              there's no live run to show, so loading the app isn't an
-              empty screen until you search again: the best resultCount
-              already-scored results from history, ranked best-first. */}
-          {currentRunResults.length === 0 && !isRunning && topResults.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
-                Top ranked
-              </h2>
-              <ResultsGrid
-                entries={topResults}
-                favoriteDomains={favoriteDomains}
-                checkingCollisionNames={checkingCollisionNames}
-                collisionErrors={collisionErrors}
-                onSearch={searchDomain}
-                onToggleFavorite={toggleFavorite}
-                onCheckCollision={checkCollisionFor}
-                onRegister={registerDomain}
-              />
-            </section>
-          )}
-
-          <LiveLogSection log={log} logBoxRef={logBoxRef} />
-
-          {favorites.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-xs font-medium uppercase tracking-wide text-black/65 dark:text-white/65">
-                Favorites
-              </h2>
-              <ResultsGrid
-                entries={favorites}
-                favoriteDomains={favoriteDomains}
-                checkingCollisionNames={checkingCollisionNames}
-                collisionErrors={collisionErrors}
-                onSearch={searchDomain}
-                onToggleFavorite={toggleFavorite}
-                onCheckCollision={checkCollisionFor}
-                onRegister={registerDomain}
-              />
-            </section>
-          )}
-
-          {/* Previous results — collapsed by default, same pattern as the
-              "More TLDs" toggle, so old finds stay reachable without
-              cluttering the default view. */}
-          {previousResults.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => setShowPreviousResults((v) => !v)}
-                className={`flex min-h-11 items-center justify-between rounded-xl border border-dashed border-black/20 px-3.5 text-xs text-black/55 transition-all active:scale-[0.99] hover:bg-black/5 dark:border-white/20 dark:text-white/55 dark:hover:bg-white/10 ${FOCUS_RING}`}
-              >
-                <span>Previous results ({previousResults.length})</span>
-                <span>{showPreviousResults ? "▲" : "▾"}</span>
-              </button>
-              {showPreviousResults && (
+              {currentRunResults.length === 0 && !isRunning ? (
+                <p className="py-8 text-center text-sm text-muted">
+                  Type an idea above and hit Generate to see results here.
+                </p>
+              ) : (
                 <ResultsGrid
-                  entries={previousResults}
+                  entries={currentRunResults}
+                  favoriteDomains={favoriteDomains}
+                  checkingCollisionNames={checkingCollisionNames}
+                  collisionErrors={collisionErrors}
+                  onSearch={searchDomain}
+                  onToggleFavorite={toggleFavorite}
+                  onCheckCollision={checkCollisionFor}
+                  onRegister={registerDomain}
+                  pendingCount={isRunning ? Math.max(0, resultCount - currentRunResults.length) : 0}
+                />
+              )}
+              <LiveLogSection log={log} logBoxRef={logBoxRef} />
+            </section>
+          )}
+
+          {activeTab === "favorites" && (
+            <section className="flex flex-col gap-2">
+              {favorites.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted">
+                  Tap the star on a result to save it here.
+                </p>
+              ) : (
+                <ResultsGrid
+                  entries={favorites}
+                  favoriteDomains={favoriteDomains}
+                  checkingCollisionNames={checkingCollisionNames}
+                  collisionErrors={collisionErrors}
+                  onSearch={searchDomain}
+                  onToggleFavorite={toggleFavorite}
+                  onCheckCollision={checkCollisionFor}
+                  onRegister={registerDomain}
+                />
+              )}
+            </section>
+          )}
+
+          {activeTab === "archive" && (
+            <section className="flex flex-col gap-2">
+              {archiveResults.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted">
+                  Past searches will collect here once you run more than one.
+                </p>
+              ) : (
+                <ResultsGrid
+                  entries={archiveResults}
                   favoriteDomains={favoriteDomains}
                   checkingCollisionNames={checkingCollisionNames}
                   collisionErrors={collisionErrors}
@@ -805,13 +782,7 @@ export default function Home() {
         </div>
       </main>
 
-      <Footer
-        isRunning={isRunning}
-        primaryLabel={primaryLabel}
-        statusText={statusText}
-        onStart={start}
-        onStop={stop}
-      />
+      <Footer isRunning={isRunning} statusText={statusText} onStop={stop} />
     </div>
   );
 }

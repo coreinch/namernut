@@ -1,12 +1,24 @@
 import type { WordEntry } from "@/lib/dictionary";
 import { isModifier } from "@/lib/modifiers";
 
+/**
+ * Which generation mechanism produced a candidate — carried as real data
+ * from the point each candidate is built all the way through to the UI (see
+ * FoundEntry.source in src/lib/types.ts), rather than re-derived later by
+ * pattern-matching `meaning`'s display text. "dictionary" covers both the
+ * no-keyword modifier+core pairing and a keyword paired with a plain
+ * dictionary word — in both cases the word half comes straight from the
+ * dictionary, not from an AI suggestion or a respelling.
+ */
+export type CandidateSource = "dictionary" | "aiSynonym" | "invented" | "altSpelling";
+
 export interface Candidate {
   name: string;
   /** Each half's word plus its short WordNet definition (or just the bare word for a user-supplied keyword, which has none), e.g. "swift: moving fast · fox: a carnivorous mammal". */
   meaning: string;
   /** The two literal strings name was concatenated from, in order (parts[0] + parts[1] === name) — e.g. ["swift", "fox"], or ["poet", "apps"] for a keyword. Used by lib/collision.ts to search the name as two separate words without re-deriving the split from a dictionary lookup or by parsing `meaning`. */
   parts: [string, string];
+  source: CandidateSource;
 }
 
 export interface CandidateTier {
@@ -50,8 +62,13 @@ function buildPairTier(
   };
 }
 
-/** `label` is what shows in the candidate's meaning string — defaults to the bare keyword itself, but an AI-suggested synonym tier (see suggestKeywordSynonyms) passes something like `blaze (AI idea for "nova")` instead, so a result built from a synonym never reads as if the user had typed it themselves. */
-function buildKeywordTier(words: WordEntry[], keyword: string, label: string = keyword): CandidateTier {
+/** `label` is what shows in the candidate's meaning string — defaults to the bare keyword itself, but an AI-suggested synonym tier (see suggestKeywordSynonyms) passes something like `blaze (AI idea for "nova")` instead, so a result built from a synonym never reads as if the user had typed it themselves. `source` defaults to "dictionary" (the plain literal-keyword tier); the synonym/alt-spelling tiers pass their own. */
+function buildKeywordTier(
+  words: WordEntry[],
+  keyword: string,
+  label: string = keyword,
+  source: CandidateSource = "dictionary"
+): CandidateTier {
   const L = words.length;
   return {
     total: 2 * L,
@@ -62,6 +79,7 @@ function buildKeywordTier(words: WordEntry[], keyword: string, label: string = k
           name: `${keyword}${w.word}`,
           meaning: `${label} · ${describe(w.word, w.definition)}`,
           parts: [keyword, w.word],
+          source,
         };
       }
       const w = words[shuffled - L];
@@ -69,6 +87,7 @@ function buildKeywordTier(words: WordEntry[], keyword: string, label: string = k
         name: `${w.word}${keyword}`,
         meaning: `${describe(w.word, w.definition)} · ${label}`,
         parts: [w.word, keyword],
+        source,
       };
     },
   };
@@ -115,6 +134,7 @@ interface KeywordTierSpec {
   words: WordEntry[];
   keyword: string;
   label: string;
+  source: CandidateSource;
 }
 
 // AI-invented names (see buildInventedTier below) aren't picked via a spec
@@ -140,6 +160,7 @@ function selectTierSpecs(
       name: `${m.word}${c.word}`,
       meaning: `${describe(m.word, m.definition)} · ${describe(c.word, c.definition)}`,
       parts: [m.word, c.word],
+      source: "dictionary",
     });
 
     if (modifiers.length > 0 && core.length > 0) {
@@ -157,6 +178,7 @@ function selectTierSpecs(
       name: `${w1.word}${w2.word}`,
       meaning: `${describe(w1.word, w1.definition)} · ${describe(w2.word, w2.definition)}`,
       parts: [w1.word, w2.word],
+      source: "dictionary",
     });
     const commonPool = pool.filter((w) => w.common);
     if (commonPool.length > 0) {
@@ -180,6 +202,7 @@ function selectTierSpecs(
         words,
         keyword: synonym,
         label: `${synonym} (AI idea for "${keyword}")`,
+        source: "aiSynonym",
       })
     ),
     // Deterministic respellings of the literal keyword itself (see
@@ -192,9 +215,10 @@ function selectTierSpecs(
         words,
         keyword: spelling,
         label: `${spelling} (alt spelling of "${keyword}")`,
+        source: "altSpelling",
       })
     ),
-    { kind: "keyword", words, keyword, label: keyword },
+    { kind: "keyword", words, keyword, label: keyword, source: "dictionary" },
   ];
 }
 
@@ -208,6 +232,7 @@ function buildInventedTier(words: string[], keyword?: string): CandidateTier {
         name,
         meaning: keyword ? `${name} (AI-invented name for "${keyword}")` : `${name} (AI-invented name)`,
         parts: [name, ""],
+        source: "invented",
       };
     },
   };
@@ -223,7 +248,7 @@ export function buildCandidateSpace(
   const tiers = selectTierSpecs(pool, keyword, aiSynonyms, altSpellings).map((spec) =>
     spec.kind === "pair"
       ? buildPairTier(spec.rows, spec.cols, spec.makeCandidate)
-      : buildKeywordTier(spec.words, spec.keyword, spec.label)
+      : buildKeywordTier(spec.words, spec.keyword, spec.label, spec.source)
   );
   // Prepended, not appended — see the tier-order comment above selectTierSpecs's
   // return for the AI synonym tiers: claimCandidate claims round-robin

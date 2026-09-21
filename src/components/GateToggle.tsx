@@ -1,6 +1,6 @@
 import { FOCUS_RING } from "./constants";
 
-/** A labeled on/off switch for one DiscoveryGates flag — emerald when on, matching the app's one-accent-color convention, with the thumb position (not just color) carrying the state. */
+/** A labeled on/off switch for one DiscoveryGates flag — accent-colored when on, with the thumb position (not just color) carrying the state. */
 export function GateToggle({
   label,
   checked,
@@ -14,9 +14,7 @@ export function GateToggle({
   disabled?: boolean;
 }) {
   return (
-    <div
-      className={`flex min-h-9 items-center justify-between gap-3 text-xs text-black/65 dark:text-white/65 ${disabled ? "opacity-40" : ""}`}
-    >
+    <div className={`flex min-h-9 items-center justify-between gap-3 text-xs text-muted ${disabled ? "opacity-40" : ""}`}>
       <span>{label}</span>
       <button
         type="button"
@@ -26,7 +24,7 @@ export function GateToggle({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${disabled ? "cursor-not-allowed" : ""} ${FOCUS_RING} ${
-          checked ? "bg-emerald-500" : "bg-black/15 dark:bg-white/20"
+          checked ? "bg-accent" : "bg-black/15 dark:bg-white/20"
         }`}
       >
         <span
