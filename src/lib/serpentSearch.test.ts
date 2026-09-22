@@ -58,6 +58,7 @@ describe("serpentSearch", () => {
     expect(url.origin + url.pathname).toBe("https://apiserpent.com/api/search");
     expect(url.searchParams.get("q")).toBe("my query");
     expect(url.searchParams.get("engine")).toBe("google");
+    expect(url.searchParams.get("country")).toBe("us");
     expect((initArg as RequestInit).headers).toMatchObject({ "X-API-Key": "test-key" });
   });
 

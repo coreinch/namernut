@@ -32,7 +32,16 @@ export async function serperSearch(query: string, signal?: AbortSignal): Promise
       "Content-Type": "application/json",
       "X-API-KEY": apiKey,
     },
-    body: JSON.stringify({ q: query }),
+    // Pinned to a fixed region rather than left to Serper's own default:
+    // Google's results (including whether it silently overrides an unusual
+    // query with a different, existing term — see the override-detection
+    // rubric bullet in collision.ts's buildPrompt) vary by region, so an
+    // unset region makes results non-reproducible and can miss a real
+    // collision that only shows up elsewhere (confirmed directly: "fondterm"
+    // returned generic results with no gl set, but silently overrode to a
+    // real brand, "Finterm", under gl=gr). "us" doesn't close that gap, just
+    // makes it a known, fixed one instead of an undocumented moving target.
+    body: JSON.stringify({ q: query, gl: "us" }),
     signal,
   });
 

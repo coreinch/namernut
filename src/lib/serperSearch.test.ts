@@ -46,7 +46,7 @@ describe("serperSearch", () => {
     await expect(serperSearch("foo")).resolves.toEqual([]);
   });
 
-  it("sends the API key as X-API-KEY and the query as 'q' in a POST body", async () => {
+  it("sends the API key as X-API-KEY and the query as 'q' in a POST body, pinned to gl=us", async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
     await serperSearch("my query");
@@ -55,7 +55,7 @@ describe("serperSearch", () => {
     expect(urlArg).toBe("https://google.serper.dev/search");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "X-API-KEY": "test-key" });
-    expect(JSON.parse(init.body as string)).toEqual({ q: "my query" });
+    expect(JSON.parse(init.body as string)).toEqual({ q: "my query", gl: "us" });
   });
 
   it("throws a RateLimitError on 429", async () => {

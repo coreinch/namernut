@@ -34,6 +34,12 @@ export async function serpentSearch(query: string, signal?: AbortSignal): Promis
   const url = new URL(ENDPOINT);
   url.searchParams.set("q", query);
   url.searchParams.set("engine", "google");
+  // Pinned deliberately, not just apiserpent's default — see the matching
+  // comment in serperSearch.ts. Confirmed directly: "fondterm" returned
+  // generic results with country=us, but silently overrode to a real brand,
+  // "Finterm", under country=gr. Pinning to "us" doesn't close that gap,
+  // just makes it a known, fixed one instead of an undocumented moving
+  // target — both providers now use the same region for the same query.
   url.searchParams.set("country", "us");
 
   const res = await fetch(url, {
