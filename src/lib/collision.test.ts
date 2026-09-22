@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SerperResult } from "./serperSearch";
 
 const serperSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SerperResult[]>>();
@@ -28,14 +28,16 @@ function result(overrides: Partial<SerperResult> = {}): SerperResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
 }
 
+const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
+
 describe("checkCollision", () => {
   beforeEach(() => {
     serperSearchMock.mockReset();
     completeChatMock.mockReset();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
+    // Every test needs a real LLM verdict now — there's no heuristic
+    // fallback — so give one a default and let individual tests override it
+    // (mockResolvedValueOnce, or a rejection) where the response matters.
+    completeChatMock.mockResolvedValue(DEFAULT_LLM_RESPONSE);
   });
 
   it("runs only an unquoted Serper.dev search for the name when it doesn't split into two words", async () => {
@@ -61,54 +63,25 @@ describe("checkCollision", () => {
     expect(serperSearchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 
-  it("factors the two-word search's result count into the heuristic score and summary, weighted higher than unquoted", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
+  it("attaches the two-word split and its result count to the returned result", async () => {
     serperSearchMock
-      .mockResolvedValueOnce([]) // unquoted: 0
-      .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
+      .mockResolvedValueOnce([]) // unquoted
+      .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog"
     const res = await checkCollision("catdog");
-    // 100 - (0*4) - (4*8) = 68
-    expect(res.rankabilityScore).toBe(68);
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.twoWordResultCount).toBe(4);
-    expect(res.summary).toContain('"cat dog"');
   });
 
-  it("scores 100 with zero results on both searches, via the heuristic", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
-    serperSearchMock.mockResolvedValue([]);
-    const res = await checkCollision("fluidfew");
-    expect(res.rankabilityScore).toBe(100);
-    expect(completeChatMock).not.toHaveBeenCalled();
-  });
-
-  it("scores lower as the unquoted result count rises, via the heuristic", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
-    serperSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
-    const res = await checkCollision("oddago");
-    // 100 - (9*4) = 64
-    expect(res.rankabilityScore).toBe(64);
-  });
-
-  it("penalizes a two-word split hit more than the same count of unquoted hits, via the heuristic", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
+  it("includes the two-word split results in the prompt sent to the LLM", async () => {
     serperSearchMock
-      .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())) // unquoted: 3
-      .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())); // "cat dog": 3
-    const res = await checkCollision("catdog");
-    // 100 - (3*4) - (3*8) = 64, well below what 6 unquoted-only hits would cost (76)
-    expect(res.rankabilityScore).toBe(64);
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([result({ title: "cat dog hit" })]);
+    await checkCollision("catdog");
+    const prompt = completeChatMock.mock.calls[0][0];
+    expect(prompt).toContain("cat dog hit");
   });
 
-  it("never returns a negative score even when the count is very high, via the heuristic", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
-    serperSearchMock.mockResolvedValueOnce(Array.from({ length: 30 }, () => result()));
-    const res = await checkCollision("sadpitch");
-    expect(res.rankabilityScore).toBeGreaterThanOrEqual(0);
-  });
-
-  it("uses the LLM score when KILOCODE_API_KEY is set and it responds in the expected format", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+  it("uses the LLM's score and summary verbatim", async () => {
     serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
@@ -118,53 +91,42 @@ describe("checkCollision", () => {
     expect(res.summary).toContain("major existing brand");
   });
 
-  it("falls back to the heuristic when the LLM response doesn't match the expected format", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+  it("instructs the LLM to detect Google's silent query-override from the results themselves", async () => {
+    serperSearchMock.mockResolvedValue([]);
+    await checkCollision("sadpitch");
+    const prompt = completeChatMock.mock.calls[0][0];
+    expect(prompt).toContain("silently substitutes");
+  });
+
+  it("throws when the LLM response doesn't match the expected SCORE/SUMMARY format", async () => {
     serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
-    const res = await checkCollision("fluidfew");
-    expect(res.rankabilityScore).toBe(100);
+    await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
-  it("falls back to the heuristic when the LLM score is out of range", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+  it("throws when the LLM score is out of range", async () => {
     serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
-    const res = await checkCollision("fluidfew");
-    expect(res.rankabilityScore).toBe(100);
+    await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
-  it("falls back to the heuristic when the LLM call throws", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+  it("propagates the error when the LLM call fails, rather than silently degrading to a guess", async () => {
     serperSearchMock.mockResolvedValue([]);
-    completeChatMock.mockRejectedValue(new Error("rate limited"));
-    const res = await checkCollision("fluidfew");
-    expect(res.rankabilityScore).toBe(100);
-  });
-
-  it("names Kilo Gateway's rate limit specifically, rather than misleadingly asking to set an already-configured key", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    serperSearchMock.mockResolvedValue([]);
-    const err = new Error("rate limited");
+    const err = new Error("kilocode_rate_limited");
     err.name = "RateLimitError";
     completeChatMock.mockRejectedValue(err);
-    const res = await checkCollision("fluidfew");
-    expect(res.summary).toContain("free-tier daily request limit");
-    expect(res.summary).not.toContain("Set KILOCODE_API_KEY");
+    await expect(checkCollision("fluidfew")).rejects.toBe(err);
   });
 
-  it("gives a generic failure note (not the rate-limit or missing-key message) for any other LLM error", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "test-key");
+  it("propagates a missing-key error from completeChat rather than falling back", async () => {
     serperSearchMock.mockResolvedValue([]);
-    completeChatMock.mockRejectedValue(new Error("network hiccup"));
-    const res = await checkCollision("fluidfew");
-    expect(res.summary).toContain("didn't return a usable verdict");
-    expect(res.summary).not.toContain("Set KILOCODE_API_KEY");
-    expect(res.summary).not.toContain("free-tier daily request limit");
+    const err = new Error("KILOCODE_API_KEY is not set");
+    err.name = "KilocodeApiKeyMissingError";
+    completeChatMock.mockRejectedValue(err);
+    await expect(checkCollision("fluidfew")).rejects.toBe(err);
   });
 
   it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
     serperSearchMock
       .mockResolvedValueOnce([]) // unquoted: none
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
@@ -173,7 +135,6 @@ describe("checkCollision", () => {
   });
 
   it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
-    vi.stubEnv("KILOCODE_API_KEY", "");
     serperSearchMock
       .mockResolvedValueOnce([result({ title: "unquoted hit" })])
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"

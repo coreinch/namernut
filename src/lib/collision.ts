@@ -25,8 +25,8 @@ export interface CollisionResult {
   twoWordResultCount?: number;
   /** The two-word split results if there were any, else the unquoted-name
    * ones — the split takes priority since a match there is a stronger
-   * collision signal (see heuristicScore) and previously got silently
-   * hidden behind unquoted results whenever both existed. */
+   * collision signal and previously got silently hidden behind unquoted
+   * results whenever both existed. */
   topResults: SerperResult[];
 }
 
@@ -82,52 +82,6 @@ export function validateParts(name: string, parts: [string, string] | undefined)
   const [first, second] = parts;
   if (!first || !second || first + second !== name) return null;
   return parts;
-}
-
-function clampScore(n: number): number {
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-/**
- * Stands in whenever there's no KILOCODE_API_KEY, or the LLM call itself
- * fails — a crude but dependency-free signal beats no signal at all. Pure
- * result-count penalty, unquoted broad-match hits only (see checkCollision
- * for why there's no quoted search): the exact string search that used to
- * run alongside this one only ever hid real collisions rather than adding
- * any (e.g. the quoted search for "oddago" looked clean, but the unquoted
- * one immediately surfaced the real company "Oddogo" one letter away). A
- * two-word split hit is weighted higher than a plain broad-match hit — a
- * result for "even chad" means Google resolves the name to a genuine
- * two-word phrase (a name, a place, a real phrase), which is a much more
- * reliable collision signal than a broad-match hit on the raw concatenated
- * string, which is often just fuzzy/incidental matching. Zero hits on both
- * is the one case this heuristic can be fully confident about, so it's the
- * only score that reaches the true endpoints.
- */
-function heuristicScore(
-  unquotedCount: number,
-  twoWordSplit: string | null,
-  twoWordCount: number,
-  reason: "no_key" | "rate_limited" | "other_error"
-): { rankabilityScore: number; summary: string } {
-  const reasonNote =
-    reason === "no_key"
-      ? "Set KILOCODE_API_KEY for a real verdict instead of this count-based estimate."
-      : reason === "rate_limited"
-        ? "Kilo Gateway's free-tier daily request limit is exhausted — this is a count-based estimate until it resets."
-        : "Kilo Gateway didn't return a usable verdict — this is a count-based estimate instead.";
-  if (unquotedCount === 0 && twoWordCount === 0) {
-    return {
-      rankabilityScore: 100,
-      summary: `No results at all under either search — nothing to compete with. ${reasonNote}`,
-    };
-  }
-  const penalty = unquotedCount * 4 + twoWordCount * 8;
-  const twoWordNote = twoWordSplit ? ` and ${twoWordCount} result(s) for "${twoWordSplit}"` : "";
-  return {
-    rankabilityScore: clampScore(100 - penalty),
-    summary: `${unquotedCount} broad-match result(s) found${twoWordNote}. ${reasonNote}`,
-  };
 }
 
 function formatResultsForPrompt(results: SerperResult[]): string {
@@ -189,6 +143,16 @@ Give a rankability score from 0 to 100:
   of near-miss a search engine (and a searcher) conflates with the
   original. Don't discount it just because it's not a match on the full
   combined string; weight it the same as a direct hit on the whole name.
+- Also watch for this: Google sometimes silently substitutes a misspelled or
+  unusual-looking query with a different, existing term and searches that
+  instead — with NO visible marker in the results that a substitution
+  happened. You can still catch it by reading the results themselves: if the
+  BROAD-MATCH results below are dominated by one specific, well-known
+  existing word/brand/company that "${name}" merely resembles (e.g. almost
+  every title, snippet, or domain is about that other term rather than
+  anything resembling "${name}" itself), treat that as strong evidence
+  Google overrode the query — score it as a direct collision with that
+  term, not as a fuzzy/incidental near-miss.
 
 BROAD-MATCH (unquoted) search results for ${name}:
 ${formatResultsForPrompt(unquoted)}${twoWordSection}
@@ -196,6 +160,13 @@ ${formatResultsForPrompt(unquoted)}${twoWordSection}
 Respond in exactly this format, nothing else:
 SCORE: <integer 0-100>
 SUMMARY: <one or two sentences on the single biggest real collision found, or say it's clean>`;
+}
+
+export class KilocodeParseError extends Error {
+  constructor() {
+    super("Kilo Gateway response didn't match the expected SCORE/SUMMARY format");
+    this.name = "KilocodeParseError";
+  }
 }
 
 function parseLlmResponse(raw: string): { rankabilityScore: number; summary: string } | null {
@@ -210,17 +181,30 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
 /**
  * Runs the collision/rankability check for one candidate name: an unquoted
  * broad-match search (what does a search engine resolve it to, including
- * near-miss real brands? — see the "oddago"/"Oddogo" case in
- * heuristicScore above), and — when the name splits into two words (see
- * validateParts and splitIntoWords) — an unquoted search for that
- * two-word phrase, since a concatenated name can look entirely clean while
- * reading it as two words surfaces a real person, place, or brand. No
- * quoted exact-match search: it only ever hid real collisions (a quoted
- * search finds literal reuse of the string, but a search engine's own
- * near-miss interpretation of it — the actual risk — only shows up
- * unquoted), so it's not run. If KILOCODE_API_KEY is set, an LLM turns
- * those results into a 0-100 rankability score; otherwise heuristicScore
- * stands in. Called once per found candidate, after its domain (and, if
+ * near-miss real brands? — see the "oddago"/"Oddogo" case in buildPrompt's
+ * rubric), and — when the name splits into two words (see validateParts and
+ * splitIntoWords) — an unquoted search for that two-word phrase, since a
+ * concatenated name can look entirely clean while reading it as two words
+ * surfaces a real person, place, or brand. No quoted exact-match search: it
+ * only ever hid real collisions (a quoted search finds literal reuse of the
+ * string, but a search engine's own near-miss interpretation of it — the
+ * actual risk — only shows up unquoted), so it's not run.
+ *
+ * An LLM (via completeChat, requires KILOCODE_API_KEY) always turns those
+ * results into a 0-100 rankability score — there's no count-based fallback
+ * for a missing key or a failed/unparseable call, both of which now reject
+ * instead (KilocodeApiKeyMissingError, the underlying fetch error, or
+ * KilocodeParseError below). A prior count-based heuristic used to stand in
+ * for all three cases, but a plain result count can't read what the results
+ * actually say — it can't catch, for instance, Google's silent
+ * query-override, where searching a misspelled/unusual name actually
+ * returns results for a different, existing term with no marker anywhere
+ * that a substitution happened (confirmed directly against the Serper API:
+ * the response looks identical to a clean search, nothing to key off of
+ * programmatically). Only the LLM, reading the actual result content
+ * against the override-detection rubric bullet in buildPrompt, can catch
+ * that — so a real verdict is required rather than silently degrading to a
+ * blind guess. Called once per found candidate, after its domain (and, if
  * enabled, Instagram) availability is already confirmed — see
  * checkRankabilityOne in discovery.ts — never against every candidate a
  * search merely examines, since Serper.dev's free tier is a low monthly quota.
@@ -237,32 +221,10 @@ export async function checkCollision(
   ]);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
 
-  let rankabilityScore: number;
-  let summary: string;
-
-  if (process.env.KILOCODE_API_KEY) {
-    try {
-      const parsed = parseLlmResponse(
-        await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord), signal)
-      );
-      if (parsed) {
-        ({ rankabilityScore, summary } = parsed);
-      } else {
-        ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, "other_error"));
-      }
-    } catch (err) {
-      // LLM call failed (rate limited, network error, malformed response,
-      // etc.) — fall back rather than losing the check entirely. Logged
-      // (not swallowed silently) since a bad default model or a dead key
-      // otherwise degrades to the heuristic on every single check without
-      // any visible sign that something's wrong.
-      console.error(`checkCollision: Kilo Gateway call failed for "${name}", using heuristic instead`, err);
-      const reason = err instanceof Error && err.name === "RateLimitError" ? "rate_limited" : "other_error";
-      ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, reason));
-    }
-  } else {
-    ({ rankabilityScore, summary } = heuristicScore(unquoted.length, twoWordSplitStr, twoWord.length, "no_key"));
-  }
+  const raw = await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord), signal);
+  const parsed = parseLlmResponse(raw);
+  if (!parsed) throw new KilocodeParseError();
+  const { rankabilityScore, summary } = parsed;
 
   return {
     name,

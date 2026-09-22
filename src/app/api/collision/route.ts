@@ -39,8 +39,19 @@ export async function GET(request: Request) {
         { status: 503 }
       );
     }
+    if (err instanceof Error && err.name === "KilocodeApiKeyMissingError") {
+      return Response.json(
+        { error: "KILOCODE_API_KEY is not configured on the server (see .env.local)" },
+        { status: 503 }
+      );
+    }
     if (err instanceof Error && err.name === "RateLimitError") {
-      return Response.json({ error: "Serper.dev rate limit hit — try again shortly." }, { status: 429 });
+      // Shared name across serperSearch.ts and kilocode.ts (see
+      // src/lib/rdap.ts, instagram.ts for the same convention) — the
+      // message each one sets identifies which service actually hit its
+      // limit, so the response doesn't misattribute it.
+      const service = err.message === "kilocode_rate_limited" ? "Kilo Gateway" : "Serper.dev";
+      return Response.json({ error: `${service} rate limit hit — try again shortly.` }, { status: 429 });
     }
     return Response.json(
       { error: err instanceof Error ? err.message : "Collision check failed" },
