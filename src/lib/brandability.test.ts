@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResult } from "./searchProvider";
 
-const searchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
+const searchMock =
+  vi.fn<(query: string, region: string, signal: AbortSignal | undefined, provider: string) => Promise<SearchResult[]>>();
 const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
 
 vi.mock("./searchProvider", () => ({
@@ -22,7 +23,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkBrandability, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
+import { checkBrandability, DEFAULT_PROVIDER, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -44,7 +45,7 @@ describe("checkBrandability", () => {
   it("runs a single unquoted search in the default region when the name doesn't split into two words", async () => {
     await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, undefined);
+    expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
@@ -57,19 +58,26 @@ describe("checkBrandability", () => {
   it("also runs a two-word search, same region, when the name splits into two dictionary words", async () => {
     await checkBrandability("catdog");
     expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined);
+    expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
   it("uses the caller-supplied region for both searches instead of the default", async () => {
     await checkBrandability("catdog", undefined, undefined, "gb");
-    expect(searchMock).toHaveBeenCalledWith("catdog", "gb", undefined);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", "gb", undefined);
+    expect(searchMock).toHaveBeenCalledWith("catdog", "gb", undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", "gb", undefined, DEFAULT_PROVIDER);
   });
 
-  it("exposes which region was checked", async () => {
-    const res = await checkBrandability("fluidfew", undefined, undefined, "au");
+  it("uses the caller-supplied provider for both searches instead of the default", async () => {
+    await checkBrandability("catdog", undefined, undefined, DEFAULT_REGION, "serper");
+    expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined, "serper");
+    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, "serper");
+  });
+
+  it("exposes which region and provider were checked", async () => {
+    const res = await checkBrandability("fluidfew", undefined, undefined, "au", "serper");
     expect(res.region).toBe("au");
+    expect(res.provider).toBe("serper");
   });
 
   it("attaches the two-word split and its result count to the returned result", async () => {
@@ -168,12 +176,12 @@ describe("checkBrandability", () => {
     // Candidate.parts instead of re-derived from a dictionary lookup.
     await checkBrandability("poetapps", ["poet", "apps"]);
     expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("poet apps", DEFAULT_REGION, undefined);
+    expect(searchMock).toHaveBeenCalledWith("poet apps", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
     await checkBrandability("catdog", ["not", "matching"]);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 });
 

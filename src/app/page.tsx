@@ -5,6 +5,7 @@ import type { DiscoveryGates } from "@/lib/discovery";
 import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
 import {
   DEFAULT_COMBINED_LENGTH,
+  DEFAULT_PROVIDER,
   DEFAULT_REGION,
   DEFAULT_RESULT_COUNT,
   LANGS,
@@ -13,10 +14,12 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
+  PROVIDER_OPTIONS,
   REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
   type Lang,
+  type ProviderOption,
   type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
@@ -37,6 +40,8 @@ interface PersistedState {
   keywordInput: string;
   gates: DiscoveryGates;
   region: RegionOption;
+  provider: ProviderOption;
+  autoCheck: boolean;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
   useAltSpellings: boolean;
@@ -153,6 +158,18 @@ export default function Home() {
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
+  const [provider, setProvider] = useState<ProviderOption>(DEFAULT_PROVIDER);
+  // Off by default, and only actually usable when provider === "serper" —
+  // gated both in the UI (FiltersPanel disables the toggle otherwise) and
+  // here (the "found" handler below re-checks provider itself, since
+  // switching providers while a stale `true` value is still persisted
+  // shouldn't silently start firing checks against apiserpent.com's much
+  // lower concurrency limit). Fires the paid, metered brandability check
+  // (see checkBrandabilityFor) on every found result rather than only the
+  // ones a user picks via "Brandability" — viable at all only because
+  // Serper's concurrency limit and 2,500/month free quota can absorb that
+  // volume; apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't.
+  const [autoCheck, setAutoCheck] = useState(false);
   // On by default: this is one LLM call per search start (not per found
   // result), and it's purely additive on top of the dictionary pairing that
   // always runs anyway — see suggestKeywordSynonyms in lib/synonyms.ts and
@@ -290,6 +307,10 @@ export default function Home() {
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
       if (REGION_OPTIONS.some((opt) => opt.value === parsed.region)) setRegion(parsed.region as RegionOption);
+      if (PROVIDER_OPTIONS.some((opt) => opt.value === parsed.provider)) {
+        setProvider(parsed.provider as ProviderOption);
+      }
+      if (typeof parsed.autoCheck === "boolean") setAutoCheck(parsed.autoCheck);
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
@@ -320,6 +341,8 @@ export default function Home() {
         keywordInput,
         gates,
         region,
+        provider,
+        autoCheck,
         useAiSynonyms,
         useAiInvented,
         useAltSpellings,
@@ -339,6 +362,8 @@ export default function Home() {
     keywordInput,
     gates,
     region,
+    provider,
+    autoCheck,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
@@ -388,7 +413,7 @@ export default function Home() {
           ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
           : "";
         const res = await fetch(
-          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
+          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}&provider=${encodeURIComponent(provider)}`
         );
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
@@ -416,7 +441,7 @@ export default function Home() {
         });
       }
     })();
-  }, [region]);
+  }, [region, provider]);
 
   const start = useCallback(async () => {
     if (abortRef.current) return;
@@ -534,6 +559,12 @@ export default function Home() {
                 ];
               });
               resolveLog(event.domain, "available");
+              // Only viable on Serper's concurrency profile — see autoCheck's
+              // own declaration comment above and PROVIDER_OPTIONS in
+              // searchConfig.ts. Re-checked here (not just gated in the
+              // FiltersPanel toggle) so a stale `autoCheck: true` from before
+              // a provider switch never fires against apiserpent.com.
+              if (autoCheck && provider === "serper") checkBrandabilityFor(event.domain.split(".")[0], event.parts);
               break;
             }
             case "complete":
@@ -572,6 +603,9 @@ export default function Home() {
     keywordParam,
     tldsParam,
     gates,
+    autoCheck,
+    provider,
+    checkBrandabilityFor,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
@@ -675,6 +709,10 @@ export default function Home() {
             onGatesChange={setGates}
             region={region}
             onRegionChange={setRegion}
+            provider={provider}
+            onProviderChange={setProvider}
+            autoCheck={autoCheck}
+            onAutoCheckChange={setAutoCheck}
             isRunning={isRunning}
             primaryLabel={primaryLabel}
             onStart={start}

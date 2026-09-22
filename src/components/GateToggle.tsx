@@ -6,12 +6,15 @@ export function GateToggle({
   checked,
   onChange,
   disabled,
+  disabledReason,
 }: {
   label: string;
   checked: boolean;
   onChange: (value: boolean) => void;
   /** Renders the switch inert and dimmed — e.g. "AI synonyms" has nothing to synonym-expand without a keyword typed, but still stays visible (rather than disappearing) so it never reads as if a different toggle took its place. */
   disabled?: boolean;
+  /** Same "announced (via aria-label) and shown as a tooltip when disabled" convention as StyleChip's disabledReason — a disabled switch with no stated reason is a dead end for a screen-reader user. */
+  disabledReason?: string;
 }) {
   return (
     <div className={`flex min-h-9 items-center justify-between gap-3 text-xs text-muted ${disabled ? "opacity-40" : ""}`}>
@@ -20,7 +23,8 @@ export function GateToggle({
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-label={label}
+        aria-label={disabled && disabledReason ? `${label} — ${disabledReason}` : label}
+        title={disabled ? disabledReason : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${disabled ? "cursor-not-allowed" : ""} ${FOCUS_RING} ${

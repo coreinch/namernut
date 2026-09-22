@@ -5,9 +5,11 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
+  PROVIDER_OPTIONS,
   REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
+  type ProviderOption,
   type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
@@ -164,6 +166,10 @@ export function FiltersPanel({
   onGatesChange,
   region,
   onRegionChange,
+  provider,
+  onProviderChange,
+  autoCheck,
+  onAutoCheckChange,
   isRunning,
   primaryLabel,
   onStart,
@@ -195,12 +201,16 @@ export function FiltersPanel({
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
+  provider: ProviderOption;
+  onProviderChange: (value: ProviderOption) => void;
+  autoCheck: boolean;
+  onAutoCheckChange: (value: boolean) => void;
   isRunning: boolean;
   primaryLabel: string;
   onStart: () => void;
   onStop: () => void;
 }) {
-  const activeGateCount = Object.values(gates).filter(Boolean).length;
+  const activeGateCount = Object.values(gates).filter(Boolean).length + (autoCheck ? 1 : 0);
 
   return (
     <div className="flex flex-col gap-4">
@@ -408,6 +418,45 @@ export function FiltersPanel({
             <p className="text-xs text-muted">
               Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
               region — the brandability check searches from this one.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
+            <label htmlFor="brandability-provider" className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Brandability search provider
+            </label>
+            <select
+              id="brandability-provider"
+              value={provider}
+              onChange={(e) => onProviderChange(e.target.value as ProviderOption)}
+              // See the matching comment on the region <select> above — same
+              // native-popup-contrast fix, same reason.
+              style={{ colorScheme: "light" }}
+              className={`min-h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-sm text-foreground dark:border-white/15 ${FOCUS_RING}`}
+            >
+              {PROVIDER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value} className="text-black">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted">
+              apiserpent.com is slower with a lower concurrency limit, but has actually caught real overrides Serper
+              missed; Serper is fast and cheap enough for auto-check below.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
+            <GateToggle
+              label="Auto-check brandability"
+              checked={autoCheck}
+              onChange={onAutoCheckChange}
+              disabled={provider !== "serper"}
+              disabledReason="requires Serper.dev as the search provider above — apiserpent.com cannot handle a check firing per result"
+            />
+            <p className="text-xs text-muted">
+              Runs the paid AI brandability check on every result found, not just the ones you pick — off by default
+              to avoid the extra cost, and only available on Serper.dev (see above).
             </p>
           </div>
         </section>

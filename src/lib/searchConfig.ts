@@ -80,3 +80,22 @@ export const REGION_OPTIONS = [
 ] as const;
 export type RegionOption = (typeof REGION_OPTIONS)[number]["value"];
 export const DEFAULT_REGION: RegionOption = "us";
+
+// Must stay in sync with PROVIDERS/DEFAULT_PROVIDER in
+// src/lib/searchProvider.ts — the brandability check runs against exactly
+// one of these at a time (see the provider dropdown in FiltersPanel.tsx),
+// picked here and sent as the `provider` query param to /api/brandability.
+// The two have very different operating profiles, confirmed directly: Serper
+// is fast with a high concurrency limit and a 2,500/month free quota, which
+// is what makes automatic per-result checking (see autoCheck in page.tsx)
+// viable at all; apiserpent.com is slower and its concurrency limit is tied
+// to account balance (see https://apiserpent.com/faq), which is exactly why
+// autoCheck is unavailable whenever it's selected — but it's demonstrated
+// actually reproducing Google's real silent query-override behavior in
+// testing (see REGIONS above), which Serper never has.
+export const PROVIDER_OPTIONS = [
+  { value: "serpent", label: "apiserpent.com (thorough, slower)" },
+  { value: "serper", label: "Serper.dev (fast, enables auto-check)" },
+] as const;
+export type ProviderOption = (typeof PROVIDER_OPTIONS)[number]["value"];
+export const DEFAULT_PROVIDER: ProviderOption = "serpent";

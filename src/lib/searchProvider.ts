@@ -21,19 +21,31 @@ const PROVIDERS: Record<string, SearchFn> = {
 };
 
 /**
- * Picks which Google-results API brandability.ts searches against, via
- * SEARCH_PROVIDER — "serper" (code default, https://serper.dev) or
- * "serpent" (https://apiserpent.com, a multi-engine SERP API restricted
- * here to its Google engine). The code defaults to "serper" so nothing
- * changes for a deployment that never sets the env var, but as of this
- * writing the active deployment sets SEARCH_PROVIDER=serpent: testing
- * showed apiserpent.com is the only one of the two that's actually
- * reproduced Google's real silent query-override behavior (see
- * serperSearch.ts's docstring), which is exactly what REGIONS in
- * brandability.ts checks for.
+ * Picks which Google-results API brandability.ts searches against — either
+ * "serper" (https://serper.dev) or "serpent" (https://apiserpent.com, a
+ * multi-engine SERP API restricted here to its Google engine).
+ * `providerOverride`, when given, wins outright — this is how a per-request
+ * choice (the provider dropdown in FiltersPanel.tsx, threaded through
+ * route.ts and checkBrandability) picks a provider without redeploying.
+ * Falls back to the SEARCH_PROVIDER env var, then to "serper", for any
+ * caller that doesn't pass one (e.g. a direct API call with no `provider`
+ * param). The two have very different operating profiles, confirmed
+ * directly: Serper is fast with a high concurrency limit and a 2,500/month
+ * free quota, which is what makes automatic per-result checking viable at
+ * all; apiserpent.com is slower and its concurrency limit is tied to
+ * account balance (see https://apiserpent.com/faq) — but it's the one
+ * that's actually demonstrated reproducing Google's real silent
+ * query-override behavior in testing, which Serper never has (see
+ * serperSearch.ts's docstring). Neither one is strictly better — that's the
+ * whole reason this is switchable per request rather than a fixed choice.
  */
-export function search(query: string, region: string, signal?: AbortSignal): Promise<SearchResult[]> {
-  const name = process.env.SEARCH_PROVIDER || "serper";
+export function search(
+  query: string,
+  region: string,
+  signal?: AbortSignal,
+  providerOverride?: string
+): Promise<SearchResult[]> {
+  const name = providerOverride || process.env.SEARCH_PROVIDER || "serper";
   const provider = PROVIDERS[name];
   if (!provider) {
     throw new Error(`Unknown SEARCH_PROVIDER "${name}" — expected "serper" or "serpent"`);

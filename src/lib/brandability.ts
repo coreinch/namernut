@@ -1,9 +1,22 @@
 import { search, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
-import { DEFAULT_REGION, REGION_OPTIONS, type RegionOption } from "@/lib/searchConfig";
+import {
+  DEFAULT_PROVIDER,
+  DEFAULT_REGION,
+  PROVIDER_OPTIONS,
+  REGION_OPTIONS,
+  type ProviderOption,
+  type RegionOption,
+} from "@/lib/searchConfig";
 
 export type Region = RegionOption;
+export type Provider = ProviderOption;
+/** Search providers selectable for the brandability check — see the
+ * provider dropdown in Advanced filters (page.tsx) and searchConfig.ts's
+ * PROVIDER_OPTIONS for the operating-profile tradeoffs between them. */
+export const PROVIDERS: readonly Provider[] = PROVIDER_OPTIONS.map((p) => p.value);
+export { DEFAULT_PROVIDER };
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * Advanced filters (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -41,6 +54,12 @@ export interface BrandabilityResult {
    * Exposed for transparency, since Google's results (including whether it
    * silently overrides the query) are region-dependent. */
   region: Region;
+  /** Which search provider actually ran the check — see PROVIDERS and the
+   * provider dropdown in Advanced filters (page.tsx). Exposed for the same
+   * transparency reason as `region`: the two providers have demonstrably
+   * different override-detection results for the same name (see
+   * searchProvider.ts). */
+  provider: Provider;
   /** The two dictionary words the name was split into, e.g. "even chad" for
    * "evenchad" — present only when such a split exists — and the unquoted
    * result count for searching that phrase. See splitIntoWords: this is
@@ -256,22 +275,28 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
  * came back as unrelated noise with no trace of "duck brand" at all — its
  * own knowledge of real brand names, checked independently of whatever the
  * results do or don't contain (the second rubric bullet). So a real verdict
- * is required rather than silently degrading to a blind guess. Called on demand only,
- * via the "Brandability" button (checkBrandabilityFor in page.tsx), after a
- * candidate's domain (and, if enabled, Instagram) availability is already
- * confirmed — never against every candidate a search merely examines,
- * since the active search provider's free tier is a low monthly quota.
+ * is required rather than silently degrading to a blind guess. Called
+ * on-demand via the "Brandability" button (checkBrandabilityFor in
+ * page.tsx) for apiserpent, after a candidate's domain (and, if enabled,
+ * Instagram) availability is already confirmed — its slow, balance-tied
+ * concurrency limit (see searchProvider.ts) rules out running it against
+ * every candidate a search merely examines. Serper's much higher
+ * concurrency and 2,500/month free quota make that viable, which is what
+ * the auto-check toggle (autoCheck in page.tsx, gated to the "serper"
+ * provider) actually does — see the "found" SSE event case in start()
+ * there.
  */
 export async function checkBrandability(
   name: string,
   parts?: [string, string],
   signal?: AbortSignal,
-  region: Region = DEFAULT_REGION
+  region: Region = DEFAULT_REGION,
+  provider: Provider = DEFAULT_PROVIDER
 ): Promise<BrandabilityResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const [unquoted, twoWord] = await Promise.all([
-    search(name, region, signal),
-    twoWordSplit ? search(twoWordSplit.join(" "), region, signal) : Promise.resolve<SearchResult[]>([]),
+    search(name, region, signal, provider),
+    twoWordSplit ? search(twoWordSplit.join(" "), region, signal, provider) : Promise.resolve<SearchResult[]>([]),
   ]);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
 
@@ -286,6 +311,7 @@ export async function checkBrandability(
     summary,
     unquotedResultCount: unquoted.length,
     region,
+    provider,
     ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr, twoWordResultCount: twoWord.length } : {}),
     topResults: twoWord.length > 0 ? twoWord.slice(0, 5) : unquoted.slice(0, 5),
   };
