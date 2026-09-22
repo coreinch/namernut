@@ -46,6 +46,9 @@ export async function GET(request: Request) {
         { status: 503 }
       );
     }
+    if (err instanceof Error && err.name === "SerpentInsufficientCreditsError") {
+      return Response.json({ error: err.message }, { status: 402 });
+    }
     if (err instanceof Error && err.name === "KilocodeApiKeyMissingError") {
       return Response.json(
         { error: "KILOCODE_API_KEY is not configured on the server (see .env.local)" },

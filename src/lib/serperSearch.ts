@@ -22,7 +22,25 @@ interface SerperApiResponse {
   organic?: Array<{ title?: string; snippet?: string; link?: string }>;
 }
 
-export async function serperSearch(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
+/**
+ * `region` is a required, explicit ISO country code (Serper's `gl` param) —
+ * never left to Serper's own default. Google's results (including whether
+ * it silently overrides an unusual query with a different, existing term —
+ * see the override-detection rubric bullet in collision.ts's buildPrompt)
+ * vary by region, and collision.ts checks several in parallel (see REGIONS
+ * there) since a real override can trigger in one region and not another.
+ * Note Serper specifically didn't reliably reproduce the override behavior
+ * at all in testing — confirmed directly across 10 different `gl` values
+ * for "fondterm" (including retrying the same one), none consistently
+ * showed the real override to "Finterm" that apiserpent.com's country=gr
+ * did — so multi-region checking on Serper may have limited value; see
+ * serpentSearch.ts for the provider that's actually demonstrated this.
+ */
+export async function serperSearch(
+  query: string,
+  region: string,
+  signal?: AbortSignal
+): Promise<SearchResult[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) throw new SerperApiKeyMissingError();
 
@@ -32,16 +50,7 @@ export async function serperSearch(query: string, signal?: AbortSignal): Promise
       "Content-Type": "application/json",
       "X-API-KEY": apiKey,
     },
-    // Pinned to a fixed region rather than left to Serper's own default:
-    // Google's results (including whether it silently overrides an unusual
-    // query with a different, existing term — see the override-detection
-    // rubric bullet in collision.ts's buildPrompt) vary by region, so an
-    // unset region makes results non-reproducible and can miss a real
-    // collision that only shows up elsewhere (confirmed directly: "fondterm"
-    // returned generic results with no gl set, but silently overrode to a
-    // real brand, "Finterm", under gl=gr). "us" doesn't close that gap, just
-    // makes it a known, fixed one instead of an undocumented moving target.
-    body: JSON.stringify({ q: query, gl: "us" }),
+    body: JSON.stringify({ q: query, gl: region }),
     signal,
   });
 

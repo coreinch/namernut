@@ -2,6 +2,23 @@ import { search, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
 
+/**
+ * Regions the primary (unquoted, raw-name) search runs in parallel, all
+ * English-speaking — Google's silent query-override behavior is
+ * region-dependent (confirmed directly: "fondterm" showed no override under
+ * country=us, but silently overrode to a real brand, "Finterm", under
+ * country=gr), so a single region can miss a real collision that only shows
+ * up elsewhere. Kept to English-speaking markets since that's this tool's
+ * actual audience — it triples the per-check search-API cost over a single
+ * region, so it's deliberately not exhaustive (e.g. no EU/Mediterranean
+ * regions, despite the Finterm case being one) rather than checking every
+ * region a name could ever be searched from. The two-word split search
+ * stays single-region (see checkCollision): it's testing a different thing
+ * (does the name read as an existing two-word phrase at all), not
+ * region-specific override risk.
+ */
+export const REGIONS = ["us", "gb", "au"];
+
 export interface CollisionResult {
   name: string;
   /**
@@ -14,7 +31,15 @@ export interface CollisionResult {
    */
   rankabilityScore: number;
   summary: string;
+  /** Result count for the "us" region specifically — kept as the one
+   * anchor number for backward compatibility, even though the LLM sees
+   * every region in REGIONS (see regionsChecked). */
   unquotedResultCount: number;
+  /** Which regions the primary (unquoted) search actually ran in — see
+   * REGIONS. Exposed for transparency: this is what the LLM's
+   * override-detection judgment is actually based on, and it costs one
+   * search-API call per region per check. */
+  regionsChecked: string[];
   /** The two dictionary words the name was split into, e.g. "even chad" for
    * "evenchad" — present only when such a split exists — and the unquoted
    * result count for searching that phrase. See splitIntoWords: this is
@@ -92,9 +117,20 @@ function formatResultsForPrompt(results: SearchResult[]): string {
     .join("\n");
 }
 
+interface RegionResults {
+  region: string;
+  results: SearchResult[];
+}
+
+function formatRegionResultsForPrompt(byRegion: RegionResults[]): string {
+  return byRegion
+    .map(({ region, results }) => `--- region: ${region} ---\n${formatResultsForPrompt(results)}`)
+    .join("\n\n");
+}
+
 function buildPrompt(
   name: string,
-  unquoted: SearchResult[],
+  unquotedByRegion: RegionResults[],
   twoWordSplit: string | null,
   twoWord: SearchResult[]
 ): string {
@@ -146,16 +182,19 @@ Give a rankability score from 0 to 100:
 - Also watch for this: Google sometimes silently substitutes a misspelled or
   unusual-looking query with a different, existing term and searches that
   instead — with NO visible marker in the results that a substitution
-  happened. You can still catch it by reading the results themselves: if the
-  BROAD-MATCH results below are dominated by one specific, well-known
-  existing word/brand/company that "${name}" merely resembles (e.g. almost
-  every title, snippet, or domain is about that other term rather than
-  anything resembling "${name}" itself), treat that as strong evidence
-  Google overrode the query — score it as a direct collision with that
-  term, not as a fuzzy/incidental near-miss.
+  happened, and this is REGION-DEPENDENT: it can trigger in one region and
+  not another for the exact same query. That's why the BROAD-MATCH results
+  below are broken out per region — check EVERY region's block, not just
+  the first one. If ANY single region's results are dominated by one
+  specific, well-known existing word/brand/company that "${name}" merely
+  resembles (e.g. almost every title, snippet, or domain in that block is
+  about that other term rather than anything resembling "${name}" itself),
+  treat that as strong evidence Google overrode the query in that region —
+  score it as a direct collision with that term, not as a fuzzy/incidental
+  near-miss, even if the other regions' blocks look completely clean.
 
-BROAD-MATCH (unquoted) search results for ${name}:
-${formatResultsForPrompt(unquoted)}${twoWordSection}
+BROAD-MATCH (unquoted) search results for ${name}, by region:
+${formatRegionResultsForPrompt(unquotedByRegion)}${twoWordSection}
 
 Respond in exactly this format, nothing else:
 SCORE: <integer 0-100>
@@ -180,15 +219,18 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
 
 /**
  * Runs the collision/rankability check for one candidate name: an unquoted
- * broad-match search (what does a search engine resolve it to, including
- * near-miss real brands? — see the "oddago"/"Oddogo" case in buildPrompt's
- * rubric), and — when the name splits into two words (see validateParts and
- * splitIntoWords) — an unquoted search for that two-word phrase, since a
- * concatenated name can look entirely clean while reading it as two words
- * surfaces a real person, place, or brand. No quoted exact-match search: it
- * only ever hid real collisions (a quoted search finds literal reuse of the
- * string, but a search engine's own near-miss interpretation of it — the
- * actual risk — only shows up unquoted), so it's not run.
+ * broad-match search in every region in REGIONS (what does a search engine
+ * resolve it to in each, including near-miss real brands and region-
+ * specific silent overrides? — see the "oddago"/"Oddogo" case and the
+ * override-detection rubric bullet in buildPrompt), and — when the name
+ * splits into two words (see validateParts and splitIntoWords) — a single
+ * unquoted search (region "us" only — see REGIONS) for that two-word
+ * phrase, since a concatenated name can look entirely clean while reading
+ * it as two words surfaces a real person, place, or brand. No quoted
+ * exact-match search: it only ever hid real collisions (a quoted search
+ * finds literal reuse of the string, but a search engine's own near-miss
+ * interpretation of it — the actual risk — only shows up unquoted), so
+ * it's not run.
  *
  * An LLM (via completeChat, requires KILOCODE_API_KEY) always turns those
  * results into a 0-100 rankability score — there's no count-based fallback
@@ -216,13 +258,27 @@ export async function checkCollision(
   signal?: AbortSignal
 ): Promise<CollisionResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
-  const [unquoted, twoWord] = await Promise.all([
-    search(name, signal),
-    twoWordSplit ? search(twoWordSplit.join(" "), signal) : Promise.resolve<SearchResult[]>([]),
-  ]);
+  // The REGIONS batch runs concurrently (Promise.all), but the two-word
+  // split search runs AFTER it, not alongside — confirmed directly against
+  // apiserpent.com (the active provider): 3 concurrent requests held up
+  // reliably across repeated runs even on a funded account, but adding a
+  // 4th concurrent request (regions + two-word split together, as this
+  // function used to do) intermittently 429'd (roughly 1 in 3 runs). Not a
+  // hard wall tied to being unfunded, as first assumed — a real, still
+  // fairly low concurrency limit. Keeping peak concurrency at REGIONS.length
+  // avoids that, at the cost of a bit more latency only when a two-word
+  // split actually exists.
+  const unquotedByRegion = await Promise.all(
+    REGIONS.map(async (region) => ({ region, results: await search(name, region, signal) }))
+  );
+  const twoWord = twoWordSplit ? await search(twoWordSplit.join(" "), "us", signal) : [];
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
+  // "us" is always present — it's the first entry in REGIONS — so this is
+  // the anchor result set for unquotedResultCount and the topResults
+  // fallback, same as the single-region "unquoted" used to be.
+  const usResults = unquotedByRegion.find((r) => r.region === "us")!.results;
 
-  const raw = await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord), signal);
+  const raw = await completeChat(buildPrompt(name, unquotedByRegion, twoWordSplitStr, twoWord), signal);
   const parsed = parseLlmResponse(raw);
   if (!parsed) throw new KilocodeParseError();
   const { rankabilityScore, summary } = parsed;
@@ -231,8 +287,9 @@ export async function checkCollision(
     name,
     rankabilityScore,
     summary,
-    unquotedResultCount: unquoted.length,
+    unquotedResultCount: usResults.length,
+    regionsChecked: REGIONS,
     ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr, twoWordResultCount: twoWord.length } : {}),
-    topResults: twoWord.length > 0 ? twoWord.slice(0, 5) : unquoted.slice(0, 5),
+    topResults: twoWord.length > 0 ? twoWord.slice(0, 5) : usResults.slice(0, 5),
   };
 }

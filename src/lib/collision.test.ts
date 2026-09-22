@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResult } from "./searchProvider";
 
-const searchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
+const searchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
 const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
 
 vi.mock("./searchProvider", () => ({
@@ -22,7 +22,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkCollision, splitIntoWords, validateParts } from "./collision";
+import { checkCollision, REGIONS, splitIntoWords, validateParts } from "./collision";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -38,51 +38,77 @@ describe("checkCollision", () => {
     // fallback — so give one a default and let individual tests override it
     // (mockResolvedValueOnce, or a rejection) where the response matters.
     completeChatMock.mockResolvedValue(DEFAULT_LLM_RESPONSE);
+    // Blanket default so tests that don't care about specific per-region
+    // results (most of them) don't need to stub every one of REGIONS.
+    searchMock.mockResolvedValue([]);
   });
 
-  it("runs only an unquoted search for the name when it doesn't split into two words", async () => {
-    searchMock.mockResolvedValue([]);
+  it("runs the unquoted search once per region in REGIONS when the name doesn't split into two words", async () => {
     await checkCollision("fluidfew");
-    expect(searchMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledWith("fluidfew", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(REGIONS.length);
+    for (const region of REGIONS) {
+      expect(searchMock).toHaveBeenCalledWith("fluidfew", region, undefined);
+    }
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
-    searchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
-    expect(searchMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledTimes(REGIONS.length);
     expect(res.twoWordSplit).toBeUndefined();
     expect(res.twoWordResultCount).toBeUndefined();
   });
 
-  it("also runs an unquoted two-word search when the name splits into two dictionary words", async () => {
-    searchMock.mockResolvedValue([]);
+  it("also runs a single, us-only two-word search when the name splits into two dictionary words", async () => {
     await checkCollision("catdog");
-    expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("catdog", undefined);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(REGIONS.length + 1);
+    for (const region of REGIONS) {
+      expect(searchMock).toHaveBeenCalledWith("catdog", region, undefined);
+    }
+    expect(searchMock).toHaveBeenCalledWith("cat dog", "us", undefined);
+  });
+
+  it("exposes which regions were checked", async () => {
+    const res = await checkCollision("fluidfew");
+    expect(res.regionsChecked).toEqual(REGIONS);
+  });
+
+  it("bases unquotedResultCount on the us region specifically, not other regions", async () => {
+    searchMock.mockImplementation(async (_query, region) =>
+      region === "us" ? Array.from({ length: 3 }, () => result()) : Array.from({ length: 9 }, () => result())
+    );
+    const res = await checkCollision("fluidfew");
+    expect(res.unquotedResultCount).toBe(3);
   });
 
   it("attaches the two-word split and its result count to the returned result", async () => {
-    searchMock
-      .mockResolvedValueOnce([]) // unquoted
-      .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog"
+    searchMock.mockImplementation(async (query) =>
+      query === "cat dog" ? Array.from({ length: 4 }, () => result()) : []
+    );
     const res = await checkCollision("catdog");
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.twoWordResultCount).toBe(4);
   });
 
+  it("includes every region's results in the prompt sent to the LLM, labeled by region", async () => {
+    searchMock.mockImplementation(async (_query, region) =>
+      region === "gb" ? [result({ title: "gb-only hit" })] : []
+    );
+    await checkCollision("fluidfew");
+    const prompt = completeChatMock.mock.calls[0][0];
+    expect(prompt).toContain("region: gb");
+    expect(prompt).toContain("gb-only hit");
+  });
+
   it("includes the two-word split results in the prompt sent to the LLM", async () => {
-    searchMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([result({ title: "cat dog hit" })]);
+    searchMock.mockImplementation(async (query) =>
+      query === "cat dog" ? [result({ title: "cat dog hit" })] : []
+    );
     await checkCollision("catdog");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("cat dog hit");
   });
 
   it("uses the LLM's score and summary verbatim", async () => {
-    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
     );
@@ -91,27 +117,24 @@ describe("checkCollision", () => {
     expect(res.summary).toContain("major existing brand");
   });
 
-  it("instructs the LLM to detect Google's silent query-override from the results themselves", async () => {
-    searchMock.mockResolvedValue([]);
+  it("instructs the LLM to detect Google's region-dependent silent query-override from the results themselves", async () => {
     await checkCollision("sadpitch");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("silently substitutes");
+    expect(prompt).toContain("REGION-DEPENDENT");
   });
 
   it("throws when the LLM response doesn't match the expected SCORE/SUMMARY format", async () => {
-    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
     await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("throws when the LLM score is out of range", async () => {
-    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
     await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("propagates the error when the LLM call fails, rather than silently degrading to a guess", async () => {
-    searchMock.mockResolvedValue([]);
     const err = new Error("kilocode_rate_limited");
     err.name = "RateLimitError";
     completeChatMock.mockRejectedValue(err);
@@ -119,25 +142,26 @@ describe("checkCollision", () => {
   });
 
   it("propagates a missing-key error from completeChat rather than falling back", async () => {
-    searchMock.mockResolvedValue([]);
     const err = new Error("KILOCODE_API_KEY is not set");
     err.name = "KilocodeApiKeyMissingError";
     completeChatMock.mockRejectedValue(err);
     await expect(checkCollision("fluidfew")).rejects.toBe(err);
   });
 
-  it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
-    searchMock
-      .mockResolvedValueOnce([]) // unquoted: none
-      .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
+  it("prefers two-word split results for topResults, falling back to the us region when there are none", async () => {
+    searchMock.mockImplementation(async (query) =>
+      query === "cat dog" ? [result({ title: "two-word hit" })] : []
+    );
     const res = await checkCollision("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
   });
 
-  it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
-    searchMock
-      .mockResolvedValueOnce([result({ title: "unquoted hit" })])
-      .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
+  it("prefers two-word split results for topResults even when the us region also has hits", async () => {
+    searchMock.mockImplementation(async (query, region) => {
+      if (query === "cat dog") return [result({ title: "two-word hit" })];
+      if (region === "us") return [result({ title: "unquoted hit" })];
+      return [];
+    });
     const res = await checkCollision("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
   });
@@ -147,18 +171,14 @@ describe("checkCollision", () => {
     // found by splitIntoWords, but it's a real keyword-tier split — see
     // buildKeywordTier in lib/candidates.ts — passed straight through as
     // Candidate.parts instead of re-derived from a dictionary lookup.
-    searchMock.mockResolvedValue([]);
     await checkCollision("poetapps", ["poet", "apps"]);
-    expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("poetapps", undefined);
-    expect(searchMock).toHaveBeenCalledWith("poet apps", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(REGIONS.length + 1);
+    expect(searchMock).toHaveBeenCalledWith("poet apps", "us", undefined);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
-    searchMock.mockResolvedValue([]);
     await checkCollision("catdog", ["not", "matching"]);
-    expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", "us", undefined);
   });
 });
 

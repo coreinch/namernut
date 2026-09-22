@@ -20,7 +20,7 @@ describe("serperSearch", () => {
 
   it("throws SerperApiKeyMissingError when no API key is configured", async () => {
     vi.stubEnv("SERPER_API_KEY", "");
-    await expect(serperSearch("foo")).rejects.toBeInstanceOf(SerperApiKeyMissingError);
+    await expect(serperSearch("foo", "us")).rejects.toBeInstanceOf(SerperApiKeyMissingError);
   });
 
   it("maps organic results to the simplified SerperResult shape", async () => {
@@ -35,7 +35,7 @@ describe("serperSearch", () => {
         })
       )
     );
-    await expect(serperSearch("foo")).resolves.toEqual([
+    await expect(serperSearch("foo", "us")).resolves.toEqual([
       { title: "A", description: "desc a", url: "https://a.example" },
       { title: "B", description: "desc b", url: "https://b.example" },
     ]);
@@ -43,28 +43,28 @@ describe("serperSearch", () => {
 
   it("returns an empty array when the response has no organic results", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(200, {})));
-    await expect(serperSearch("foo")).resolves.toEqual([]);
+    await expect(serperSearch("foo", "us")).resolves.toEqual([]);
   });
 
-  it("sends the API key as X-API-KEY and the query as 'q' in a POST body, pinned to gl=us", async () => {
+  it("sends the API key as X-API-KEY, the query as 'q', and the region as 'gl' in a POST body", async () => {
     const fetchMock = vi.fn().mockResolvedValue(mockResponse(200, {}));
     vi.stubGlobal("fetch", fetchMock);
-    await serperSearch("my query");
+    await serperSearch("my query", "gb");
     const [urlArg, initArg] = fetchMock.mock.calls[0];
     const init = initArg as RequestInit;
     expect(urlArg).toBe("https://google.serper.dev/search");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({ "X-API-KEY": "test-key" });
-    expect(JSON.parse(init.body as string)).toEqual({ q: "my query", gl: "us" });
+    expect(JSON.parse(init.body as string)).toEqual({ q: "my query", gl: "gb" });
   });
 
   it("throws a RateLimitError on 429", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(429)));
-    await expect(serperSearch("foo")).rejects.toMatchObject({ name: "RateLimitError" });
+    await expect(serperSearch("foo", "us")).rejects.toMatchObject({ name: "RateLimitError" });
   });
 
   it("throws a SerperSearchError on any other non-200 status", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(500)));
-    await expect(serperSearch("foo")).rejects.toMatchObject({ name: "SerperSearchError" });
+    await expect(serperSearch("foo", "us")).rejects.toMatchObject({ name: "SerperSearchError" });
   });
 });

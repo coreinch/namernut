@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResult } from "./searchProvider";
 
-const serperSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
-const serpentSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
+const serperSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
+const serpentSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
 
 vi.mock("./serperSearch", () => ({
   serperSearch: (...args: Parameters<typeof serperSearchMock>) => serperSearchMock(...args),
@@ -26,34 +26,40 @@ describe("search", () => {
   });
 
   it("uses serper when SEARCH_PROVIDER is unset", async () => {
-    await search("foo");
-    expect(serperSearchMock).toHaveBeenCalledWith("foo", undefined);
+    await search("foo", "us");
+    expect(serperSearchMock).toHaveBeenCalledWith("foo", "us", undefined);
     expect(serpentSearchMock).not.toHaveBeenCalled();
   });
 
   it("uses serper when SEARCH_PROVIDER is explicitly \"serper\"", async () => {
     vi.stubEnv("SEARCH_PROVIDER", "serper");
-    await search("foo");
-    expect(serperSearchMock).toHaveBeenCalledWith("foo", undefined);
+    await search("foo", "us");
+    expect(serperSearchMock).toHaveBeenCalledWith("foo", "us", undefined);
     expect(serpentSearchMock).not.toHaveBeenCalled();
   });
 
   it("uses serpent when SEARCH_PROVIDER is \"serpent\"", async () => {
     vi.stubEnv("SEARCH_PROVIDER", "serpent");
-    await search("foo");
-    expect(serpentSearchMock).toHaveBeenCalledWith("foo", undefined);
+    await search("foo", "us");
+    expect(serpentSearchMock).toHaveBeenCalledWith("foo", "us", undefined);
     expect(serperSearchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes the region through to the selected provider", async () => {
+    vi.stubEnv("SEARCH_PROVIDER", "serpent");
+    await search("foo", "gb");
+    expect(serpentSearchMock).toHaveBeenCalledWith("foo", "gb", undefined);
   });
 
   it("passes the abort signal through to the selected provider", async () => {
     vi.stubEnv("SEARCH_PROVIDER", "serpent");
     const controller = new AbortController();
-    await search("foo", controller.signal);
-    expect(serpentSearchMock).toHaveBeenCalledWith("foo", controller.signal);
+    await search("foo", "us", controller.signal);
+    expect(serpentSearchMock).toHaveBeenCalledWith("foo", "us", controller.signal);
   });
 
   it("throws on an unrecognized SEARCH_PROVIDER value", () => {
     vi.stubEnv("SEARCH_PROVIDER", "bing");
-    expect(() => search("foo")).toThrow(/Unknown SEARCH_PROVIDER "bing"/);
+    expect(() => search("foo", "us")).toThrow(/Unknown SEARCH_PROVIDER "bing"/);
   });
 });
