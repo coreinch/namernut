@@ -19,9 +19,16 @@ ghcr_image: "ghcr.io/{{ ghcr_owner }}/{{ ghcr_repo }}"
 #   ansible-playbook playbooks/deploy.yml -e image_tag=main-a1b2c3d
 image_tag: main
 
-# Public hostname for the vhost. *.promptbox.club is already wildcard-
-# proxied through Cloudflare to this VPS, so no DNS changes are needed
-# for a new subdomain — only the nginx vhost below.
+# Public hostname for the vhost. *.promptbox.club is NOT actually a
+# wildcard in Cloudflare DNS — confirmed directly (2026-09-22): a random
+# nonexistent subdomain doesn't resolve at all, only ones with their own
+# explicit Cloudflare DNS record do (this correction replaces an earlier,
+# wrong version of this comment that assumed a real wildcard existed,
+# which cost a deploy cycle discovering namernut.promptbox.club didn't
+# resolve). A brand-new subdomain here needs its own A/CNAME record added
+# in the Cloudflare dashboard first (proxied, i.e. orange-cloud on,
+# pointed at this VPS's IP) — that's outside ansible's/this repo's reach —
+# before the nginx vhost below does anything.
 domain: namernut.promptbox.club
 
 # Optional second vhost for the app's own top-level domain, alongside the
