@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BraveResult } from "./braveSearch";
+import type { SerperResult } from "./serperSearch";
 
-const braveSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<BraveResult[]>>();
+const serperSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SerperResult[]>>();
 const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
 
-vi.mock("./braveSearch", () => ({
-  braveSearch: (...args: Parameters<typeof braveSearchMock>) => braveSearchMock(...args),
+vi.mock("./serperSearch", () => ({
+  serperSearch: (...args: Parameters<typeof serperSearchMock>) => serperSearchMock(...args),
 }));
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
@@ -24,13 +24,13 @@ vi.mock("./dictionary", () => ({
 // by Vitest's transform above every other statement in this file.
 import { checkCollision, splitIntoWords, validateParts } from "./collision";
 
-function result(overrides: Partial<BraveResult> = {}): BraveResult {
+function result(overrides: Partial<SerperResult> = {}): SerperResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
 }
 
 describe("checkCollision", () => {
   beforeEach(() => {
-    braveSearchMock.mockReset();
+    serperSearchMock.mockReset();
     completeChatMock.mockReset();
   });
 
@@ -38,32 +38,32 @@ describe("checkCollision", () => {
     vi.unstubAllEnvs();
   });
 
-  it("runs only an unquoted Brave search for the name when it doesn't split into two words", async () => {
-    braveSearchMock.mockResolvedValue([]);
+  it("runs only an unquoted Serper.dev search for the name when it doesn't split into two words", async () => {
+    serperSearchMock.mockResolvedValue([]);
     await checkCollision("fluidfew");
-    expect(braveSearchMock).toHaveBeenCalledTimes(1);
-    expect(braveSearchMock).toHaveBeenCalledWith("fluidfew", undefined);
+    expect(serperSearchMock).toHaveBeenCalledTimes(1);
+    expect(serperSearchMock).toHaveBeenCalledWith("fluidfew", undefined);
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
-    expect(braveSearchMock).toHaveBeenCalledTimes(1);
+    expect(serperSearchMock).toHaveBeenCalledTimes(1);
     expect(res.twoWordSplit).toBeUndefined();
     expect(res.twoWordResultCount).toBeUndefined();
   });
 
   it("also runs an unquoted two-word search when the name splits into two dictionary words", async () => {
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     await checkCollision("catdog");
-    expect(braveSearchMock).toHaveBeenCalledTimes(2);
-    expect(braveSearchMock).toHaveBeenCalledWith("catdog", undefined);
-    expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(serperSearchMock).toHaveBeenCalledTimes(2);
+    expect(serperSearchMock).toHaveBeenCalledWith("catdog", undefined);
+    expect(serperSearchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 
   it("factors the two-word search's result count into the heuristic score and summary, weighted higher than unquoted", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock
+    serperSearchMock
       .mockResolvedValueOnce([]) // unquoted: 0
       .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog": 4
     const res = await checkCollision("catdog");
@@ -76,7 +76,7 @@ describe("checkCollision", () => {
 
   it("scores 100 with zero results on both searches, via the heuristic", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
     expect(completeChatMock).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("checkCollision", () => {
 
   it("scores lower as the unquoted result count rises, via the heuristic", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
+    serperSearchMock.mockResolvedValueOnce(Array.from({ length: 9 }, () => result())); // unquoted: 9
     const res = await checkCollision("oddago");
     // 100 - (9*4) = 64
     expect(res.rankabilityScore).toBe(64);
@@ -92,7 +92,7 @@ describe("checkCollision", () => {
 
   it("penalizes a two-word split hit more than the same count of unquoted hits, via the heuristic", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock
+    serperSearchMock
       .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())) // unquoted: 3
       .mockResolvedValueOnce(Array.from({ length: 3 }, () => result())); // "cat dog": 3
     const res = await checkCollision("catdog");
@@ -102,14 +102,14 @@ describe("checkCollision", () => {
 
   it("never returns a negative score even when the count is very high, via the heuristic", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock.mockResolvedValueOnce(Array.from({ length: 30 }, () => result()));
+    serperSearchMock.mockResolvedValueOnce(Array.from({ length: 30 }, () => result()));
     const res = await checkCollision("sadpitch");
     expect(res.rankabilityScore).toBeGreaterThanOrEqual(0);
   });
 
   it("uses the LLM score when KILOCODE_API_KEY is set and it responds in the expected format", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
     );
@@ -120,7 +120,7 @@ describe("checkCollision", () => {
 
   it("falls back to the heuristic when the LLM response doesn't match the expected format", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
@@ -128,7 +128,7 @@ describe("checkCollision", () => {
 
   it("falls back to the heuristic when the LLM score is out of range", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
@@ -136,7 +136,7 @@ describe("checkCollision", () => {
 
   it("falls back to the heuristic when the LLM call throws", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockRejectedValue(new Error("rate limited"));
     const res = await checkCollision("fluidfew");
     expect(res.rankabilityScore).toBe(100);
@@ -144,7 +144,7 @@ describe("checkCollision", () => {
 
   it("names Kilo Gateway's rate limit specifically, rather than misleadingly asking to set an already-configured key", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     const err = new Error("rate limited");
     err.name = "RateLimitError";
     completeChatMock.mockRejectedValue(err);
@@ -155,7 +155,7 @@ describe("checkCollision", () => {
 
   it("gives a generic failure note (not the rate-limit or missing-key message) for any other LLM error", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     completeChatMock.mockRejectedValue(new Error("network hiccup"));
     const res = await checkCollision("fluidfew");
     expect(res.summary).toContain("didn't return a usable verdict");
@@ -165,7 +165,7 @@ describe("checkCollision", () => {
 
   it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock
+    serperSearchMock
       .mockResolvedValueOnce([]) // unquoted: none
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
@@ -174,7 +174,7 @@ describe("checkCollision", () => {
 
   it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "");
-    braveSearchMock
+    serperSearchMock
       .mockResolvedValueOnce([result({ title: "unquoted hit" })])
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
@@ -186,18 +186,18 @@ describe("checkCollision", () => {
     // found by splitIntoWords, but it's a real keyword-tier split — see
     // buildKeywordTier in lib/candidates.ts — passed straight through as
     // Candidate.parts instead of re-derived from a dictionary lookup.
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     await checkCollision("poetapps", ["poet", "apps"]);
-    expect(braveSearchMock).toHaveBeenCalledTimes(2);
-    expect(braveSearchMock).toHaveBeenCalledWith("poetapps", undefined);
-    expect(braveSearchMock).toHaveBeenCalledWith("poet apps", undefined);
+    expect(serperSearchMock).toHaveBeenCalledTimes(2);
+    expect(serperSearchMock).toHaveBeenCalledWith("poetapps", undefined);
+    expect(serperSearchMock).toHaveBeenCalledWith("poet apps", undefined);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
-    braveSearchMock.mockResolvedValue([]);
+    serperSearchMock.mockResolvedValue([]);
     await checkCollision("catdog", ["not", "matching"]);
-    expect(braveSearchMock).toHaveBeenCalledTimes(2);
-    expect(braveSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(serperSearchMock).toHaveBeenCalledTimes(2);
+    expect(serperSearchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 });
 

@@ -139,7 +139,7 @@ export default function Home() {
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   // Off by default: the rankability check (see checkCollisionFor) hits a
-  // paid, metered API (Brave Search + an LLM call) per name, so
+  // paid, metered API (Serper.dev + an LLM call) per name, so
   // auto-running it for every found result — rather than only the ones a
   // user picks via "Rank" — is a real cost, not just a convenience switch.
   const [autoRank, setAutoRank] = useState(false);

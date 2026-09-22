@@ -1,4 +1,4 @@
-import { braveSearch, type BraveResult } from "@/lib/braveSearch";
+import { serperSearch, type SerperResult } from "@/lib/serperSearch";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
 
@@ -27,7 +27,7 @@ export interface CollisionResult {
    * ones — the split takes priority since a match there is a stronger
    * collision signal (see heuristicScore) and previously got silently
    * hidden behind unquoted results whenever both existed. */
-  topResults: BraveResult[];
+  topResults: SerperResult[];
 }
 
 /**
@@ -130,7 +130,7 @@ function heuristicScore(
   };
 }
 
-function formatResultsForPrompt(results: BraveResult[]): string {
+function formatResultsForPrompt(results: SerperResult[]): string {
   if (results.length === 0) return "(no results)";
   return results
     .slice(0, 10)
@@ -140,9 +140,9 @@ function formatResultsForPrompt(results: BraveResult[]): string {
 
 function buildPrompt(
   name: string,
-  unquoted: BraveResult[],
+  unquoted: SerperResult[],
   twoWordSplit: string | null,
-  twoWord: BraveResult[]
+  twoWord: SerperResult[]
 ): string {
   const twoWordSection = twoWordSplit
     ? `
@@ -223,7 +223,7 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * stands in. Called once per found candidate, after its domain (and, if
  * enabled, Instagram) availability is already confirmed — see
  * checkRankabilityOne in discovery.ts — never against every candidate a
- * search merely examines, since Brave's free tier is a low monthly quota.
+ * search merely examines, since Serper.dev's free tier is a low monthly quota.
  */
 export async function checkCollision(
   name: string,
@@ -232,8 +232,8 @@ export async function checkCollision(
 ): Promise<CollisionResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const [unquoted, twoWord] = await Promise.all([
-    braveSearch(name, signal),
-    twoWordSplit ? braveSearch(twoWordSplit.join(" "), signal) : Promise.resolve<BraveResult[]>([]),
+    serperSearch(name, signal),
+    twoWordSplit ? serperSearch(twoWordSplit.join(" "), signal) : Promise.resolve<SerperResult[]>([]),
   ]);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
 
