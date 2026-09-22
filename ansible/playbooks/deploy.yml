@@ -49,6 +49,23 @@
         - Test nginx config
         - Reload nginx
 
+    # One-time cleanup from dropping the namernut.promptbox.club subdomain
+    # vhost in favor of serving solely from custom_domain (namernut.com).
+    # Idempotent for the same reason as the namerag cleanup above.
+    - name: Check for the retired promptbox.club subdomain vhost
+      ansible.builtin.stat:
+        path: /etc/nginx/conf.d/namernut.promptbox.club.conf
+      register: legacy_subdomain_vhost
+
+    - name: Remove the retired promptbox.club subdomain vhost
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/namernut.promptbox.club.conf
+        state: absent
+      when: legacy_subdomain_vhost.stat.exists
+      notify:
+        - Test nginx config
+        - Reload nginx
+
     - name: Ensure deploy directory exists
       ansible.builtin.file:
         path: "{{ deploy_dir }}"
@@ -92,20 +109,9 @@
     # Touches nginx config shared with every other site on this VPS
     # (cicd-lab, wordpress, and others) — only a new file is written, no
     # existing vhost is touched, and the reload handler refuses to
-    # reload if `nginx -t` doesn't pass first.
-    - name: Render nginx vhost
-      ansible.builtin.template:
-        src: ../templates/namernut.promptbox.club.conf.j2
-        dest: "/etc/nginx/conf.d/{{ domain }}.conf"
-        mode: "0644"
-      notify:
-        - Test nginx config
-        - Reload nginx
-
-    # See custom_domain's own comment in group_vars/production.yml — a
-    # second vhost for the app's own top-level domain, alongside (not
-    # instead of) the promptbox.club one above. Skipped entirely (rather
-    # than rendering a broken/empty server_name) whenever custom_domain is
+    # reload if `nginx -t` doesn't pass first. See custom_domain's own
+    # comment in group_vars/production.yml. Skipped entirely (rather than
+    # rendering a broken/empty server_name) whenever custom_domain is
     # blank, so this stays a no-op for any deployment that hasn't set one.
     - name: Render custom-domain nginx vhost
       ansible.builtin.template:

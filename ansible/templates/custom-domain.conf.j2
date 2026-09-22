@@ -6,11 +6,6 @@ server {
     listen [::]:443 ssl;
     include snippets/ssl-promptbox.conf;
 
-    # Same vhost as namernut.promptbox.club.conf.j2, just a second hostname
-    # for the identical stack — see custom_domain's own comment in
-    # group_vars/production.yml for why. Keep the two in sync by hand if the
-    # location blocks below ever change.
-
     # SSE endpoint: nginx buffers proxied responses by default and only
     # flushes them once the upstream connection closes, which silently
     # turns a streaming response into one big chunk delivered at the

@@ -19,29 +19,15 @@ ghcr_image: "ghcr.io/{{ ghcr_owner }}/{{ ghcr_repo }}"
 #   ansible-playbook playbooks/deploy.yml -e image_tag=main-a1b2c3d
 image_tag: main
 
-# Public hostname for the vhost. *.promptbox.club is NOT actually a
-# wildcard in Cloudflare DNS — confirmed directly (2026-09-22): a random
-# nonexistent subdomain doesn't resolve at all, only ones with their own
-# explicit Cloudflare DNS record do (this correction replaces an earlier,
-# wrong version of this comment that assumed a real wildcard existed,
-# which cost a deploy cycle discovering namernut.promptbox.club didn't
-# resolve). A brand-new subdomain here needs its own A/CNAME record added
-# in the Cloudflare dashboard first (proxied, i.e. orange-cloud on,
-# pointed at this VPS's IP) — that's outside ansible's/this repo's reach —
-# before the nginx vhost below does anything.
-domain: namernut.promptbox.club
-
-# Optional second vhost for the app's own top-level domain, alongside the
-# promptbox.club subdomain above rather than replacing it — both serve the
-# same stack. Reuses the same self-signed cert as every other vhost on this
-# box (see ssl-promptbox.conf): Cloudflare terminates the real public HTTPS
-# at its edge and accepts any cert from the origin in "Full" mode, so no
-# Let's Encrypt/DNS-01 setup is needed here. Confirmed directly (2026-09-22):
-# namernut.com was already registered and Cloudflare-proxied, but pointed at
-# a Cloudflare Pages deployment of an unrelated old app, not this VPS —
-# repointing that (removing the Pages custom-domain binding, or changing
-# whatever DNS record currently targets it, to this VPS's IP with the
-# orange-cloud proxy kept on) is a Cloudflare-dashboard change outside
-# ansible's/this repo's reach, and has to happen before this vhost does
-# anything. Leave blank ("") to skip rendering this vhost entirely.
+# Public hostname for the app's nginx vhost. Reuses the same self-signed
+# cert as every other vhost on this box (see ssl-promptbox.conf):
+# Cloudflare terminates the real public HTTPS at its edge and accepts any
+# cert from the origin in "Full" mode, so no Let's Encrypt/DNS-01 setup is
+# needed here. Confirmed directly (2026-09-22): namernut.com was already
+# registered and Cloudflare-proxied, but pointed at a Cloudflare Pages
+# deployment of an unrelated old app, not this VPS — repointing that
+# (removing the Pages custom-domain binding, or changing whatever DNS
+# record currently targets it, to this VPS's IP with the orange-cloud
+# proxy kept on) is a Cloudflare-dashboard change outside ansible's/this
+# repo's reach, and has to happen before this vhost does anything.
 custom_domain: namernut.com
