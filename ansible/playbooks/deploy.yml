@@ -10,6 +10,45 @@
       changed_when: false
       failed_when: compose_check.rc != 0
 
+    # One-time migration cleanup from the namerag -> namernut rename: the
+    # pre-rename stack still holds app_port (127.0.0.1:{{ app_port }}),
+    # which blocks the renamed stack's container from binding the same
+    # port. Idempotent — a no-op once this has run once and the old
+    # directory is gone. Safe to leave in the playbook indefinitely rather
+    # than removed after one run: `stat` + `when` means it costs one cheap
+    # check on every future deploy and never touches anything once the old
+    # directory no longer exists.
+    - name: Check for the pre-rename (namerag) deploy directory
+      ansible.builtin.stat:
+        path: /opt/namerag/docker-compose.yml
+      register: legacy_compose
+
+    - name: Tear down the pre-rename namerag stack
+      community.docker.docker_compose_v2:
+        project_src: /opt/namerag
+        state: absent
+      when: legacy_compose.stat.exists
+
+    - name: Remove the pre-rename namerag deploy directory
+      ansible.builtin.file:
+        path: /opt/namerag
+        state: absent
+      when: legacy_compose.stat.exists
+
+    - name: Check for the pre-rename (namerag) nginx vhost
+      ansible.builtin.stat:
+        path: /etc/nginx/conf.d/namerag.promptbox.club.conf
+      register: legacy_vhost
+
+    - name: Remove the pre-rename namerag nginx vhost
+      ansible.builtin.file:
+        path: /etc/nginx/conf.d/namerag.promptbox.club.conf
+        state: absent
+      when: legacy_vhost.stat.exists
+      notify:
+        - Test nginx config
+        - Reload nginx
+
     - name: Ensure deploy directory exists
       ansible.builtin.file:
         path: "{{ deploy_dir }}"
@@ -59,6 +98,21 @@
         src: ../templates/namernut.promptbox.club.conf.j2
         dest: "/etc/nginx/conf.d/{{ domain }}.conf"
         mode: "0644"
+      notify:
+        - Test nginx config
+        - Reload nginx
+
+    # See custom_domain's own comment in group_vars/production.yml — a
+    # second vhost for the app's own top-level domain, alongside (not
+    # instead of) the promptbox.club one above. Skipped entirely (rather
+    # than rendering a broken/empty server_name) whenever custom_domain is
+    # blank, so this stays a no-op for any deployment that hasn't set one.
+    - name: Render custom-domain nginx vhost
+      ansible.builtin.template:
+        src: ../templates/custom-domain.conf.j2
+        dest: "/etc/nginx/conf.d/{{ custom_domain }}.conf"
+        mode: "0644"
+      when: custom_domain is defined and custom_domain | length > 0
       notify:
         - Test nginx config
         - Reload nginx
