@@ -111,6 +111,8 @@ jobs:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
           GHCR_PAT: ${{ secrets.GHCR_PULL_PAT }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          SERPENT_API_KEY: ${{ secrets.SERPENT_API_KEY }}
+          SEARCH_PROVIDER: ${{ secrets.SEARCH_PROVIDER }}
           KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
           KILOCODE_MODEL: ${{ secrets.KILOCODE_MODEL }}
           INSTAGRAM_SESSION_ID: ${{ secrets.INSTAGRAM_SESSION_ID }}
@@ -124,6 +126,8 @@ jobs:
             --arg image_tag "$IMAGE_TAG" \
             --arg ghcr_pat "$GHCR_PAT" \
             --arg serper_api_key "$SERPER_API_KEY" \
+            --arg serpent_api_key "$SERPENT_API_KEY" \
+            --arg search_provider "$SEARCH_PROVIDER" \
             --arg kilocode_api_key "$KILOCODE_API_KEY" \
             --arg kilocode_model "$KILOCODE_MODEL" \
             --arg instagram_session_id "$INSTAGRAM_SESSION_ID" \

@@ -1,16 +1,13 @@
 /**
- * Thin wrapper around Serper.dev's Google Search API, used by collision.ts to
- * see what a candidate name actually resolves to in the wild — domain and
- * Instagram availability alone (see whois.ts, rdap.ts, instagram.ts) say
- * nothing about whether the name already means something (an existing
- * brand, product, public figure, or common word) that a fresh registrant
- * would be competing with or mistaken for.
+ * Thin wrapper around Serper.dev's Google Search API — the default search
+ * provider (see searchProvider.ts) used to see what a candidate name
+ * actually resolves to in the wild. Domain and Instagram availability alone
+ * (see whois.ts, rdap.ts, instagram.ts) say nothing about whether the name
+ * already means something (an existing brand, product, public figure, or
+ * common word) that a fresh registrant would be competing with or mistaken
+ * for.
  */
-export interface SerperResult {
-  title: string;
-  description: string;
-  url: string;
-}
+import type { SearchResult } from "@/lib/searchProvider";
 
 const ENDPOINT = "https://google.serper.dev/search";
 
@@ -25,7 +22,7 @@ interface SerperApiResponse {
   organic?: Array<{ title?: string; snippet?: string; link?: string }>;
 }
 
-export async function serperSearch(query: string, signal?: AbortSignal): Promise<SerperResult[]> {
+export async function serperSearch(query: string, signal?: AbortSignal): Promise<SearchResult[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) throw new SerperApiKeyMissingError();
 

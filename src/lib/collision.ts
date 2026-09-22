@@ -1,4 +1,4 @@
-import { serperSearch, type SerperResult } from "@/lib/serperSearch";
+import { search, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
 
@@ -27,7 +27,7 @@ export interface CollisionResult {
    * ones — the split takes priority since a match there is a stronger
    * collision signal and previously got silently hidden behind unquoted
    * results whenever both existed. */
-  topResults: SerperResult[];
+  topResults: SearchResult[];
 }
 
 /**
@@ -84,7 +84,7 @@ export function validateParts(name: string, parts: [string, string] | undefined)
   return parts;
 }
 
-function formatResultsForPrompt(results: SerperResult[]): string {
+function formatResultsForPrompt(results: SearchResult[]): string {
   if (results.length === 0) return "(no results)";
   return results
     .slice(0, 10)
@@ -94,9 +94,9 @@ function formatResultsForPrompt(results: SerperResult[]): string {
 
 function buildPrompt(
   name: string,
-  unquoted: SerperResult[],
+  unquoted: SearchResult[],
   twoWordSplit: string | null,
-  twoWord: SerperResult[]
+  twoWord: SearchResult[]
 ): string {
   const twoWordSection = twoWordSplit
     ? `
@@ -199,15 +199,16 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * actually say — it can't catch, for instance, Google's silent
  * query-override, where searching a misspelled/unusual name actually
  * returns results for a different, existing term with no marker anywhere
- * that a substitution happened (confirmed directly against the Serper API:
- * the response looks identical to a clean search, nothing to key off of
- * programmatically). Only the LLM, reading the actual result content
- * against the override-detection rubric bullet in buildPrompt, can catch
- * that — so a real verdict is required rather than silently degrading to a
- * blind guess. Called once per found candidate, after its domain (and, if
- * enabled, Instagram) availability is already confirmed — see
- * checkRankabilityOne in discovery.ts — never against every candidate a
- * search merely examines, since Serper.dev's free tier is a low monthly quota.
+ * that a substitution happened (confirmed directly against the Serper.dev
+ * and apiserpent.com APIs: both look identical to a clean search, nothing
+ * to key off of programmatically — see searchProvider.ts). Only the LLM,
+ * reading the actual result content against the override-detection rubric
+ * bullet in buildPrompt, can catch that — so a real verdict is required
+ * rather than silently degrading to a blind guess. Called once per found
+ * candidate, after its domain (and, if enabled, Instagram) availability is
+ * already confirmed — see checkRankabilityOne in discovery.ts — never
+ * against every candidate a search merely examines, since the active
+ * search provider's free tier is a low monthly quota.
  */
 export async function checkCollision(
   name: string,
@@ -216,8 +217,8 @@ export async function checkCollision(
 ): Promise<CollisionResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const [unquoted, twoWord] = await Promise.all([
-    serperSearch(name, signal),
-    twoWordSplit ? serperSearch(twoWordSplit.join(" "), signal) : Promise.resolve<SerperResult[]>([]),
+    search(name, signal),
+    twoWordSplit ? search(twoWordSplit.join(" "), signal) : Promise.resolve<SearchResult[]>([]),
   ]);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
 

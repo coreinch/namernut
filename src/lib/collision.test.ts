@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SerperResult } from "./serperSearch";
+import type { SearchResult } from "./searchProvider";
 
-const serperSearchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SerperResult[]>>();
+const searchMock = vi.fn<(query: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
 const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
 
-vi.mock("./serperSearch", () => ({
-  serperSearch: (...args: Parameters<typeof serperSearchMock>) => serperSearchMock(...args),
+vi.mock("./searchProvider", () => ({
+  search: (...args: Parameters<typeof searchMock>) => searchMock(...args),
 }));
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
@@ -24,7 +24,7 @@ vi.mock("./dictionary", () => ({
 // by Vitest's transform above every other statement in this file.
 import { checkCollision, splitIntoWords, validateParts } from "./collision";
 
-function result(overrides: Partial<SerperResult> = {}): SerperResult {
+function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
 }
 
@@ -32,7 +32,7 @@ const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
 describe("checkCollision", () => {
   beforeEach(() => {
-    serperSearchMock.mockReset();
+    searchMock.mockReset();
     completeChatMock.mockReset();
     // Every test needs a real LLM verdict now — there's no heuristic
     // fallback — so give one a default and let individual tests override it
@@ -40,31 +40,31 @@ describe("checkCollision", () => {
     completeChatMock.mockResolvedValue(DEFAULT_LLM_RESPONSE);
   });
 
-  it("runs only an unquoted Serper.dev search for the name when it doesn't split into two words", async () => {
-    serperSearchMock.mockResolvedValue([]);
+  it("runs only an unquoted search for the name when it doesn't split into two words", async () => {
+    searchMock.mockResolvedValue([]);
     await checkCollision("fluidfew");
-    expect(serperSearchMock).toHaveBeenCalledTimes(1);
-    expect(serperSearchMock).toHaveBeenCalledWith("fluidfew", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledWith("fluidfew", undefined);
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     const res = await checkCollision("fluidfew");
-    expect(serperSearchMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledTimes(1);
     expect(res.twoWordSplit).toBeUndefined();
     expect(res.twoWordResultCount).toBeUndefined();
   });
 
   it("also runs an unquoted two-word search when the name splits into two dictionary words", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     await checkCollision("catdog");
-    expect(serperSearchMock).toHaveBeenCalledTimes(2);
-    expect(serperSearchMock).toHaveBeenCalledWith("catdog", undefined);
-    expect(serperSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(searchMock).toHaveBeenCalledWith("catdog", undefined);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 
   it("attaches the two-word split and its result count to the returned result", async () => {
-    serperSearchMock
+    searchMock
       .mockResolvedValueOnce([]) // unquoted
       .mockResolvedValueOnce(Array.from({ length: 4 }, () => result())); // "cat dog"
     const res = await checkCollision("catdog");
@@ -73,7 +73,7 @@ describe("checkCollision", () => {
   });
 
   it("includes the two-word split results in the prompt sent to the LLM", async () => {
-    serperSearchMock
+    searchMock
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([result({ title: "cat dog hit" })]);
     await checkCollision("catdog");
@@ -82,7 +82,7 @@ describe("checkCollision", () => {
   });
 
   it("uses the LLM's score and summary verbatim", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
     );
@@ -92,26 +92,26 @@ describe("checkCollision", () => {
   });
 
   it("instructs the LLM to detect Google's silent query-override from the results themselves", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     await checkCollision("sadpitch");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("silently substitutes");
   });
 
   it("throws when the LLM response doesn't match the expected SCORE/SUMMARY format", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
     await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("throws when the LLM score is out of range", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
     await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("propagates the error when the LLM call fails, rather than silently degrading to a guess", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     const err = new Error("kilocode_rate_limited");
     err.name = "RateLimitError";
     completeChatMock.mockRejectedValue(err);
@@ -119,7 +119,7 @@ describe("checkCollision", () => {
   });
 
   it("propagates a missing-key error from completeChat rather than falling back", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     const err = new Error("KILOCODE_API_KEY is not set");
     err.name = "KilocodeApiKeyMissingError";
     completeChatMock.mockRejectedValue(err);
@@ -127,7 +127,7 @@ describe("checkCollision", () => {
   });
 
   it("prefers two-word split results for topResults, falling back to unquoted when there are none", async () => {
-    serperSearchMock
+    searchMock
       .mockResolvedValueOnce([]) // unquoted: none
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
@@ -135,7 +135,7 @@ describe("checkCollision", () => {
   });
 
   it("prefers two-word split results for topResults even when unquoted also has hits", async () => {
-    serperSearchMock
+    searchMock
       .mockResolvedValueOnce([result({ title: "unquoted hit" })])
       .mockResolvedValueOnce([result({ title: "two-word hit" })]); // "cat dog"
     const res = await checkCollision("catdog");
@@ -147,18 +147,18 @@ describe("checkCollision", () => {
     // found by splitIntoWords, but it's a real keyword-tier split — see
     // buildKeywordTier in lib/candidates.ts — passed straight through as
     // Candidate.parts instead of re-derived from a dictionary lookup.
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     await checkCollision("poetapps", ["poet", "apps"]);
-    expect(serperSearchMock).toHaveBeenCalledTimes(2);
-    expect(serperSearchMock).toHaveBeenCalledWith("poetapps", undefined);
-    expect(serperSearchMock).toHaveBeenCalledWith("poet apps", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(searchMock).toHaveBeenCalledWith("poetapps", undefined);
+    expect(searchMock).toHaveBeenCalledWith("poet apps", undefined);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
-    serperSearchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue([]);
     await checkCollision("catdog", ["not", "matching"]);
-    expect(serperSearchMock).toHaveBeenCalledTimes(2);
-    expect(serperSearchMock).toHaveBeenCalledWith("cat dog", undefined);
+    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(searchMock).toHaveBeenCalledWith("cat dog", undefined);
   });
 });
 
