@@ -5,6 +5,7 @@ import type { DiscoveryGates } from "@/lib/discovery";
 import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
 import {
   DEFAULT_COMBINED_LENGTH,
+  DEFAULT_REGION,
   DEFAULT_RESULT_COUNT,
   LANGS,
   MAX_COMBINED_LENGTH,
@@ -12,9 +13,11 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
+  REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
   type Lang,
+  type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
 import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
@@ -33,6 +36,7 @@ interface PersistedState {
   resultCount: number;
   keywordInput: string;
   gates: DiscoveryGates;
+  region: RegionOption;
   autoRank: boolean;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
@@ -138,6 +142,7 @@ export default function Home() {
   const [resultCount, setResultCount] = useState(DEFAULT_RESULT_COUNT);
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
+  const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
   // Off by default: the rankability check (see checkCollisionFor) hits a
   // paid, metered API (Serper.dev + an LLM call) per name, so
   // auto-running it for every found result — rather than only the ones a
@@ -279,6 +284,7 @@ export default function Home() {
       // gate to on, instead of `undefined` silently propagating into a
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
+      if (REGION_OPTIONS.some((opt) => opt.value === parsed.region)) setRegion(parsed.region as RegionOption);
       if (typeof parsed.autoRank === "boolean") setAutoRank(parsed.autoRank);
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
@@ -309,6 +315,7 @@ export default function Home() {
         resultCount,
         keywordInput,
         gates,
+        region,
         autoRank,
         useAiSynonyms,
         useAiInvented,
@@ -328,6 +335,7 @@ export default function Home() {
     resultCount,
     keywordInput,
     gates,
+    region,
     autoRank,
     useAiSynonyms,
     useAiInvented,
@@ -377,7 +385,9 @@ export default function Home() {
         const partsParam = parts
           ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
           : "";
-        const res = await fetch(`/api/collision?name=${encodeURIComponent(name)}${partsParam}`);
+        const res = await fetch(
+          `/api/collision?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
+        );
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
         const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
@@ -404,7 +414,7 @@ export default function Home() {
         });
       }
     })();
-  }, []);
+  }, [region]);
 
   const start = useCallback(async () => {
     if (abortRef.current) return;
@@ -664,6 +674,8 @@ export default function Home() {
             onToggleShowMoreTlds={() => setShowMoreTlds((v) => !v)}
             gates={gates}
             onGatesChange={setGates}
+            region={region}
+            onRegionChange={setRegion}
             autoRank={autoRank}
             onAutoRankChange={setAutoRank}
             isRunning={isRunning}

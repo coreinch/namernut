@@ -61,3 +61,22 @@ export interface DictionaryStats {
   combinedUnique: number;
   totalCombinations: number;
 }
+
+// Must stay in sync with REGIONS/DEFAULT_REGION in src/lib/collision.ts —
+// the collision check runs against exactly one of these at a time (see the
+// region dropdown in FiltersPanel.tsx), picked here and sent as the
+// `region` query param to /api/collision.
+export const REGION_OPTIONS = [
+  { value: "us", label: "United States" },
+  { value: "gb", label: "United Kingdom" },
+  { value: "au", label: "Australia" },
+  { value: "ca", label: "Canada" },
+  { value: "ie", label: "Ireland" },
+  { value: "gr", label: "Greece" },
+  { value: "de", label: "Germany" },
+  { value: "fr", label: "France" },
+  { value: "it", label: "Italy" },
+  { value: "es", label: "Spain" },
+] as const;
+export type RegionOption = (typeof REGION_OPTIONS)[number]["value"];
+export const DEFAULT_REGION: RegionOption = "us";

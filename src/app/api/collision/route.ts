@@ -1,6 +1,14 @@
-import { checkCollision } from "@/lib/collision";
+import { checkCollision, DEFAULT_REGION, REGIONS, type Region } from "@/lib/collision";
 
 export const dynamic = "force-dynamic";
+
+/** Falls back to DEFAULT_REGION for anything absent or not in REGIONS,
+ * rather than passing an arbitrary string through to the active search
+ * provider — REGIONS is the fixed set the region dropdown in Advanced
+ * filters (page.tsx) actually offers. */
+function parseRegion(raw: string | null): Region {
+  return (REGIONS as readonly string[]).includes(raw ?? "") ? (raw as Region) : DEFAULT_REGION;
+}
 
 /** Same sanitization as parseKeyword in lib/candidates.ts — plain lowercase
  * letters/digits only, so this can't be used to smuggle an arbitrary query
@@ -26,12 +34,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const name = parseName(searchParams.get("name"));
   const parts = parseParts(searchParams.get("word1"), searchParams.get("word2"));
+  const region = parseRegion(searchParams.get("region"));
   if (!name) {
     return Response.json({ error: "Missing or invalid 'name' query param" }, { status: 400 });
   }
 
   try {
-    const result = await checkCollision(name, parts, request.signal);
+    const result = await checkCollision(name, parts, request.signal, region);
     return Response.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "SerperApiKeyMissingError") {

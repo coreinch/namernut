@@ -5,8 +5,10 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
+  REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
+  type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
 import { FOCUS_RING } from "./constants";
@@ -160,6 +162,8 @@ export function FiltersPanel({
   onToggleShowMoreTlds,
   gates,
   onGatesChange,
+  region,
+  onRegionChange,
   autoRank,
   onAutoRankChange,
   isRunning,
@@ -191,6 +195,8 @@ export function FiltersPanel({
   onToggleShowMoreTlds: () => void;
   gates: DiscoveryGates;
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
+  region: RegionOption;
+  onRegionChange: (value: RegionOption) => void;
   autoRank: boolean;
   onAutoRankChange: (value: boolean) => void;
   isRunning: boolean;
@@ -371,6 +377,42 @@ export function FiltersPanel({
               checked={gates.filterNiceness}
               onChange={(v) => onGatesChange((g) => ({ ...g, filterNiceness: v }))}
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
+            <label htmlFor="collision-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Rankability check region
+            </label>
+            <select
+              id="collision-region"
+              value={region}
+              onChange={(e) => onRegionChange(e.target.value as RegionOption)}
+              // The native dropdown popup ignores the page's dark theme and
+              // always renders with its own (usually light) chrome. Forcing
+              // light color-scheme keeps that popup predictable, but Chrome
+              // still lets each <option>'s inherited `color` (text-foreground
+              // below, near-white in dark mode — see --foreground in
+              // globals.css) carry into the popup's own always-light
+              // background, reading as near-invisible white-on-white. Each
+              // <option> gets an explicit, theme-independent dark color
+              // below to break that inheritance — one of the few style
+              // properties Chromium actually respects inside the native
+              // listbox — while text-foreground here still governs the
+              // select's own closed-box appearance, which does follow the
+              // page theme correctly.
+              style={{ colorScheme: "light" }}
+              className={`min-h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-sm text-foreground dark:border-white/15 ${FOCUS_RING}`}
+            >
+              {REGION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value} className="text-black">
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted">
+              Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
+              region — the rankability check searches from this one.
+            </p>
           </div>
 
           <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
