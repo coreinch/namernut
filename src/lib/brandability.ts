@@ -5,7 +5,7 @@ import { DEFAULT_REGION, REGION_OPTIONS, type RegionOption } from "@/lib/searchC
 
 export type Region = RegionOption;
 /**
- * Regions selectable for the collision check — see the region dropdown in
+ * Regions selectable for the brandability check — see the region dropdown in
  * Advanced filters (page.tsx), which owns the canonical list (REGION_OPTIONS
  * in searchConfig.ts) since it's the client-safe constants file; this just
  * derives the plain value list for server-side validation (route.ts) and
@@ -23,7 +23,7 @@ export type Region = RegionOption;
 export const REGIONS: readonly Region[] = REGION_OPTIONS.map((r) => r.value);
 export { DEFAULT_REGION };
 
-export interface CollisionResult {
+export interface BrandabilityResult {
   name: string;
   /**
    * 0-100. 0 means essentially impossible to ever rank for — as saturated
@@ -33,7 +33,7 @@ export interface CollisionResult {
    * string with zero real-world usage anywhere, nothing to compete with at
    * all.
    */
-  rankabilityScore: number;
+  brandabilityScore: number;
   summary: string;
   unquotedResultCount: number;
   /** Which region the primary (unquoted) search actually ran in — see
@@ -138,10 +138,11 @@ matching on the raw concatenated string:
 ${formatResultsForPrompt(twoWord)}`
     : "";
 
-  return `You are scoring how easy it would be to rank #1 in Google search for the
-exact name "${name}" if someone registered it today as a new brand/domain.
+  return `You are scoring how brandable the exact name "${name}" is — in
+particular, how easy it would be to rank #1 in Google search for it — if
+someone registered it today as a new brand/domain.
 
-Give a rankability score from 0 to 100:
+Give a brandability score from 0 to 100:
 - 0 means essentially impossible to ever rank for. Treat "Google" itself as
   the reference point for 0 — an unimaginably dominant, ubiquitous term/brand
   that a new registrant could never realistically outrank or even appear
@@ -198,17 +199,17 @@ export class KilocodeParseError extends Error {
   }
 }
 
-function parseLlmResponse(raw: string): { rankabilityScore: number; summary: string } | null {
+function parseLlmResponse(raw: string): { brandabilityScore: number; summary: string } | null {
   const scoreMatch = raw.match(/SCORE:\s*(\d{1,3})/i);
   const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]+)/i);
   if (!scoreMatch || !summaryMatch) return null;
   const score = parseInt(scoreMatch[1], 10);
   if (!Number.isFinite(score) || score < 0 || score > 100) return null;
-  return { rankabilityScore: score, summary: summaryMatch[1].trim() };
+  return { brandabilityScore: score, summary: summaryMatch[1].trim() };
 }
 
 /**
- * Runs the collision/rankability check for one candidate name: an unquoted
+ * Runs the brandability check for one candidate name: an unquoted
  * broad-match search in `region` (default DEFAULT_REGION — what does a
  * search engine resolve it to there, including near-miss real brands and
  * region-specific silent overrides? — see the "oddago"/"Oddogo" case and
@@ -222,7 +223,7 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * actual risk — only shows up unquoted), so it's not run.
  *
  * An LLM (via completeChat, requires KILOCODE_API_KEY) always turns those
- * results into a 0-100 rankability score — there's no count-based fallback
+ * results into a 0-100 brandability score — there's no count-based fallback
  * for a missing key or a failed/unparseable call, both of which now reject
  * instead (KilocodeApiKeyMissingError, the underlying fetch error, or
  * KilocodeParseError below). A prior count-based heuristic used to stand in
@@ -235,18 +236,18 @@ function parseLlmResponse(raw: string): { rankabilityScore: number; summary: str
  * to key off of programmatically — see searchProvider.ts). Only the LLM,
  * reading the actual result content against the override-detection rubric
  * bullet in buildPrompt, can catch that — so a real verdict is required
- * rather than silently degrading to a blind guess. Called once per found
- * candidate, after its domain (and, if enabled, Instagram) availability is
- * already confirmed — see checkRankabilityOne in discovery.ts — never
- * against every candidate a search merely examines, since the active
- * search provider's free tier is a low monthly quota.
+ * rather than silently degrading to a blind guess. Called on demand only,
+ * via the "Brandability" button (checkBrandabilityFor in page.tsx), after a
+ * candidate's domain (and, if enabled, Instagram) availability is already
+ * confirmed — never against every candidate a search merely examines,
+ * since the active search provider's free tier is a low monthly quota.
  */
-export async function checkCollision(
+export async function checkBrandability(
   name: string,
   parts?: [string, string],
   signal?: AbortSignal,
   region: Region = DEFAULT_REGION
-): Promise<CollisionResult> {
+): Promise<BrandabilityResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const [unquoted, twoWord] = await Promise.all([
     search(name, region, signal),
@@ -257,11 +258,11 @@ export async function checkCollision(
   const raw = await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord, region), signal);
   const parsed = parseLlmResponse(raw);
   if (!parsed) throw new KilocodeParseError();
-  const { rankabilityScore, summary } = parsed;
+  const { brandabilityScore, summary } = parsed;
 
   return {
     name,
-    rankabilityScore,
+    brandabilityScore,
     summary,
     unquotedResultCount: unquoted.length,
     region,

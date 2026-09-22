@@ -129,7 +129,7 @@ function StyleChip({
  * literal word always runs either way), while "AI synonyms"/"AI-invented"/
  * "Alt-spellings" toggle useAiSynonyms/useAiInvented/useAltSpellings.
  * Everything that only narrows the search (TLDs, quality gates, length/
- * count sliders, auto-rank) sits behind the collapsed "Advanced filters"
+ * count sliders, brandability check region) sits behind the collapsed "Advanced filters"
  * link — narrowing controls are opt-in to look at, generation controls are
  * always visible, matching the Namecheap Beast Mode split between
  * "Transform" and "Filtering" controls. Takes every value it renders and
@@ -376,11 +376,11 @@ export function FiltersPanel({
           </div>
 
           <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
-            <label htmlFor="collision-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Rankability check region
+            <label htmlFor="brandability-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Brandability check region
             </label>
             <select
-              id="collision-region"
+              id="brandability-region"
               value={region}
               onChange={(e) => onRegionChange(e.target.value as RegionOption)}
               // The native dropdown popup ignores the page's dark theme and
@@ -407,7 +407,7 @@ export function FiltersPanel({
             </select>
             <p className="text-xs text-muted">
               Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
-              region — the rankability check searches from this one.
+              region — the brandability check searches from this one.
             </p>
           </div>
         </section>

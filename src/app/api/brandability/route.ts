@@ -1,4 +1,4 @@
-import { checkCollision, DEFAULT_REGION, REGIONS, type Region } from "@/lib/collision";
+import { checkBrandability, DEFAULT_REGION, REGIONS, type Region } from "@/lib/brandability";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ function parseName(raw: string | null): string | null {
 
 /** The two literal strings the candidate was concatenated from — see
  * Candidate.parts in lib/candidates.ts — passed straight through from
- * FoundEntry rather than re-derived here. checkCollision/validateParts
+ * FoundEntry rather than re-derived here. checkBrandability/validateParts
  * re-checks that they actually concatenate to `name` before using them for
  * anything, so no further sanitization is needed beyond a sane length cap. */
 function parseParts(word1: string | null, word2: string | null): [string, string] | undefined {
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await checkCollision(name, parts, request.signal, region);
+    const result = await checkBrandability(name, parts, request.signal, region);
     return Response.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "SerperApiKeyMissingError") {
@@ -78,7 +78,7 @@ export async function GET(request: Request) {
       return Response.json({ error: `${service} rate limit hit — try again shortly.` }, { status: 429 });
     }
     return Response.json(
-      { error: err instanceof Error ? err.message : "Collision check failed" },
+      { error: err instanceof Error ? err.message : "Brandability check failed" },
       { status: 500 }
     );
   }

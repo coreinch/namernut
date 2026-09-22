@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Namerag",
     short_name: "Namerag",
     description:
-      "Generate brandable startup names, check live domain & Instagram availability, then get an AI rankability score for how much competition it already faces.",
+      "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.",
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0a",

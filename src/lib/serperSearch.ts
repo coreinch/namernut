@@ -26,8 +26,8 @@ interface SerperApiResponse {
  * `region` is a required, explicit ISO country code (Serper's `gl` param) —
  * never left to Serper's own default. Google's results (including whether
  * it silently overrides an unusual query with a different, existing term —
- * see the override-detection rubric bullet in collision.ts's buildPrompt)
- * vary by region, and collision.ts checks several in parallel (see REGIONS
+ * see the override-detection rubric bullet in brandability.ts's buildPrompt)
+ * vary by region, and brandability.ts checks several in parallel (see REGIONS
  * there) since a real override can trigger in one region and not another.
  * Note Serper specifically didn't reliably reproduce the override behavior
  * at all in testing — confirmed directly across 10 different `gl` values

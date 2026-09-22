@@ -7,7 +7,7 @@
  * documented at https://apiserpent.com/docs. No spelling-correction/"did
  * you mean" field anywhere in the response (checked with a deliberately
  * misspelled query) — same blind spot as Serper.dev, which is why
- * collision.ts relies on the LLM reading result content instead (see the
+ * brandability.ts relies on the LLM reading result content instead (see the
  * override-detection rubric bullet in buildPrompt).
  */
 import type { SearchResult } from "@/lib/searchProvider";
@@ -42,7 +42,7 @@ interface SerpentApiResponse {
 /**
  * `region` is a required, explicit ISO country code — never left to
  * apiserpent's own default; see the matching comment in serperSearch.ts.
- * collision.ts checks several in parallel (see REGIONS there): confirmed
+ * brandability.ts checks several in parallel (see REGIONS there): confirmed
  * directly that "fondterm" returned generic results under country=us, but
  * silently overrode to a real brand, "Finterm", under country=gr — a real
  * override can trigger in one region and not another for the same query.

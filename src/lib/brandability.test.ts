@@ -22,7 +22,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkCollision, DEFAULT_REGION, splitIntoWords, validateParts } from "./collision";
+import { checkBrandability, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -30,7 +30,7 @@ function result(overrides: Partial<SearchResult> = {}): SearchResult {
 
 const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
-describe("checkCollision", () => {
+describe("checkBrandability", () => {
   beforeEach(() => {
     searchMock.mockReset();
     completeChatMock.mockReset();
@@ -42,33 +42,33 @@ describe("checkCollision", () => {
   });
 
   it("runs a single unquoted search in the default region when the name doesn't split into two words", async () => {
-    await checkCollision("fluidfew");
+    await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(1);
     expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, undefined);
   });
 
   it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
-    const res = await checkCollision("fluidfew");
+    const res = await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(1);
     expect(res.twoWordSplit).toBeUndefined();
     expect(res.twoWordResultCount).toBeUndefined();
   });
 
   it("also runs a two-word search, same region, when the name splits into two dictionary words", async () => {
-    await checkCollision("catdog");
+    await checkBrandability("catdog");
     expect(searchMock).toHaveBeenCalledTimes(2);
     expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined);
     expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined);
   });
 
   it("uses the caller-supplied region for both searches instead of the default", async () => {
-    await checkCollision("catdog", undefined, undefined, "gb");
+    await checkBrandability("catdog", undefined, undefined, "gb");
     expect(searchMock).toHaveBeenCalledWith("catdog", "gb", undefined);
     expect(searchMock).toHaveBeenCalledWith("cat dog", "gb", undefined);
   });
 
   it("exposes which region was checked", async () => {
-    const res = await checkCollision("fluidfew", undefined, undefined, "au");
+    const res = await checkBrandability("fluidfew", undefined, undefined, "au");
     expect(res.region).toBe("au");
   });
 
@@ -76,14 +76,14 @@ describe("checkCollision", () => {
     searchMock.mockImplementation(async (query) =>
       query === "cat dog" ? Array.from({ length: 4 }, () => result()) : []
     );
-    const res = await checkCollision("catdog");
+    const res = await checkBrandability("catdog");
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.twoWordResultCount).toBe(4);
   });
 
   it("includes the region's results in the prompt sent to the LLM, labeled by region", async () => {
     searchMock.mockImplementation(async () => [result({ title: "gb hit" })]);
-    await checkCollision("fluidfew", undefined, undefined, "gb");
+    await checkBrandability("fluidfew", undefined, undefined, "gb");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("region: gb");
     expect(prompt).toContain("gb hit");
@@ -93,7 +93,7 @@ describe("checkCollision", () => {
     searchMock.mockImplementation(async (query) =>
       query === "cat dog" ? [result({ title: "cat dog hit" })] : []
     );
-    await checkCollision("catdog");
+    await checkBrandability("catdog");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("cat dog hit");
   });
@@ -102,13 +102,13 @@ describe("checkCollision", () => {
     completeChatMock.mockResolvedValue(
       "SCORE: 4\nSUMMARY: This name is fully absorbed by a major existing brand."
     );
-    const res = await checkCollision("sadpitch");
-    expect(res.rankabilityScore).toBe(4);
+    const res = await checkBrandability("sadpitch");
+    expect(res.brandabilityScore).toBe(4);
     expect(res.summary).toContain("major existing brand");
   });
 
   it("instructs the LLM to detect Google's silent query-override from the results themselves, noting region-dependence", async () => {
-    await checkCollision("sadpitch");
+    await checkBrandability("sadpitch");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("silently substitutes");
     expect(prompt).toContain("region-dependent");
@@ -116,33 +116,33 @@ describe("checkCollision", () => {
 
   it("throws when the LLM response doesn't match the expected SCORE/SUMMARY format", async () => {
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
-    await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
+    await expect(checkBrandability("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("throws when the LLM score is out of range", async () => {
     completeChatMock.mockResolvedValue("SCORE: 150\nSUMMARY: nonsense value");
-    await expect(checkCollision("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
+    await expect(checkBrandability("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
   });
 
   it("propagates the error when the LLM call fails, rather than silently degrading to a guess", async () => {
     const err = new Error("kilocode_rate_limited");
     err.name = "RateLimitError";
     completeChatMock.mockRejectedValue(err);
-    await expect(checkCollision("fluidfew")).rejects.toBe(err);
+    await expect(checkBrandability("fluidfew")).rejects.toBe(err);
   });
 
   it("propagates a missing-key error from completeChat rather than falling back", async () => {
     const err = new Error("KILOCODE_API_KEY is not set");
     err.name = "KilocodeApiKeyMissingError";
     completeChatMock.mockRejectedValue(err);
-    await expect(checkCollision("fluidfew")).rejects.toBe(err);
+    await expect(checkBrandability("fluidfew")).rejects.toBe(err);
   });
 
   it("prefers two-word split results for topResults, falling back to the unquoted results when there are none", async () => {
     searchMock.mockImplementation(async (query) =>
       query === "cat dog" ? [result({ title: "two-word hit" })] : []
     );
-    const res = await checkCollision("catdog");
+    const res = await checkBrandability("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
   });
 
@@ -150,7 +150,7 @@ describe("checkCollision", () => {
     searchMock.mockImplementation(async (query) =>
       query === "cat dog" ? [result({ title: "two-word hit" })] : [result({ title: "unquoted hit" })]
     );
-    const res = await checkCollision("catdog");
+    const res = await checkBrandability("catdog");
     expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
   });
 
@@ -159,13 +159,13 @@ describe("checkCollision", () => {
     // found by splitIntoWords, but it's a real keyword-tier split — see
     // buildKeywordTier in lib/candidates.ts — passed straight through as
     // Candidate.parts instead of re-derived from a dictionary lookup.
-    await checkCollision("poetapps", ["poet", "apps"]);
+    await checkBrandability("poetapps", ["poet", "apps"]);
     expect(searchMock).toHaveBeenCalledTimes(2);
     expect(searchMock).toHaveBeenCalledWith("poet apps", DEFAULT_REGION, undefined);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
-    await checkCollision("catdog", ["not", "matching"]);
+    await checkBrandability("catdog", ["not", "matching"]);
     expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined);
   });
 });

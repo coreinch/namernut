@@ -62,10 +62,10 @@ export interface DictionaryStats {
   totalCombinations: number;
 }
 
-// Must stay in sync with REGIONS/DEFAULT_REGION in src/lib/collision.ts —
-// the collision check runs against exactly one of these at a time (see the
+// Must stay in sync with REGIONS/DEFAULT_REGION in src/lib/brandability.ts —
+// the brandability check runs against exactly one of these at a time (see the
 // region dropdown in FiltersPanel.tsx), picked here and sent as the
-// `region` query param to /api/collision.
+// `region` query param to /api/brandability.
 export const REGION_OPTIONS = [
   { value: "us", label: "United States" },
   { value: "gb", label: "United Kingdom" },

@@ -78,18 +78,29 @@ function generateId(): string {
 }
 
 // Collapses entries that share a domain down to one, preferring whichever
-// one already carries a collision score over an unscored duplicate. Used
+// one already carries a brandability score over an unscored duplicate. Used
 // to clean up persisted state from before the "found" handler started
 // guarding against this (see start() below) — a re-run of discovery, with
 // no exclusion of domains an earlier run already found, could legitimately
 // rediscover the same available domain and add a second entry for it,
 // which then rendered as a duplicate card in Previous results. Keeps the
 // original relative order (by first occurrence) rather than reshuffling.
+// Maps a persisted FoundEntry still using the pre-rename field names
+// (rankabilityScore/collisionSummary, from before "collision"/"rank"
+// terminology became "brandability") onto the current ones, so existing
+// users don't silently lose previously-computed scores just because the
+// field was renamed. A no-op for any entry that already has the new field.
+function migrateLegacyEntry(entry: FoundEntry): FoundEntry {
+  const legacy = entry as FoundEntry & { rankabilityScore?: number; collisionSummary?: string };
+  if (entry.brandabilityScore !== undefined || legacy.rankabilityScore === undefined) return entry;
+  return { ...entry, brandabilityScore: legacy.rankabilityScore, brandabilitySummary: legacy.collisionSummary };
+}
+
 function dedupeByDomain(entries: FoundEntry[]): FoundEntry[] {
   const bestByDomain = new Map<string, FoundEntry>();
   for (const entry of entries) {
     const existing = bestByDomain.get(entry.domain);
-    if (!existing || (existing.rankabilityScore === undefined && entry.rankabilityScore !== undefined)) {
+    if (!existing || (existing.brandabilityScore === undefined && entry.brandabilityScore !== undefined)) {
       bestByDomain.set(entry.domain, entry);
     }
   }
@@ -261,8 +272,8 @@ export default function Home() {
       // copies of the same data lying around.
       const legacyRaw = raw ? null : localStorage.getItem(LEGACY_STORAGE_KEY);
       const parsed: Partial<PersistedState> = JSON.parse(raw ?? legacyRaw ?? "{}");
-      if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory));
-      if (parsed.favorites) setFavorites(parsed.favorites);
+      if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry)));
+      if (parsed.favorites) setFavorites(parsed.favorites.map(migrateLegacyEntry));
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
       if (parsed.enabledTlds) setEnabledTlds(parsed.enabledTlds);
       if (typeof parsed.maxLength === "number") {
@@ -355,17 +366,17 @@ export default function Home() {
     setLog((prev) => prev.map((entry) => (entry.id === name ? { ...entry, status } : entry)));
   }, []);
 
-  // On-demand only, via the "Rank" button/CollisionBadge — see
-  // checkCollisionFor below. Declared before start() since it's a
+  // On-demand only, via the "Brandability" button/BrandabilityBadge — see
+  // checkBrandabilityFor below. Declared before start() since it's a
   // dependency of that callback. Neither of these two bits of state is
   // persisted — a stuck "loading" badge or stale error message shouldn't
   // survive a reload.
-  const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
-  const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
+  const [checkingBrandabilityNames, setCheckingBrandabilityNames] = useState<Set<string>>(new Set());
+  const [brandabilityErrors, setBrandabilityErrors] = useState<Record<string, string>>({});
 
-  const checkCollisionFor = useCallback((name: string, parts: [string, string] | undefined) => {
-    setCheckingCollisionNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
-    setCollisionErrors((prev) => {
+  const checkBrandabilityFor = useCallback((name: string, parts: [string, string] | undefined) => {
+    setCheckingBrandabilityNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+    setBrandabilityErrors((prev) => {
       if (!(name in prev)) return prev;
       const next = { ...prev };
       delete next[name];
@@ -377,27 +388,27 @@ export default function Home() {
           ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
           : "";
         const res = await fetch(
-          `/api/collision?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
+          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
         );
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
-        const { rankabilityScore, summary } = body as { rankabilityScore: number; summary: string };
+        const { brandabilityScore, summary } = body as { brandabilityScore: number; summary: string };
         // Keyed by bare name (not domain — a result found under several
         // TLDs shares one score), so every matching entry across both
         // arrays gets updated, not just the one card that was clicked.
         const applyScore = (entry: FoundEntry): FoundEntry =>
           entry.domain.split(".")[0] === name
-            ? { ...entry, rankabilityScore, collisionSummary: summary }
+            ? { ...entry, brandabilityScore, brandabilitySummary: summary }
             : entry;
         setFoundHistory((prev) => prev.map(applyScore));
         setFavorites((prev) => prev.map(applyScore));
       } catch (err) {
-        setCollisionErrors((prev) => ({
+        setBrandabilityErrors((prev) => ({
           ...prev,
           [name]: err instanceof Error ? err.message : "Check failed",
         }));
       } finally {
-        setCheckingCollisionNames((prev) => {
+        setCheckingBrandabilityNames((prev) => {
           if (!prev.has(name)) return prev;
           const next = new Set(prev);
           next.delete(name);
@@ -500,7 +511,7 @@ export default function Home() {
                 // domain — without this guard that added a second
                 // FoundEntry for it, showing as a duplicate card in
                 // Previous results. Keep the existing entry (it may
-                // already carry a collision score from being checked
+                // already carry a brandability score from being checked
                 // earlier) rather than replacing it with an unscored one.
                 if (prev.some((e) => e.domain === event.domain)) return prev;
                 return [
@@ -611,7 +622,7 @@ export default function Home() {
   // of reshuffling the whole list every find.
   const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
   // Everything not from the active run, ranked best-first (highest
-  // rankabilityScore — easiest to actually rank #1 for — at the top): once
+  // brandabilityScore — easiest to actually rank #1 for — at the top): once
   // a result has aged out of the current run, how promising it is matters
   // more than when it happened to turn up. Entries with no score yet
   // (never checked — see FoundEntry) sort last, via the ?? -1 fallback,
@@ -622,7 +633,7 @@ export default function Home() {
   const archiveResults = foundHistory
     .filter((e) => e.runId !== activeRunId)
     .slice()
-    .sort((a, b) => (b.rankabilityScore ?? -1) - (a.rankabilityScore ?? -1));
+    .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1));
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
   const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
   const tabCounts: Record<ResultsTab, number> = {
@@ -729,11 +740,11 @@ export default function Home() {
                 <ResultsGrid
                   entries={currentRunResults}
                   favoriteDomains={favoriteDomains}
-                  checkingCollisionNames={checkingCollisionNames}
-                  collisionErrors={collisionErrors}
+                  checkingBrandabilityNames={checkingBrandabilityNames}
+                  brandabilityErrors={brandabilityErrors}
                   onSearch={searchDomain}
                   onToggleFavorite={toggleFavorite}
-                  onCheckCollision={checkCollisionFor}
+                  onCheckBrandability={checkBrandabilityFor}
                   onRegister={registerDomain}
                   pendingCount={isRunning ? Math.max(0, resultCount - currentRunResults.length) : 0}
                 />
@@ -758,11 +769,11 @@ export default function Home() {
                 <ResultsGrid
                   entries={favorites}
                   favoriteDomains={favoriteDomains}
-                  checkingCollisionNames={checkingCollisionNames}
-                  collisionErrors={collisionErrors}
+                  checkingBrandabilityNames={checkingBrandabilityNames}
+                  brandabilityErrors={brandabilityErrors}
                   onSearch={searchDomain}
                   onToggleFavorite={toggleFavorite}
-                  onCheckCollision={checkCollisionFor}
+                  onCheckBrandability={checkBrandabilityFor}
                   onRegister={registerDomain}
                 />
               )}
@@ -785,11 +796,11 @@ export default function Home() {
                 <ResultsGrid
                   entries={archiveResults}
                   favoriteDomains={favoriteDomains}
-                  checkingCollisionNames={checkingCollisionNames}
-                  collisionErrors={collisionErrors}
+                  checkingBrandabilityNames={checkingBrandabilityNames}
+                  brandabilityErrors={brandabilityErrors}
                   onSearch={searchDomain}
                   onToggleFavorite={toggleFavorite}
-                  onCheckCollision={checkCollisionFor}
+                  onCheckBrandability={checkBrandabilityFor}
                   onRegister={registerDomain}
                 />
               )}

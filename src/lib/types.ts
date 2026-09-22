@@ -26,10 +26,10 @@ export interface FoundEntry {
   domain: string;
   meaning: string;
   // The two literal strings domain's name was concatenated from — see
-  // Candidate.parts in lib/candidates.ts — passed to checkCollisionFor so
+  // Candidate.parts in lib/candidates.ts — passed to checkBrandabilityFor so
   // it can search the name as two separate words. Optional so entries
   // persisted before this field existed still hydrate fine; absent means
-  // checkCollisionFor falls back to collision.ts's own dictionary-based
+  // checkBrandabilityFor falls back to brandability.ts's own dictionary-based
   // guess (splitIntoWords) instead.
   parts?: [string, string];
   checkedCount: number;
@@ -37,12 +37,12 @@ export interface FoundEntry {
   // Optional so entries persisted before this field existed still hydrate
   // fine — treated as "unknown" wherever it's read (see InstagramBadge).
   instagram?: InstagramStatus;
-  // Populated on demand via checkCollisionFor (the "Rank" button in
-  // CollisionBadge) — absent until checked, or if the check
+  // Populated on demand via checkBrandabilityFor (the "Brandability" button
+  // in BrandabilityBadge) — absent until checked, or if the check
   // failed. 0 = as unrankable as "Google" itself; 100 = a long random
   // string with no real-world usage anywhere to compete with.
-  rankabilityScore?: number;
-  collisionSummary?: string;
+  brandabilityScore?: number;
+  brandabilitySummary?: string;
   // Which generation mechanism produced this result — see CandidateSource.
   // Optional so entries persisted before this field existed still hydrate
   // fine; treated as "dictionary" wherever it's read (see ResultCard).

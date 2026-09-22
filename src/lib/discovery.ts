@@ -50,7 +50,7 @@ export type DiscoveryEvent =
       meaning: string;
       /** The two literal strings the name was concatenated from — see
        * Candidate.parts in lib/candidates.ts — carried through so
-       * lib/collision.ts can search the name as two separate words without
+       * lib/brandability.ts can search the name as two separate words without
        * re-deriving the split. */
       parts: [string, string];
       checkedCount: number;

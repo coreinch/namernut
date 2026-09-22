@@ -33,7 +33,7 @@ Respond with exactly one lowercase word per line, nothing else — no numbering,
       .filter((word) => word.length >= 2 && word.length <= 15 && word !== keyword.toLowerCase());
     return [...new Set(words)].slice(0, MAX_SYNONYMS);
   } catch (err) {
-    // Same posture as checkCollision in collision.ts: log rather than
+    // Same posture as checkBrandability in brandability.ts: log rather than
     // swallow silently, so a dead key or a bad default model doesn't
     // degrade every keyword search with no visible sign anything's wrong —
     // but still fall back (to literal-keyword-only) rather than failing

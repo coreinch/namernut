@@ -18,9 +18,9 @@ const sora = Sora({
   weight: ["400", "500", "600"],
 });
 
-const TITLE = "Namerag – Domain Name Generator + AI Rankability Score";
+const TITLE = "Namerag – Domain Name Generator + AI Brandability Score";
 const DESCRIPTION =
-  "Generate brandable startup names, check live domain & Instagram availability, then get an AI rankability score for how much competition it already faces.";
+  "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.";
 
 export const metadata: Metadata = {
   title: TITLE,

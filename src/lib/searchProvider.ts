@@ -4,7 +4,7 @@ import { serpentSearch } from "@/lib/serpentSearch";
 /**
  * Shared result shape for every search provider (see serperSearch.ts,
  * serpentSearch.ts) — defined once here, rather than per-provider file, so
- * collision.ts and any future provider never need to know which one is
+ * brandability.ts and any future provider never need to know which one is
  * actually running.
  */
 export interface SearchResult {
@@ -21,7 +21,7 @@ const PROVIDERS: Record<string, SearchFn> = {
 };
 
 /**
- * Picks which Google-results API collision.ts searches against, via
+ * Picks which Google-results API brandability.ts searches against, via
  * SEARCH_PROVIDER — "serper" (code default, https://serper.dev) or
  * "serpent" (https://apiserpent.com, a multi-engine SERP API restricted
  * here to its Google engine). The code defaults to "serper" so nothing
@@ -30,7 +30,7 @@ const PROVIDERS: Record<string, SearchFn> = {
  * showed apiserpent.com is the only one of the two that's actually
  * reproduced Google's real silent query-override behavior (see
  * serperSearch.ts's docstring), which is exactly what REGIONS in
- * collision.ts checks for.
+ * brandability.ts checks for.
  */
 export function search(query: string, region: string, signal?: AbortSignal): Promise<SearchResult[]> {
   const name = process.env.SEARCH_PROVIDER || "serper";

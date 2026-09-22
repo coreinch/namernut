@@ -1,6 +1,6 @@
 /**
  * Thin wrapper around Kilo Gateway's chat-completions endpoint, used by
- * collision.ts to turn a candidate name's search results into a one-line
+ * brandability.ts to turn a candidate name's search results into a one-line
  * human-style verdict — real collision vs. coincidental noise — the same
  * judgment call made by hand, repeatedly, before this tool existed. Kilo
  * Gateway is OpenRouter-request-shape-compatible (same request/response

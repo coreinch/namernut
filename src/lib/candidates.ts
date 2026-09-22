@@ -16,7 +16,7 @@ export interface Candidate {
   name: string;
   /** Each half's word plus its short WordNet definition (or just the bare word for a user-supplied keyword, which has none), e.g. "swift: moving fast · fox: a carnivorous mammal". */
   meaning: string;
-  /** The two literal strings name was concatenated from, in order (parts[0] + parts[1] === name) — e.g. ["swift", "fox"], or ["poet", "apps"] for a keyword. Used by lib/collision.ts to search the name as two separate words without re-deriving the split from a dictionary lookup or by parsing `meaning`. */
+  /** The two literal strings name was concatenated from, in order (parts[0] + parts[1] === name) — e.g. ["swift", "fox"], or ["poet", "apps"] for a keyword. Used by lib/brandability.ts to search the name as two separate words without re-deriving the split from a dictionary lookup or by parsing `meaning`. */
   parts: [string, string];
   source: CandidateSource;
 }
@@ -222,7 +222,7 @@ function selectTierSpecs(
   ];
 }
 
-/** Each invented word is a complete candidate on its own — not concatenated from two literal strings the way every other Candidate is, so `parts` is `[name, ""]`: validateParts/splitIntoWords in collision.ts both treat a falsy second half as "no two-word split exists", which is exactly true here. */
+/** Each invented word is a complete candidate on its own — not concatenated from two literal strings the way every other Candidate is, so `parts` is `[name, ""]`: validateParts/splitIntoWords in brandability.ts both treat a falsy second half as "no two-word split exists", which is exactly true here. */
 function buildInventedTier(words: string[], keyword?: string): CandidateTier {
   return {
     total: words.length,
