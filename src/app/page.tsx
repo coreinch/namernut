@@ -37,7 +37,6 @@ interface PersistedState {
   keywordInput: string;
   gates: DiscoveryGates;
   region: RegionOption;
-  autoRank: boolean;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
   useAltSpellings: boolean;
@@ -143,16 +142,11 @@ export default function Home() {
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
-  // Off by default: the rankability check (see checkCollisionFor) hits a
-  // paid, metered API (Serper.dev + an LLM call) per name, so
-  // auto-running it for every found result — rather than only the ones a
-  // user picks via "Rank" — is a real cost, not just a convenience switch.
-  const [autoRank, setAutoRank] = useState(false);
-  // On by default: unlike autoRank, this is one LLM call per search start
-  // (not per found result), and it's purely additive on top of the
-  // dictionary pairing that always runs anyway — see suggestKeywordSynonyms
-  // in lib/synonyms.ts and selectTierSpecs in lib/candidates.ts. Only ever
-  // meaningful when a keyword is actually typed.
+  // On by default: this is one LLM call per search start (not per found
+  // result), and it's purely additive on top of the dictionary pairing that
+  // always runs anyway — see suggestKeywordSynonyms in lib/synonyms.ts and
+  // selectTierSpecs in lib/candidates.ts. Only ever meaningful when a
+  // keyword is actually typed.
   const [useAiSynonyms, setUseAiSynonyms] = useState(true);
   // Populated once per search from the "synonyms" SSE event — not
   // persisted, purely a live display of what the current/last run actually
@@ -285,7 +279,6 @@ export default function Home() {
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
       if (REGION_OPTIONS.some((opt) => opt.value === parsed.region)) setRegion(parsed.region as RegionOption);
-      if (typeof parsed.autoRank === "boolean") setAutoRank(parsed.autoRank);
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
@@ -316,7 +309,6 @@ export default function Home() {
         keywordInput,
         gates,
         region,
-        autoRank,
         useAiSynonyms,
         useAiInvented,
         useAltSpellings,
@@ -336,7 +328,6 @@ export default function Home() {
     keywordInput,
     gates,
     region,
-    autoRank,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
@@ -364,11 +355,11 @@ export default function Home() {
     setLog((prev) => prev.map((entry) => (entry.id === name ? { ...entry, status } : entry)));
   }, []);
 
-  // On-demand (via the "Rank" button/CollisionBadge) or automatically per
-  // found result when autoRank is on — see the "found" case in start()
-  // below. Declared before start() since it's a dependency of that
-  // callback. Neither of these two bits of state is persisted — a stuck
-  // "loading" badge or stale error message shouldn't survive a reload.
+  // On-demand only, via the "Rank" button/CollisionBadge — see
+  // checkCollisionFor below. Declared before start() since it's a
+  // dependency of that callback. Neither of these two bits of state is
+  // persisted — a stuck "loading" badge or stale error message shouldn't
+  // survive a reload.
   const [checkingCollisionNames, setCheckingCollisionNames] = useState<Set<string>>(new Set());
   const [collisionErrors, setCollisionErrors] = useState<Record<string, string>>({});
 
@@ -532,7 +523,6 @@ export default function Home() {
                 ];
               });
               resolveLog(event.domain, "available");
-              if (autoRank) checkCollisionFor(event.domain.split(".")[0], event.parts);
               break;
             }
             case "complete":
@@ -571,8 +561,6 @@ export default function Home() {
     keywordParam,
     tldsParam,
     gates,
-    autoRank,
-    checkCollisionFor,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
@@ -676,8 +664,6 @@ export default function Home() {
             onGatesChange={setGates}
             region={region}
             onRegionChange={setRegion}
-            autoRank={autoRank}
-            onAutoRankChange={setAutoRank}
             isRunning={isRunning}
             primaryLabel={primaryLabel}
             onStart={start}

@@ -164,8 +164,6 @@ export function FiltersPanel({
   onGatesChange,
   region,
   onRegionChange,
-  autoRank,
-  onAutoRankChange,
   isRunning,
   primaryLabel,
   onStart,
@@ -197,14 +195,12 @@ export function FiltersPanel({
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
-  autoRank: boolean;
-  onAutoRankChange: (value: boolean) => void;
   isRunning: boolean;
   primaryLabel: string;
   onStart: () => void;
   onStop: () => void;
 }) {
-  const activeGateCount = Object.values(gates).filter(Boolean).length + (autoRank ? 1 : 0);
+  const activeGateCount = Object.values(gates).filter(Boolean).length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -412,14 +408,6 @@ export function FiltersPanel({
             <p className="text-xs text-muted">
               Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
               region — the rankability check searches from this one.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-            <GateToggle label="Auto-check rankability" checked={autoRank} onChange={onAutoRankChange} />
-            <p className="text-xs text-muted">
-              Runs the paid AI rankability check on every result found, not just the ones you pick — off by default
-              to avoid the extra cost.
             </p>
           </div>
         </section>
