@@ -183,6 +183,21 @@ Give a brandability score from 0 to 100:
   term, not as a fuzzy/incidental near-miss. Note this behavior is
   region-dependent — these results are from the "${region}" region only, so
   a clean result here doesn't rule out an override in a different region.
+- CRITICAL — check this independently of the search results below, using
+  your own knowledge: does "${name}", said aloud, sound phonetically
+  identical or extremely close to an existing well-known brand, product, or
+  company name (e.g. "dugbrand" sounds exactly like "duck brand", a famous
+  duct-tape brand)? This is the same silent-substitution behavior as the
+  bullet above, but the search results can fail to surface it at all —
+  confirmed directly: for "dugbrand", broad-match results in every region
+  tested came back as unrelated noise (fragrance brands, dog apparel,
+  watches) with no mention of "duck brand" anywhere, even though Google
+  itself, searched live, replaces the query with "duck brand" and returns
+  results only for that. A clean-looking BROAD-MATCH section below is NOT
+  evidence this isn't happening — rely on your own knowledge of real brand
+  names here, not on what the results do or don't contain. If you recognize
+  a phonetic match to a real brand, name it and score it as a severe, direct
+  collision even if every result below looks unrelated and clean.
 
 BROAD-MATCH (unquoted) search results for ${name} (region: ${region}):
 ${formatResultsForPrompt(unquoted)}${twoWordSection}
@@ -233,10 +248,15 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
  * returns results for a different, existing term with no marker anywhere
  * that a substitution happened (confirmed directly against the Serper.dev
  * and apiserpent.com APIs: both look identical to a clean search, nothing
- * to key off of programmatically — see searchProvider.ts). Only the LLM,
- * reading the actual result content against the override-detection rubric
- * bullet in buildPrompt, can catch that — so a real verdict is required
- * rather than silently degrading to a blind guess. Called on demand only,
+ * to key off of programmatically — see searchProvider.ts). Only the LLM can
+ * catch that, and buildPrompt gives it two independent ways to: reading the
+ * actual result content (the first override-detection rubric bullet), and —
+ * confirmed necessary directly, for "dugbrand" silently overridden to "duck
+ * brand" by live Google, where broad-match results in every region tested
+ * came back as unrelated noise with no trace of "duck brand" at all — its
+ * own knowledge of real brand names, checked independently of whatever the
+ * results do or don't contain (the second rubric bullet). So a real verdict
+ * is required rather than silently degrading to a blind guess. Called on demand only,
  * via the "Brandability" button (checkBrandabilityFor in page.tsx), after a
  * candidate's domain (and, if enabled, Instagram) availability is already
  * confirmed — never against every candidate a search merely examines,

@@ -114,6 +114,13 @@ describe("checkBrandability", () => {
     expect(prompt).toContain("region-dependent");
   });
 
+  it("instructs the LLM to check its own brand knowledge independently of the search results", async () => {
+    await checkBrandability("sadpitch");
+    const prompt = completeChatMock.mock.calls[0][0];
+    expect(prompt).toContain("independently of the search results");
+    expect(prompt).toContain("duck brand");
+  });
+
   it("throws when the LLM response doesn't match the expected SCORE/SUMMARY format", async () => {
     completeChatMock.mockResolvedValue("I'm not sure, sorry!");
     await expect(checkBrandability("fluidfew")).rejects.toMatchObject({ name: "KilocodeParseError" });
