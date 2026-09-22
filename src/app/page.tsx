@@ -60,11 +60,13 @@ const DEFAULT_GATES: DiscoveryGates = {
   filterNiceness: true,
 };
 
-const STORAGE_KEY = "namerag:state:v1";
-// Pre-rename key — read once as a fallback during hydration (see below) so
-// existing users' saved results/favorites/settings survive the rename
-// instead of silently becoming unreachable under the new key.
-const LEGACY_STORAGE_KEY = "domain-finder:state:v1";
+const STORAGE_KEY = "namernut:state:v1";
+// Pre-rename keys, newest first — read in order as a fallback during
+// hydration (see below) so existing users' saved results/favorites/settings
+// survive each rename instead of silently becoming unreachable under a new
+// key. "namerag:state:v1" was this app's immediately prior name;
+// "domain-finder:state:v1" predates that one.
+const LEGACY_STORAGE_KEYS = ["namerag:state:v1", "domain-finder:state:v1"];
 
 const MAX_LOG_ENTRIES = 200;
 
@@ -280,14 +282,26 @@ export default function Home() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      // Nothing under the current key yet — fall back to the pre-rename
-      // key so an existing user's saved results/favorites/settings still
-      // come back after the rename, rather than silently resetting to
-      // empty. The write effect below saves under the new key on the very
-      // next tick, and once that succeeds there's nothing left reading the
-      // legacy key, so it's safe to remove here rather than leave two
-      // copies of the same data lying around.
-      const legacyRaw = raw ? null : localStorage.getItem(LEGACY_STORAGE_KEY);
+      // Nothing under the current key yet — fall back through the
+      // pre-rename keys, newest first, so an existing user's saved
+      // results/favorites/settings still come back after the rename,
+      // rather than silently resetting to empty. The write effect below
+      // saves under the new key on the very next tick, and once that
+      // succeeds there's nothing left reading the matched legacy key, so
+      // it's safe to remove here rather than leave two copies of the same
+      // data lying around.
+      let legacyRaw: string | null = null;
+      let matchedLegacyKey: string | null = null;
+      if (!raw) {
+        for (const key of LEGACY_STORAGE_KEYS) {
+          const value = localStorage.getItem(key);
+          if (value) {
+            legacyRaw = value;
+            matchedLegacyKey = key;
+            break;
+          }
+        }
+      }
       const parsed: Partial<PersistedState> = JSON.parse(raw ?? legacyRaw ?? "{}");
       if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry)));
       if (parsed.favorites) setFavorites(parsed.favorites.map(migrateLegacyEntry));
@@ -314,7 +328,7 @@ export default function Home() {
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
-      if (legacyRaw !== null) localStorage.removeItem(LEGACY_STORAGE_KEY);
+      if (matchedLegacyKey) localStorage.removeItem(matchedLegacyKey);
     } catch {
       // localStorage unavailable (private mode, quota, etc.) — fine, just skip.
     }

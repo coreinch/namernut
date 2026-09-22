@@ -18,7 +18,7 @@ const sora = Sora({
   weight: ["400", "500", "600"],
 });
 
-const TITLE = "Namerag – Domain Name Generator + AI Brandability Score";
+const TITLE = "Namernut – Domain Name Generator + AI Brandability Score";
 const DESCRIPTION =
   "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.";
 
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     // Short brand name only — this is what shows under the home-screen
     // icon, where there's no room for the full SEO title above.
-    title: "Namerag",
+    title: "Namernut",
   },
 };
 

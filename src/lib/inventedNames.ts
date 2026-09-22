@@ -5,7 +5,7 @@ const BATCH_SIZE = 20;
 /**
  * Asks the LLM to invent a batch of short, coined, brandable words — the
  * Namelix "Brandable"/"Evocative" style (think "Zuvio", "Fovixia"), which
- * is structurally different from everything else Namerag generates: every
+ * is structurally different from everything else Namernut generates: every
  * other candidate is built by pairing two real dictionary (or keyword)
  * strings, but an invented word has no real halves to pair — it's the
  * whole candidate name on its own. See buildInventedTier in candidates.ts,

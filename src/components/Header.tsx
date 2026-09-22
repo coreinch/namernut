@@ -25,7 +25,7 @@ export function tabButtonId(tab: ResultsTab) {
  * The wordmark + the one tab control that replaces the app's old four
  * stacked results sections (current run / top ranked / favorites / previous
  * results) with a single switch — no comparable competitor organizes this
- * particular kind of history, so this is Namerag's own answer to it: one
+ * particular kind of history, so this is Namernut's own answer to it: one
  * result list at a time, picked here, rather than everything visible (and
  * scrolled past) at once.
  */
@@ -62,13 +62,13 @@ export function Header({
   return (
     <header className="shrink-0 border-b border-black/10 bg-background/85 px-4 pt-[max(env(safe-area-inset-top),1rem)] pb-3 backdrop-blur-md dark:border-white/10">
       {/* flex-wrap (with a matching gap-y) rather than a fixed single row —
-          on a narrow phone width, "namerag" + the status badge + all three
+          on a narrow phone width, "namernut" + the status badge + all three
           tab buttons (with counts) don't fit on one line; wrapping the tab
           group onto its own line keeps every control fully visible instead
           of clipping or forcing horizontal page scroll. */}
       <div className={`mx-auto flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 ${CONTENT_WIDTH}`}>
         <div className="flex items-center gap-2.5">
-          <span className="font-display text-lg font-bold tracking-tight">namerag</span>
+          <span className="font-display text-lg font-bold tracking-tight">namernut</span>
           <StatusBadge status={status} />
         </div>
         <div

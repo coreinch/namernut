@@ -1,5 +1,5 @@
 ---
-- name: Deploy namerag
+- name: Deploy namernut
   hosts: production
   gather_facts: false
 
@@ -56,7 +56,7 @@
     # reload if `nginx -t` doesn't pass first.
     - name: Render nginx vhost
       ansible.builtin.template:
-        src: ../templates/namerag.promptbox.club.conf.j2
+        src: ../templates/namernut.promptbox.club.conf.j2
         dest: "/etc/nginx/conf.d/{{ domain }}.conf"
         mode: "0644"
       notify:

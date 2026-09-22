@@ -10,7 +10,7 @@ const MAX_SYNONYMS = 6;
  * turns each returned word into its own keyword-shaped tier alongside the
  * literal keyword itself: this is purely additive, the same way Namelix's
  * "Brandable"/"Evocative" styles draw on a keyword's synonyms rather than
- * only concatenating it verbatim, layered onto Namerag's existing
+ * only concatenating it verbatim, layered onto Namernut's existing
  * dictionary-pairing search instead of replacing it.
  *
  * Returns [] (never throws) on any failure — no KILOCODE_API_KEY set, rate

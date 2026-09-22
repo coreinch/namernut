@@ -1,6 +1,6 @@
 ---
 # Where the compose stack lives on the VPS.
-deploy_dir: /opt/namerag
+deploy_dir: /opt/namernut
 
 # 8090/8091 are already taken by cicd-lab on this VPS; 8092 was confirmed
 # free via `ss -tlnp`. Bound to 127.0.0.1 only in
@@ -12,7 +12,7 @@ app_port: 8092
 # Must match the GHCR path GitHub Actions pushes to: lowercase
 # "owner/repo" from ci-cd.yml.
 ghcr_owner: glassrun
-ghcr_repo: namerag
+ghcr_repo: namernut
 ghcr_image: "ghcr.io/{{ ghcr_owner }}/{{ ghcr_repo }}"
 
 # Overridden per-run from the command line, e.g.:
@@ -22,4 +22,4 @@ image_tag: main
 # Public hostname for the vhost. *.promptbox.club is already wildcard-
 # proxied through Cloudflare to this VPS, so no DNS changes are needed
 # for a new subdomain — only the nginx vhost below.
-domain: namerag.promptbox.club
+domain: namernut.promptbox.club

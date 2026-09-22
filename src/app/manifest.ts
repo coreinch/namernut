@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Namerag",
-    short_name: "Namerag",
+    name: "Namernut",
+    short_name: "Namernut",
     description:
       "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.",
     start_url: "/",
