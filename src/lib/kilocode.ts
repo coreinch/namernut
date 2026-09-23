@@ -27,11 +27,25 @@ interface KilocodeResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+// kilo-auto/free (the default model — see DEFAULT_MODEL above) can pick a
+// free upstream that never responds at all: confirmed directly (2026-09-23)
+// with a plain curl against ENDPOINT, no response and no connection error
+// either, twice in a row, each left hanging a full 25-30s until curl's own
+// --max-time cut it off. Without a timeout here, that hang is unbounded —
+// fetch has no default one — which is exactly what left real searches
+// stuck forever on "Getting AI ideas…" (see the discover route, which
+// awaits this with nothing else to unstick it). 15s is generous for a
+// real response while still bounded; both callers (synonyms.ts,
+// inventedNames.ts) already catch and fall back to [] on any error here,
+// so timing out just triggers that existing, already-safe path.
+const REQUEST_TIMEOUT_MS = 15000;
+
 export async function completeChat(prompt: string, signal?: AbortSignal): Promise<string> {
   const apiKey = process.env.KILOCODE_API_KEY;
   if (!apiKey) throw new KilocodeApiKeyMissingError();
   const model = process.env.KILOCODE_MODEL || DEFAULT_MODEL;
 
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
@@ -43,7 +57,7 @@ export async function completeChat(prompt: string, signal?: AbortSignal): Promis
       messages: [{ role: "user", content: prompt }],
       temperature: 0.2,
     }),
-    signal,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });
 
   if (res.status === 429) {

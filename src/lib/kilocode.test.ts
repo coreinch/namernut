@@ -68,4 +68,29 @@ describe("completeChat", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(200, { choices: [] })));
     await expect(completeChat("hi")).rejects.toMatchObject({ name: "KilocodeError" });
   });
+
+  // Regression test for a real production incident (2026-09-23): the
+  // upstream (kilo-auto/free) hung indefinitely with no response and no
+  // connection error, confirmed directly via curl — twice in a row, each
+  // left hanging until curl's own timeout cut it off. completeChat now
+  // combines the caller's signal with an internal timeout (see
+  // REQUEST_TIMEOUT_MS) via AbortSignal.any so a hang like that can't
+  // freeze a search forever. This doesn't wait out the real 15s timeout —
+  // it confirms the caller's signal is still correctly wired through that
+  // combination, which is the same mechanism the internal timeout uses.
+  it("propagates abortion via the caller's signal (proves AbortSignal.any wiring)", async () => {
+    // Aborted mid-flight, not before the call — an already-aborted signal
+    // passed into a real fetch() rejects synchronously rather than via a
+    // future 'abort' event, which this mock (deliberately) doesn't model.
+    const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+      return new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const promise = completeChat("hi", controller.signal);
+    controller.abort();
+    await expect(promise).rejects.toThrow();
+  });
 });
