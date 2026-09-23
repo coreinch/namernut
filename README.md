@@ -60,3 +60,7 @@ npm test          # vitest
 
 Deployed via Docker + Ansible + GitHub Actions to a self-hosted VPS behind
 Cloudflare — see `ansible/` and `.github/workflows/ci-cd.yml`.
+
+## License
+
+[MIT](LICENSE)
