@@ -48,30 +48,26 @@ describe("checkBrandability", () => {
     expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
-  it("skips the two-word search and doesn't attach a split when the name doesn't split into two dictionary words", async () => {
+  it("doesn't attach a split when the name doesn't split into two dictionary words", async () => {
     const res = await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(1);
     expect(res.twoWordSplit).toBeUndefined();
-    expect(res.twoWordResultCount).toBeUndefined();
   });
 
-  it("also runs a two-word search, same region, when the name splits into two dictionary words", async () => {
+  it("merges the two-word split into the same query as an unquoted, parenthesized OR term instead of a second search", async () => {
     await checkBrandability("catdog");
-    expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
-  it("uses the caller-supplied region for both searches instead of the default", async () => {
+  it("uses the caller-supplied region for the merged query instead of the default", async () => {
     await checkBrandability("catdog", undefined, undefined, "gb");
-    expect(searchMock).toHaveBeenCalledWith("catdog", "gb", undefined, DEFAULT_PROVIDER);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", "gb", undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", "gb", undefined, DEFAULT_PROVIDER);
   });
 
-  it("uses the caller-supplied provider for both searches instead of the default", async () => {
+  it("uses the caller-supplied provider for the merged query instead of the default", async () => {
     await checkBrandability("catdog", undefined, undefined, DEFAULT_REGION, "serper");
-    expect(searchMock).toHaveBeenCalledWith("catdog", DEFAULT_REGION, undefined, "serper");
-    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, "serper");
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, "serper");
   });
 
   it("exposes which region and provider were checked", async () => {
@@ -80,13 +76,11 @@ describe("checkBrandability", () => {
     expect(res.provider).toBe("serper");
   });
 
-  it("attaches the two-word split and its result count to the returned result", async () => {
-    searchMock.mockImplementation(async (query) =>
-      query === "cat dog" ? Array.from({ length: 4 }, () => result()) : []
-    );
+  it("attaches the two-word split and the merged query's result count to the returned result", async () => {
+    searchMock.mockResolvedValue(Array.from({ length: 4 }, () => result()));
     const res = await checkBrandability("catdog");
     expect(res.twoWordSplit).toBe("cat dog");
-    expect(res.twoWordResultCount).toBe(4);
+    expect(res.resultCount).toBe(4);
   });
 
   it("includes the region's results in the prompt sent to the LLM, labeled by region", async () => {
@@ -97,13 +91,12 @@ describe("checkBrandability", () => {
     expect(prompt).toContain("gb hit");
   });
 
-  it("includes the two-word split results in the prompt sent to the LLM", async () => {
-    searchMock.mockImplementation(async (query) =>
-      query === "cat dog" ? [result({ title: "cat dog hit" })] : []
-    );
+  it("includes the merged query's results in the prompt sent to the LLM, and notes the two-word reading", async () => {
+    searchMock.mockResolvedValue([result({ title: "cat dog hit" })]);
     await checkBrandability("catdog");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("cat dog hit");
+    expect(prompt).toContain("also reads as the two real dictionary words");
   });
 
   it("uses the LLM's score and summary verbatim", async () => {
@@ -153,20 +146,10 @@ describe("checkBrandability", () => {
     await expect(checkBrandability("fluidfew")).rejects.toBe(err);
   });
 
-  it("prefers two-word split results for topResults, falling back to the unquoted results when there are none", async () => {
-    searchMock.mockImplementation(async (query) =>
-      query === "cat dog" ? [result({ title: "two-word hit" })] : []
-    );
+  it("returns the merged query's top 5 results as topResults", async () => {
+    searchMock.mockResolvedValue(Array.from({ length: 8 }, (_, i) => result({ title: `hit ${i}` })));
     const res = await checkBrandability("catdog");
-    expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
-  });
-
-  it("prefers two-word split results for topResults even when the unquoted search also has hits", async () => {
-    searchMock.mockImplementation(async (query) =>
-      query === "cat dog" ? [result({ title: "two-word hit" })] : [result({ title: "unquoted hit" })]
-    );
-    const res = await checkBrandability("catdog");
-    expect(res.topResults).toEqual([result({ title: "two-word hit" })]);
+    expect(res.topResults).toEqual(Array.from({ length: 5 }, (_, i) => result({ title: `hit ${i}` })));
   });
 
   it("uses the caller-supplied parts even for a word the dictionary doesn't have (e.g. a user keyword)", async () => {
@@ -175,13 +158,13 @@ describe("checkBrandability", () => {
     // buildKeywordTier in lib/candidates.ts — passed straight through as
     // Candidate.parts instead of re-derived from a dictionary lookup.
     await checkBrandability("poetapps", ["poet", "apps"]);
-    expect(searchMock).toHaveBeenCalledTimes(2);
-    expect(searchMock).toHaveBeenCalledWith("poet apps", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    expect(searchMock).toHaveBeenCalledWith("poetapps OR (poet apps)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
     await checkBrandability("catdog", ["not", "matching"]);
-    expect(searchMock).toHaveBeenCalledWith("cat dog", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
   });
 });
 

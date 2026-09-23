@@ -48,11 +48,17 @@ export interface BrandabilityResult {
    */
   brandabilityScore: number;
   summary: string;
-  unquotedResultCount: number;
-  /** Which region the primary (unquoted) search actually ran in — see
-   * REGIONS and the region dropdown in Advanced filters (page.tsx).
-   * Exposed for transparency, since Google's results (including whether it
-   * silently overrides the query) are region-dependent. */
+  /** Total organic results for the single merged query (see checkBrandability
+   * — `name OR (two word split)` when a split exists, else just `name`).
+   * No longer separable into "from the name" vs. "from the split": merging
+   * the two searches into one OR query (done to halve search-provider API
+   * usage per check) means the provider returns one mixed result set with
+   * no per-result attribution to which side of the OR matched. */
+  resultCount: number;
+  /** Which region the search actually ran in — see REGIONS and the region
+   * dropdown in Advanced filters (page.tsx). Exposed for transparency,
+   * since Google's results (including whether it silently overrides the
+   * query) are region-dependent. */
   region: Region;
   /** Which search provider actually ran the check — see PROVIDERS and the
    * provider dropdown in Advanced filters (page.tsx). Exposed for the same
@@ -61,17 +67,13 @@ export interface BrandabilityResult {
    * searchProvider.ts). */
   provider: Provider;
   /** The two dictionary words the name was split into, e.g. "even chad" for
-   * "evenchad" — present only when such a split exists — and the unquoted
-   * result count for searching that phrase. See splitIntoWords: this is
-   * what caught real two-word collisions by hand that the concatenated
-   * search above misses entirely (e.g. "evenchad" reads clean until you
-   * search "even chad" and find it's a real person). */
+   * "evenchad" — present only when such a split exists. See splitIntoWords:
+   * this is what caught real two-word collisions by hand that the
+   * concatenated name alone misses entirely (e.g. "evenchad" reads clean
+   * until you read it as "even chad" and find it's a real person) — folded
+   * into the same merged query as an OR term rather than a separate search. */
   twoWordSplit?: string;
-  twoWordResultCount?: number;
-  /** The two-word split results if there were any, else the unquoted-name
-   * ones — the split takes priority since a match there is a stronger
-   * collision signal and previously got silently hidden behind unquoted
-   * results whenever both existed. */
+  /** Top results from the merged query. */
   topResults: SearchResult[];
 }
 
@@ -137,24 +139,23 @@ function formatResultsForPrompt(results: SearchResult[]): string {
     .join("\n");
 }
 
-function buildPrompt(
-  name: string,
-  unquoted: SearchResult[],
-  twoWordSplit: string | null,
-  twoWord: SearchResult[],
-  region: Region
-): string {
-  const twoWordSection = twoWordSplit
+function buildPrompt(name: string, results: SearchResult[], twoWordSplit: string | null, region: Region): string {
+  // Merged into the query itself as an OR term (see checkBrandability)
+  // rather than a second search, so this note replaces what used to be a
+  // separately-labeled, separately-weighted SEPARATE-WORDS results
+  // section — the results below are now a single mixed list that can
+  // contain hits for either reading, with no way to tell which one a
+  // given result matched other than reading it.
+  const twoWordNote = twoWordSplit
     ? `
 
-SEPARATE-WORDS (unquoted) search results for "${twoWordSplit}" — "${name}" also reads as
-these two real dictionary words, so check whether that phrase names something
-real (a person, place, or brand) even if the concatenated form looks clean.
-Weight a genuine hit here MORE heavily than a broad-match hit above: a
-result for "${twoWordSplit}" means the name resolves to an actual two-word
-phrase, which is a stronger, more reliable collision than fuzzy/incidental
-matching on the raw concatenated string:
-${formatResultsForPrompt(twoWord)}`
+Note: "${name}" also reads as the two real dictionary words "${twoWordSplit}"
+— the search below is an OR of "${name}" and "${twoWordSplit}", so it can
+surface either reading. A genuine hit that's actually about "${twoWordSplit}"
+as a real phrase (a person, place, or brand) is a STRONGER, more reliable
+collision than a fuzzy/incidental match on the raw concatenated "${name}" —
+weight it accordingly wherever you can tell which reading a result is
+actually about from its title, snippet, or URL.`
     : "";
 
   return `You are scoring how brandable the exact name "${name}" is — in
@@ -218,8 +219,8 @@ Give a brandability score from 0 to 100:
   a phonetic match to a real brand, name it and score it as a severe, direct
   collision even if every result below looks unrelated and clean.
 
-BROAD-MATCH (unquoted) search results for ${name} (region: ${region}):
-${formatResultsForPrompt(unquoted)}${twoWordSection}
+BROAD-MATCH (unquoted) search results for ${name}${twoWordSplit ? ` OR ${twoWordSplit}` : ""} (region: ${region}):
+${formatResultsForPrompt(results)}${twoWordNote}
 
 Respond in exactly this format, nothing else:
 SCORE: <integer 0-100>
@@ -243,18 +244,25 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 }
 
 /**
- * Runs the brandability check for one candidate name: an unquoted
+ * Runs the brandability check for one candidate name: a single unquoted
  * broad-match search in `region` (default DEFAULT_REGION — what does a
  * search engine resolve it to there, including near-miss real brands and
  * region-specific silent overrides? — see the "oddago"/"Oddogo" case and
- * the override-detection rubric bullet in buildPrompt), and — when the name
- * splits into two words (see validateParts and splitIntoWords) — a second
- * unquoted search, same region, for that two-word phrase, since a
- * concatenated name can look entirely clean while reading it as two words
- * surfaces a real person, place, or brand. No quoted exact-match search: it
- * only ever hid real collisions (a quoted search finds literal reuse of the
- * string, but a search engine's own near-miss interpretation of it — the
- * actual risk — only shows up unquoted), so it's not run.
+ * the override-detection rubric bullet in buildPrompt). When the name
+ * splits into two words (see validateParts and splitIntoWords), that
+ * two-word phrase is folded into the SAME query as an unquoted `OR` term
+ * — `name OR (word1 word2)`, parenthesized (not quoted) so Google groups
+ * it as one OR operand instead of implicitly AND-ing "word2" onto
+ * whatever follows — rather than a second, separate search: halves the
+ * search-provider calls this check costs (real money/quota either way,
+ * and apiserpent.com's concurrency limit is tied to account balance — see
+ * searchProvider.ts) for the cost of losing the ability to tell which
+ * side of the OR a given result actually matched; buildPrompt asks the
+ * LLM to work that out from each result's own content instead. No quoted
+ * exact-match anywhere in the query: it only ever hid real collisions (a
+ * quoted search finds literal reuse of the string, but a search engine's
+ * own near-miss interpretation of it — the actual risk — only shows up
+ * unquoted), so it's not run.
  *
  * An LLM (via completeChat, requires KILOCODE_API_KEY) always turns those
  * results into a 0-100 brandability score — there's no count-based fallback
@@ -294,13 +302,13 @@ export async function checkBrandability(
   provider: Provider = DEFAULT_PROVIDER
 ): Promise<BrandabilityResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
-  const [unquoted, twoWord] = await Promise.all([
-    search(name, region, signal, provider),
-    twoWordSplit ? search(twoWordSplit.join(" "), region, signal, provider) : Promise.resolve<SearchResult[]>([]),
-  ]);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
+  // Parenthesized, not quoted — see this function's own doc comment above
+  // for why both the grouping and the no-quotes-anywhere choice matter.
+  const query = twoWordSplitStr ? `${name} OR (${twoWordSplitStr})` : name;
+  const results = await search(query, region, signal, provider);
 
-  const raw = await completeChat(buildPrompt(name, unquoted, twoWordSplitStr, twoWord, region), signal);
+  const raw = await completeChat(buildPrompt(name, results, twoWordSplitStr, region), signal);
   const parsed = parseLlmResponse(raw);
   if (!parsed) throw new KilocodeParseError();
   const { brandabilityScore, summary } = parsed;
@@ -309,10 +317,10 @@ export async function checkBrandability(
     name,
     brandabilityScore,
     summary,
-    unquotedResultCount: unquoted.length,
+    resultCount: results.length,
     region,
     provider,
-    ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr, twoWordResultCount: twoWord.length } : {}),
-    topResults: twoWord.length > 0 ? twoWord.slice(0, 5) : unquoted.slice(0, 5),
+    ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr } : {}),
+    topResults: results.slice(0, 5),
   };
 }
