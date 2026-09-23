@@ -1,0 +1,41 @@
+# Namernut
+
+> Namernut is a free, browser-based domain name generator. It suggests
+> brandable, pronounceable names for startups and products, checks live
+> availability of each one as a domain (via RDAP/WHOIS across many TLDs) and
+> as an Instagram handle, then scores how "brandable" each available name is
+> using an AI web-search-backed collision check — how likely the name is to
+> already be crowded by an existing company, product, or well-known use.
+
+## What it does
+
+- Generates candidate names from an English dictionary word-pairing engine,
+  optionally augmented by AI-suggested synonyms, AI-invented names, and
+  deterministic alternate spellings.
+- Checks each candidate's availability live across selectable TLDs
+  (.com, .io, .ai, .co, and others) and, optionally, as an Instagram handle.
+- Filters candidates by pronounceability, length, typo-likelihood, and a
+  "niceness" (no unintended meaning) check.
+- Scores each available name's "brandability" from 0-100: how much existing
+  real-world competition (brands, products, well-known uses) the name
+  already faces, with a plain-language summary of what was found.
+- Lets a user favorite names and keeps a running archive of everything
+  found across searches, ranked by brandability.
+
+## Who it's for
+
+Founders, indie hackers, and anyone naming a new startup, app, or product
+who wants a name that is (a) actually available as a domain today and
+(b) not already crowded out by an existing brand.
+
+## Key facts
+
+- Free to use, no account required.
+- Runs entirely in the browser against a Next.js backend; no data is sold.
+- Not affiliated with any domain registrar; "Register" links go to
+  third-party registrars to complete a purchase.
+
+## Links
+
+- App: https://namernut.com
+- Source: https://github.com/glassrun/namernut

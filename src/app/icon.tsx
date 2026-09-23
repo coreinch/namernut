@@ -13,21 +13,21 @@ export default function Icon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #0a0a0a 0%, #142620 100%)",
+          background: "linear-gradient(135deg, #2b2158 0%, #100a29 100%)",
           borderRadius: 96,
         }}
       >
         <div
           style={{
             display: "flex",
-            fontSize: 240,
+            fontSize: 300,
             fontWeight: 700,
             fontFamily: "sans-serif",
-            color: "#34d399",
-            letterSpacing: -6,
+            color: "#ff6b35",
+            letterSpacing: -8,
           }}
         >
-          N
+          n
         </div>
       </div>
     ),

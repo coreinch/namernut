@@ -22,16 +22,49 @@ const TITLE = "Namernut – Domain Name Generator + AI Brandability Score";
 const DESCRIPTION =
   "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.";
 
+// Structured data (schema.org WebApplication) — read directly by search
+// crawlers and AI answer engines (GEO) without executing any JS, unlike the
+// rest of this page. Kept in sync with TITLE/DESCRIPTION above by hand
+// since JSON-LD has no shared-variable mechanism of its own.
+const JSON_LD = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "Namernut",
+  url: "https://namernut.com",
+  description: DESCRIPTION,
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Any (web-based)",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
+
 export const metadata: Metadata = {
+  metadataBase: new URL("https://namernut.com"),
   title: TITLE,
   description: DESCRIPTION,
+  keywords: [
+    "domain name generator",
+    "brand name generator",
+    "startup name generator",
+    "AI domain name generator",
+    "available domain names",
+    "brandability score",
+  ],
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
     type: "website",
+    url: "https://namernut.com",
+    siteName: "Namernut",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: TITLE,
     description: DESCRIPTION,
   },
@@ -62,7 +95,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${spaceGrotesk.variable} ${sora.variable} h-full antialiased overscroll-none`}
     >
-      <body className="h-full flex flex-col overscroll-none">{children}</body>
+      <body className="h-full flex flex-col overscroll-none">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

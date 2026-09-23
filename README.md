@@ -1,36 +1,62 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Namernut
 
-## Getting Started
+**[namernut.com](https://namernut.com)** — a free domain name generator that
+checks live availability and scores how brandable each name actually is.
 
-First, run the development server:
+Type a keyword, and Namernut pairs it against an English dictionary (plus
+optional AI-suggested synonyms, AI-invented names, and alternate spellings)
+to generate candidate names, checks each one's live availability as a domain
+across selectable TLDs (.com, .io, .ai, .co, and more) and as an Instagram
+handle, filters out anything unpronounceable or typo-prone, and — on
+request — runs an AI web-search-backed "brandability" check that scores 0–100
+how much real-world competition the name already faces (an existing company,
+product, or well-known use), with a plain-language summary of what it found.
+
+## Features
+
+- Dictionary-based name generation, augmented by AI synonyms, AI-invented
+  names, and deterministic alternate spellings
+- Live domain availability across multiple TLDs (RDAP/WHOIS)
+- Live Instagram handle availability
+- Pronounceability, typo, and "niceness" filters
+- AI brandability scoring (0–100) with a written summary per name
+- Favorites and a running archive of every name found, ranked by score
+
+## Stack
+
+Next.js (App Router) · TypeScript · Tailwind CSS · Vitest
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local   # fill in the API keys below
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Environment variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `SERPER_API_KEY` | Yes (default provider) | Web search backing the brandability check ([serper.dev](https://serper.dev)) |
+| `SERPENT_API_KEY` | Only if `SEARCH_PROVIDER=serpent` | Alternative search provider |
+| `SEARCH_PROVIDER` | No | `serper` (default) or `serpent` |
+| `KILOCODE_API_KEY` | Yes | LLM calls for AI synonyms/invented names/brandability summaries |
+| `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the free auto-router model |
+| `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev      # start the dev server
+npm run build    # production build
+npm run lint      # eslint
+npm test          # vitest
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deployed via Docker + Ansible + GitHub Actions to a self-hosted VPS behind
+Cloudflare — see `ansible/` and `.github/workflows/ci-cd.yml`.

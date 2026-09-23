@@ -13,20 +13,20 @@ export default function AppleIcon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #0a0a0a 0%, #142620 100%)",
+          background: "linear-gradient(135deg, #2b2158 0%, #100a29 100%)",
         }}
       >
         <div
           style={{
             display: "flex",
-            fontSize: 84,
+            fontSize: 100,
             fontWeight: 700,
             fontFamily: "sans-serif",
-            color: "#34d399",
-            letterSpacing: -2,
+            color: "#ff6b35",
+            letterSpacing: -3,
           }}
         >
-          N
+          n
         </div>
       </div>
     ),
