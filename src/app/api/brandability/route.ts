@@ -7,8 +7,18 @@ import {
   type Provider,
   type Region,
 } from "@/lib/brandability";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
+
+// Higher than DISCOVER_RATE_LIMIT in the discover route (20/hour): a single
+// discover run with autoCheck on can itself fire one of these per found
+// result, up to MAX_RESULT_COUNT (30) — so a visitor legitimately running a
+// few searches with autoCheck on can rack up well over 20 of these without
+// doing anything abusive. Still bounded, just sized to the real usage
+// pattern rather than the discover route's own per-search cost.
+const BRANDABILITY_RATE_LIMIT = 100;
+const BRANDABILITY_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 /** Falls back to DEFAULT_REGION for anything absent or not in REGIONS,
  * rather than passing an arbitrary string through to the active search
@@ -45,6 +55,18 @@ function parseParts(word1: string | null, word2: string | null): [string, string
 }
 
 export async function GET(request: Request) {
+  const rateLimit = checkRateLimit(
+    `brandability:${getClientIp(request)}`,
+    BRANDABILITY_RATE_LIMIT,
+    BRANDABILITY_RATE_WINDOW_MS
+  );
+  if (!rateLimit.ok) {
+    return Response.json(
+      { error: "Too many brandability checks — try again in a bit." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const name = parseName(searchParams.get("name"));
   const parts = parseParts(searchParams.get("word1"), searchParams.get("word2"));

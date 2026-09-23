@@ -4,8 +4,18 @@ import { parseCount, parseKeyword, parseTlds } from "@/lib/candidates";
 import { suggestKeywordSynonyms } from "@/lib/synonyms";
 import { suggestInventedNames } from "@/lib/inventedNames";
 import { alternateSpellings } from "@/lib/alternateSpelling";
+import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
+
+// Each search costs up to two Kilocode LLM calls (AI synonyms + AI
+// invented names) plus, if autoCheck is on client-side, one brandability
+// request per found result — capped separately by BRANDABILITY_RATE_LIMIT
+// in the brandability route. This limit exists purely to bound that LLM
+// spend per visitor; 20/hour comfortably covers real exploratory use
+// (trying several keywords) while blocking a scripted hammer.
+const DISCOVER_RATE_LIMIT = 20;
+const DISCOVER_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 function sse(event: DiscoveryEvent) {
   return `data: ${JSON.stringify(event)}\n\n`;
@@ -16,6 +26,16 @@ function sse(event: DiscoveryEvent) {
 // with other tabs or persisted across requests — closing the connection
 // (Stop button, tab close, navigation) aborts this search only.
 export async function GET(request: Request) {
+  const rateLimit = checkRateLimit(`discover:${getClientIp(request)}`, DISCOVER_RATE_LIMIT, DISCOVER_RATE_WINDOW_MS);
+  if (!rateLimit.ok) {
+    // Plain JSON, not an SSE event — see the res.ok check page.tsx's
+    // start() does before ever treating the body as a stream.
+    return Response.json(
+      { error: "Too many searches — try again in a bit." },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } }
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const langs = parseLangs(searchParams.get("langs"));
   const pool = getSelectedPool(langs);

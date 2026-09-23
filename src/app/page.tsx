@@ -484,6 +484,14 @@ export default function Home() {
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
         { signal: controller.signal }
       );
+      // A non-2xx response (e.g. the rate limit in /api/discover) is a
+      // plain JSON error body, not an SSE stream — has to be checked
+      // before the read loop below, which otherwise has no way to tell
+      // "an error event arrived" apart from "this isn't SSE at all".
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Request failed (${res.status})`);
+      }
       if (!res.body) throw new Error("No response stream");
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
