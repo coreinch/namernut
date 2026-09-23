@@ -1,9 +1,7 @@
 import type { DiscoveryGates } from "@/lib/discovery";
 import {
   MAX_COMBINED_LENGTH,
-  MAX_RESULT_COUNT,
   MIN_COMBINED_LENGTH,
-  MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
   REGION_OPTIONS,
   TLDS,
@@ -152,8 +150,6 @@ export function FiltersPanel({
   onUseAltSpellingsChange,
   maxLength,
   onMaxLengthChange,
-  resultCount,
-  onResultCountChange,
   selectedTlds,
   visibleTlds,
   enabledTlds,
@@ -183,8 +179,6 @@ export function FiltersPanel({
   onUseAltSpellingsChange: (value: boolean) => void;
   maxLength: number;
   onMaxLengthChange: (value: number) => void;
-  resultCount: number;
-  onResultCountChange: (value: number) => void;
   selectedTlds: Tld[];
   visibleTlds: readonly Tld[];
   enabledTlds: Record<Tld, boolean>;
@@ -307,23 +301,6 @@ export function FiltersPanel({
                 possible combinations at this length
               </p>
             )}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>Results to find</span>
-              <span className="font-semibold tabular-nums text-foreground">{resultCount}</span>
-            </div>
-            <input
-              type="range"
-              min={MIN_RESULT_COUNT}
-              max={MAX_RESULT_COUNT}
-              step={1}
-              value={resultCount}
-              onChange={(e) => onResultCountChange(Number(e.target.value))}
-              aria-label="Number of available results to find"
-              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-accent dark:bg-white/10 ${FOCUS_RING}`}
-            />
           </div>
 
           <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">

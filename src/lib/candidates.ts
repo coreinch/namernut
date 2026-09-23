@@ -362,9 +362,11 @@ export function parseKeyword(raw: string | null): string | undefined {
   return cleaned.length > 0 ? cleaned : undefined;
 }
 
-/** Parses/clamps the requested batch size, falling back to a sane default. */
+/** Parses/clamps the requested batch size, falling back to a sane default.
+ * Capped at 10 — must stay in sync with DEFAULT_RESULT_COUNT in
+ * src/lib/searchConfig.ts (see its own comment for why). */
 export function parseCount(raw: string | null): number {
   const n = raw ? parseInt(raw, 10) : NaN;
-  if (!Number.isFinite(n)) return 12;
-  return Math.min(30, Math.max(1, Math.trunc(n)));
+  if (!Number.isFinite(n)) return 10;
+  return Math.min(10, Math.max(1, Math.trunc(n)));
 }

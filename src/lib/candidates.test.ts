@@ -355,15 +355,15 @@ describe("parseKeyword", () => {
 });
 
 describe("parseCount", () => {
-  it("defaults to 12 for null/invalid input", () => {
-    expect(parseCount(null)).toBe(12);
-    expect(parseCount("not-a-number")).toBe(12);
+  it("defaults to 10 for null/invalid input", () => {
+    expect(parseCount(null)).toBe(10);
+    expect(parseCount("not-a-number")).toBe(10);
   });
 
-  it("clamps to [1, 30]", () => {
+  it("clamps to [1, 10]", () => {
     expect(parseCount("0")).toBe(1);
     expect(parseCount("-5")).toBe(1);
-    expect(parseCount("1000")).toBe(30);
+    expect(parseCount("1000")).toBe(10);
   });
 
   it("truncates fractional values", () => {

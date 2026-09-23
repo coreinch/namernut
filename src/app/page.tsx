@@ -10,9 +10,7 @@ import {
   DEFAULT_RESULT_COUNT,
   LANGS,
   MAX_COMBINED_LENGTH,
-  MAX_RESULT_COUNT,
   MIN_COMBINED_LENGTH,
-  MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
   REGION_OPTIONS,
   TLDS,
@@ -35,7 +33,6 @@ interface PersistedState {
   enabledLangs: Record<Lang, boolean>;
   enabledTlds: Record<Tld, boolean>;
   maxLength: number;
-  resultCount: number;
   keywordInput: string;
   gates: DiscoveryGates;
   region: RegionOption;
@@ -153,7 +150,6 @@ export default function Home() {
     Object.fromEntries(TLDS.map((t) => [t, t === "com"])) as Record<Tld, boolean>
   );
   const [maxLength, setMaxLength] = useState(DEFAULT_COMBINED_LENGTH);
-  const [resultCount, setResultCount] = useState(DEFAULT_RESULT_COUNT);
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
@@ -315,9 +311,6 @@ export default function Home() {
       if (typeof parsed.maxLength === "number") {
         setMaxLength(Math.min(MAX_COMBINED_LENGTH, Math.max(MIN_COMBINED_LENGTH, parsed.maxLength)));
       }
-      if (typeof parsed.resultCount === "number") {
-        setResultCount(Math.min(MAX_RESULT_COUNT, Math.max(MIN_RESULT_COUNT, Math.trunc(parsed.resultCount))));
-      }
       if (typeof parsed.keywordInput === "string") setKeywordInput(parsed.keywordInput);
       // Merged over the defaults (rather than replacing wholesale) so a
       // state persisted before a given gate existed — including every
@@ -354,7 +347,6 @@ export default function Home() {
         enabledLangs,
         enabledTlds,
         maxLength,
-        resultCount,
         keywordInput,
         gates,
         region,
@@ -373,7 +365,6 @@ export default function Home() {
     enabledLangs,
     enabledTlds,
     maxLength,
-    resultCount,
     keywordInput,
     gates,
     region,
@@ -502,7 +493,7 @@ export default function Home() {
 
     try {
       const res = await fetch(
-        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${resultCount}` +
+        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${DEFAULT_RESULT_COUNT}` +
           `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
@@ -643,7 +634,6 @@ export default function Home() {
     resolveLog,
     langsParam,
     maxLength,
-    resultCount,
     keywordParam,
     tldsParam,
     gates,
@@ -740,8 +730,6 @@ export default function Home() {
             onUseAltSpellingsChange={setUseAltSpellings}
             maxLength={maxLength}
             onMaxLengthChange={setMaxLength}
-            resultCount={resultCount}
-            onResultCountChange={setResultCount}
             selectedTlds={selectedTlds}
             visibleTlds={visibleTlds}
             enabledTlds={enabledTlds}
@@ -775,7 +763,7 @@ export default function Home() {
               {isRunning && (
                 <div className="flex items-center justify-end">
                   <span className="text-xs tabular-nums text-muted">
-                    {currentRunFound}/{resultCount}
+                    {currentRunFound}/{DEFAULT_RESULT_COUNT}
                   </span>
                 </div>
               )}
@@ -823,7 +811,7 @@ export default function Home() {
                   onToggleFavorite={toggleFavorite}
                   onCheckBrandability={checkBrandabilityFor}
                   onRegister={registerDomain}
-                  pendingCount={isRunning ? Math.max(0, resultCount - currentRunResults.length) : 0}
+                  pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
                 />
               )}
               <LiveLogSection log={log} logBoxRef={logBoxRef} />

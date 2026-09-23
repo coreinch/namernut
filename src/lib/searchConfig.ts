@@ -51,10 +51,13 @@ export const MIN_COMBINED_LENGTH = 5;
 export const MAX_COMBINED_LENGTH = 24;
 export const DEFAULT_COMBINED_LENGTH = 8;
 
-// Must stay in sync with parseCount's own clamp in src/lib/candidates.ts.
-export const MIN_RESULT_COUNT = 1;
-export const MAX_RESULT_COUNT = 30;
-export const DEFAULT_RESULT_COUNT = 12;
+// Fixed, not user-adjustable (the "Results to find" slider that used to
+// set this was removed from FiltersPanel) — every search asks for exactly
+// this many. Must stay in sync with parseCount's own clamp in
+// src/lib/candidates.ts, which also caps at this value server-side so a
+// direct /api/discover call can't ask for more just because the UI no
+// longer offers a way to.
+export const DEFAULT_RESULT_COUNT = 10;
 
 export interface DictionaryStats {
   english: number;
