@@ -11,12 +11,13 @@ import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
-// Higher than DISCOVER_RATE_LIMIT in the discover route (20/hour): a single
+// Higher than DISCOVER_RATE_LIMIT in the discover route (10/hour): a single
 // discover run with autoCheck on can itself fire one of these per found
-// result, up to MAX_RESULT_COUNT (30) — so a visitor legitimately running a
-// few searches with autoCheck on can rack up well over 20 of these without
-// doing anything abusive. Still bounded, just sized to the real usage
-// pattern rather than the discover route's own per-search cost.
+// result, up to DEFAULT_RESULT_COUNT (10, fixed — see searchConfig.ts) —
+// so a visitor legitimately running a few searches with autoCheck on can
+// rack up several times that many of these without doing anything
+// abusive. Still bounded, just sized to the real usage pattern rather
+// than the discover route's own per-search cost.
 const BRANDABILITY_RATE_LIMIT = 100;
 const BRANDABILITY_RATE_WINDOW_MS = 60 * 60 * 1000;
 

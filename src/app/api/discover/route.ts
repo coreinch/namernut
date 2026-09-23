@@ -12,9 +12,8 @@ export const dynamic = "force-dynamic";
 // invented names) plus, if autoCheck is on client-side, one brandability
 // request per found result — capped separately by BRANDABILITY_RATE_LIMIT
 // in the brandability route. This limit exists purely to bound that LLM
-// spend per visitor; 20/hour comfortably covers real exploratory use
-// (trying several keywords) while blocking a scripted hammer.
-const DISCOVER_RATE_LIMIT = 20;
+// spend per visitor.
+const DISCOVER_RATE_LIMIT = 10;
 const DISCOVER_RATE_WINDOW_MS = 60 * 60 * 1000;
 
 function sse(event: DiscoveryEvent) {
