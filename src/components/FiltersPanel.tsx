@@ -215,7 +215,13 @@ export function FiltersPanel({
           aria-label="Keyword to include (optional)"
           value={keywordInput}
           onChange={(e) => onKeywordInputChange(e.target.value)}
-          placeholder="Include a word (optional), e.g. nova"
+          // Short on purpose — this input shares its pill with the
+          // Generate/Stop button (see the flex row below), so on a narrow
+          // phone width there's only ~150-200px left for the placeholder
+          // before it clips. The longer, friendlier "Include a word
+          // (optional), e.g. nova" that used to be here read fine on
+          // desktop but got cut off well before "optional" on mobile.
+          placeholder="Keyword (optional)"
           maxLength={20}
           className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 ${FOCUS_RING}`}
         />
