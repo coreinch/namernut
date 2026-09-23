@@ -8,7 +8,6 @@ import {
   REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
-  type ProviderOption,
   type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
@@ -165,9 +164,6 @@ export function FiltersPanel({
   onGatesChange,
   region,
   onRegionChange,
-  provider,
-  autoCheck,
-  onAutoCheckChange,
   isRunning,
   primaryLabel,
   onStart,
@@ -199,15 +195,12 @@ export function FiltersPanel({
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
-  provider: ProviderOption;
-  autoCheck: boolean;
-  onAutoCheckChange: (value: boolean) => void;
   isRunning: boolean;
   primaryLabel: string;
   onStart: () => void;
   onStop: () => void;
 }) {
-  const activeGateCount = Object.values(gates).filter(Boolean).length + (autoCheck ? 1 : 0);
+  const activeGateCount = Object.values(gates).filter(Boolean).length;
 
   return (
     <div className="flex flex-col gap-4">
@@ -415,19 +408,6 @@ export function FiltersPanel({
             <p className="text-xs text-muted">
               Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
               region — the brandability check searches from this one.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-            <GateToggle
-              label="Auto-check brandability"
-              checked={autoCheck}
-              onChange={onAutoCheckChange}
-              disabled={provider !== "serper"}
-              disabledReason="unavailable right now — the backup search provider this app switched to after Serper.dev became unavailable can't handle a check firing per result"
-            />
-            <p className="text-xs text-muted">
-              Runs the paid AI brandability check on every result found automatically, not just the ones you pick.
             </p>
           </div>
         </section>

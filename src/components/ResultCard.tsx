@@ -71,13 +71,14 @@ export function ResultCard({
         </div>
 
         {/* flex-wrap here too (not shrink-0-and-rigid) — on a narrow phone
-            this group (score badge/Brandability, favorite, search, Register) can
+            this group (favorite, search, score badge/Brandability, Register) can
             exceed the card's width on its own even after the name row
             above has already wrapped away from it; wrapping internally,
             right-aligned, keeps every control fully reachable instead of
-            clipping or forcing the card to scroll horizontally. */}
+            clipping or forcing the card to scroll horizontally. Brandability
+            sits immediately left of Register — checking it is usually the
+            step right before deciding to register. */}
         <div className="flex flex-wrap items-center justify-end gap-1.5">
-          <BrandabilityBadge brandability={brandability} onCheck={onCheckBrandability} />
           <button
             onClick={onToggleFavorite}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
@@ -96,6 +97,7 @@ export function ResultCard({
           >
             <SearchIcon size={14} />
           </button>
+          <BrandabilityBadge brandability={brandability} onCheck={onCheckBrandability} />
           <button
             onClick={onRegister}
             title="Register this domain on Namecheap"
@@ -107,7 +109,7 @@ export function ResultCard({
       </div>
       {/* Its own full-width line, not squeezed into whatever space is left
           next to the action buttons above — that layout (meaning sharing a
-          flex row with Brandability/favorite/search/Register) let the actions
+          flex row with favorite/search/Brandability/Register) let the actions
           crowd it down to a sliver of width, or nothing at all, on
           anything but a wide screen. */}
       <p className="text-xs leading-snug text-muted">{entry.meaning}</p>

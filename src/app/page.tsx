@@ -41,7 +41,6 @@ interface PersistedState {
   gates: DiscoveryGates;
   region: RegionOption;
   provider: ProviderOption;
-  autoCheck: boolean;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
   useAltSpellings: boolean;
@@ -161,19 +160,15 @@ export default function Home() {
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
   const [provider, setProvider] = useState<ProviderOption>(DEFAULT_PROVIDER);
-  // On by default now — only actually usable when provider === "serper" —
-  // gated both in the UI (FiltersPanel disables the toggle otherwise) and
-  // here (the "found" handler below re-checks provider itself, since
-  // switching providers while a stale `true` value is still persisted
-  // shouldn't silently start firing checks against apiserpent.com's much
-  // lower concurrency limit). Fires the paid, metered brandability check
-  // (see checkBrandabilityFor) on every found result rather than only the
-  // ones a user picks via "Brandability" — viable at all only because
-  // Serper's concurrency limit and 2,500/month free quota can absorb that
-  // volume; apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't
-  // — which is exactly why checkBrandabilityFor turns this back off the
-  // moment it falls back to apiserpent.com.
-  const [autoCheck, setAutoCheck] = useState(true);
+  // No longer an independent setting — derived entirely from provider,
+  // not a toggle a user can flip on their own. Fires the paid, metered
+  // brandability check (see checkBrandabilityFor) on every found result
+  // rather than only the ones a user picks via "Brandability" — viable
+  // only on Serper's concurrency limit and 2,500/month free quota;
+  // apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't absorb
+  // that volume, so it's off the instant checkBrandabilityFor falls back
+  // to apiserpent.com and switches `provider`.
+  const autoCheck = provider === "serper";
   // On by default: this is one LLM call per search start (not per found
   // result), and it's purely additive on top of the dictionary pairing that
   // always runs anyway — see suggestKeywordSynonyms in lib/synonyms.ts and
@@ -326,7 +321,6 @@ export default function Home() {
       if (PROVIDER_OPTIONS.some((opt) => opt.value === parsed.provider)) {
         setProvider(parsed.provider as ProviderOption);
       }
-      if (typeof parsed.autoCheck === "boolean") setAutoCheck(parsed.autoCheck);
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
@@ -358,7 +352,6 @@ export default function Home() {
         gates,
         region,
         provider,
-        autoCheck,
         useAiSynonyms,
         useAiInvented,
         useAltSpellings,
@@ -379,7 +372,6 @@ export default function Home() {
     gates,
     region,
     provider,
-    autoCheck,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
@@ -448,8 +440,10 @@ export default function Home() {
           if (provider === "serper" && res.status !== 429) {
             serperFailureStreakRef.current += 1;
             if (serperFailureStreakRef.current >= SERPER_FAILURE_THRESHOLD) {
+              // autoCheck is derived from provider (see its declaration
+              // above) — switching this off is enough, no separate flag
+              // to update.
               setProvider("serpent");
-              setAutoCheck(false);
               serperFailureStreakRef.current = 0;
             }
           }
@@ -606,12 +600,10 @@ export default function Home() {
                 ];
               });
               resolveLog(event.domain, "available");
-              // Only viable on Serper's concurrency profile — see autoCheck's
-              // own declaration comment above and PROVIDER_OPTIONS in
-              // searchConfig.ts. Re-checked here (not just gated in the
-              // FiltersPanel toggle) so a stale `autoCheck: true` from before
-              // a provider switch never fires against apiserpent.com.
-              if (autoCheck && provider === "serper") checkBrandabilityFor(event.domain.split(".")[0], event.parts);
+              // autoCheck is derived from provider (see its declaration
+              // above), so this is already scoped to Serper's concurrency
+              // profile — see PROVIDER_OPTIONS in searchConfig.ts.
+              if (autoCheck) checkBrandabilityFor(event.domain.split(".")[0], event.parts);
               break;
             }
             case "complete":
@@ -651,7 +643,6 @@ export default function Home() {
     tldsParam,
     gates,
     autoCheck,
-    provider,
     checkBrandabilityFor,
     useAiSynonyms,
     useAiInvented,
@@ -756,9 +747,6 @@ export default function Home() {
             onGatesChange={setGates}
             region={region}
             onRegionChange={setRegion}
-            provider={provider}
-            autoCheck={autoCheck}
-            onAutoCheckChange={setAutoCheck}
             isRunning={isRunning}
             primaryLabel={primaryLabel}
             onStart={start}
