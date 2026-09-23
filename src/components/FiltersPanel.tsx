@@ -5,7 +5,6 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
-  PROVIDER_OPTIONS,
   REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
@@ -167,7 +166,6 @@ export function FiltersPanel({
   region,
   onRegionChange,
   provider,
-  onProviderChange,
   autoCheck,
   onAutoCheckChange,
   isRunning,
@@ -202,7 +200,6 @@ export function FiltersPanel({
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
   provider: ProviderOption;
-  onProviderChange: (value: ProviderOption) => void;
   autoCheck: boolean;
   onAutoCheckChange: (value: boolean) => void;
   isRunning: boolean;
@@ -421,42 +418,16 @@ export function FiltersPanel({
             </p>
           </div>
 
-          <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
-            <label htmlFor="brandability-provider" className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Brandability search provider
-            </label>
-            <select
-              id="brandability-provider"
-              value={provider}
-              onChange={(e) => onProviderChange(e.target.value as ProviderOption)}
-              // See the matching comment on the region <select> above — same
-              // native-popup-contrast fix, same reason.
-              style={{ colorScheme: "light" }}
-              className={`min-h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-sm text-foreground dark:border-white/15 ${FOCUS_RING}`}
-            >
-              {PROVIDER_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="text-black">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted">
-              apiserpent.com is slower with a lower concurrency limit, but has actually caught real overrides Serper
-              missed; Serper is fast and cheap enough for auto-check below.
-            </p>
-          </div>
-
           <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
             <GateToggle
               label="Auto-check brandability"
               checked={autoCheck}
               onChange={onAutoCheckChange}
               disabled={provider !== "serper"}
-              disabledReason="requires Serper.dev as the search provider above — apiserpent.com cannot handle a check firing per result"
+              disabledReason="unavailable right now — the backup search provider this app switched to after Serper.dev became unavailable can't handle a check firing per result"
             />
             <p className="text-xs text-muted">
-              Runs the paid AI brandability check on every result found, not just the ones you pick — off by default
-              to avoid the extra cost, and only available on Serper.dev (see above).
+              Runs the paid AI brandability check on every result found automatically, not just the ones you pick.
             </p>
           </div>
         </section>

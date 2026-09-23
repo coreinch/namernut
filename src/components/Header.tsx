@@ -1,7 +1,5 @@
 import { useRef } from "react";
-import type { RunStatus } from "@/lib/types";
 import { CONTENT_WIDTH, FOCUS_RING } from "./constants";
-import { StatusBadge } from "./StatusBadge";
 
 export type ResultsTab = "current" | "favorites" | "archive";
 
@@ -30,12 +28,10 @@ export function tabButtonId(tab: ResultsTab) {
  * scrolled past) at once.
  */
 export function Header({
-  status,
   activeTab,
   onTabChange,
   counts,
 }: {
-  status: RunStatus;
   activeTab: ResultsTab;
   onTabChange: (tab: ResultsTab) => void;
   counts: Record<ResultsTab, number>;
@@ -69,7 +65,6 @@ export function Header({
       <div className={`mx-auto flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 ${CONTENT_WIDTH}`}>
         <div className="flex items-center gap-2.5">
           <span className="font-display text-lg font-bold tracking-tight">namernut</span>
-          <StatusBadge status={status} />
         </div>
         <div
           role="tablist"

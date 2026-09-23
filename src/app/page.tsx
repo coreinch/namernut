@@ -161,7 +161,7 @@ export default function Home() {
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
   const [provider, setProvider] = useState<ProviderOption>(DEFAULT_PROVIDER);
-  // Off by default, and only actually usable when provider === "serper" —
+  // On by default now — only actually usable when provider === "serper" —
   // gated both in the UI (FiltersPanel disables the toggle otherwise) and
   // here (the "found" handler below re-checks provider itself, since
   // switching providers while a stale `true` value is still persisted
@@ -170,8 +170,10 @@ export default function Home() {
   // (see checkBrandabilityFor) on every found result rather than only the
   // ones a user picks via "Brandability" — viable at all only because
   // Serper's concurrency limit and 2,500/month free quota can absorb that
-  // volume; apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't.
-  const [autoCheck, setAutoCheck] = useState(false);
+  // volume; apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't
+  // — which is exactly why checkBrandabilityFor turns this back off the
+  // moment it falls back to apiserpent.com.
+  const [autoCheck, setAutoCheck] = useState(true);
   // On by default: this is one LLM call per search start (not per found
   // result), and it's purely additive on top of the dictionary pairing that
   // always runs anyway — see suggestKeywordSynonyms in lib/synonyms.ts and
@@ -412,6 +414,15 @@ export default function Home() {
   // survive a reload.
   const [checkingBrandabilityNames, setCheckingBrandabilityNames] = useState<Set<string>>(new Set());
   const [brandabilityErrors, setBrandabilityErrors] = useState<Record<string, string>>({});
+  // Consecutive (not lifetime-total) non-rate-limit Serper failures — reset
+  // to 0 on any success. Serper doesn't document a distinct status code for
+  // "account out of credits" separate from a transient blip, so a fixed
+  // streak length stands in for "actually exhausted" rather than guessing
+  // a status code that might be wrong. A plain ref, not state: it's read
+  // and written only inside checkBrandabilityFor's own async callback,
+  // never rendered.
+  const serperFailureStreakRef = useRef(0);
+  const SERPER_FAILURE_THRESHOLD = 3;
 
   const checkBrandabilityFor = useCallback((name: string, parts: [string, string] | undefined) => {
     setCheckingBrandabilityNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
@@ -430,7 +441,21 @@ export default function Home() {
           `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}&provider=${encodeURIComponent(provider)}`
         );
         const body = await res.json();
-        if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
+        if (!res.ok) {
+          // A plain per-request rate limit (429) is routine and says
+          // nothing about the account being out of credits — only count
+          // toward the fallback threshold on anything else.
+          if (provider === "serper" && res.status !== 429) {
+            serperFailureStreakRef.current += 1;
+            if (serperFailureStreakRef.current >= SERPER_FAILURE_THRESHOLD) {
+              setProvider("serpent");
+              setAutoCheck(false);
+              serperFailureStreakRef.current = 0;
+            }
+          }
+          throw new Error(body?.error || `Request failed (${res.status})`);
+        }
+        if (provider === "serper") serperFailureStreakRef.current = 0;
         const { brandabilityScore, summary } = body as { brandabilityScore: number; summary: string };
         // Keyed by bare name (not domain — a result found under several
         // TLDs shares one score), so every matching entry across both
@@ -669,7 +694,7 @@ export default function Home() {
   // Only ever rendered while !isRunning (see the footer below, which shows
   // a fixed "Stop" button instead while a search is active) — no
   // "Searching…" branch needed here.
-  const primaryLabel = runStatus === "idle" ? "Start discovery" : "Search again";
+  const primaryLabel = runStatus === "idle" ? "Generate" : "Search again";
   // foundHistory is stored newest-first (new finds are prepended, so
   // Favorites/Archive read newest-first). But within the *current* run's
   // list, that ordering made each new find jump to the front and push
@@ -700,7 +725,7 @@ export default function Home() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <Header status={runStatus} activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
+      <Header activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
 
       <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6">
         <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH}`}>
@@ -732,7 +757,6 @@ export default function Home() {
             region={region}
             onRegionChange={setRegion}
             provider={provider}
-            onProviderChange={setProvider}
             autoCheck={autoCheck}
             onAutoCheckChange={setAutoCheck}
             isRunning={isRunning}
