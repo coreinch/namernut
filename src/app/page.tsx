@@ -14,7 +14,6 @@ import {
   MIN_COMBINED_LENGTH,
   MIN_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
-  PROVIDER_OPTIONS,
   REGION_OPTIONS,
   TLDS,
   type DictionaryStats,
@@ -40,7 +39,6 @@ interface PersistedState {
   keywordInput: string;
   gates: DiscoveryGates;
   region: RegionOption;
-  provider: ProviderOption;
   useAiSynonyms: boolean;
   useAiInvented: boolean;
   useAltSpellings: boolean;
@@ -159,6 +157,16 @@ export default function Home() {
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
+  // Intentionally NOT restored from localStorage (see the hydration effect
+  // below) — always starts each page load on DEFAULT_PROVIDER. This used
+  // to be persisted, which caused a real bug: a user whose session had
+  // fallen back to "serpent" (or who'd simply loaded the app before
+  // DEFAULT_PROVIDER was "serpent") got that value restored forever after,
+  // silently keeping autoCheck off with no UI left to notice or fix it
+  // (the provider picker was removed — see FiltersPanel). The in-session
+  // fallback in checkBrandabilityFor still switches this live when Serper
+  // actually fails, exactly as before — only the across-reloads
+  // persistence was the problem.
   const [provider, setProvider] = useState<ProviderOption>(DEFAULT_PROVIDER);
   // No longer an independent setting — derived entirely from provider,
   // not a toggle a user can flip on their own. Fires the paid, metered
@@ -318,9 +326,8 @@ export default function Home() {
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
       if (REGION_OPTIONS.some((opt) => opt.value === parsed.region)) setRegion(parsed.region as RegionOption);
-      if (PROVIDER_OPTIONS.some((opt) => opt.value === parsed.provider)) {
-        setProvider(parsed.provider as ProviderOption);
-      }
+      // provider is deliberately not restored here — see its declaration
+      // comment above.
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
@@ -351,7 +358,6 @@ export default function Home() {
         keywordInput,
         gates,
         region,
-        provider,
         useAiSynonyms,
         useAiInvented,
         useAltSpellings,
@@ -371,7 +377,6 @@ export default function Home() {
     keywordInput,
     gates,
     region,
-    provider,
     useAiSynonyms,
     useAiInvented,
     useAltSpellings,
