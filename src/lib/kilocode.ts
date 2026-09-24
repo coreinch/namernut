@@ -38,20 +38,24 @@ interface KilocodeResponse {
 // inventedNames.ts) already catch and fall back to [] on any error here,
 // so timing out just triggers that existing, already-safe path.
 //
-// 15s (the original value) turned out too tight even after pinning a
-// specific, reliable model (see KILOCODE_MODEL in .env.example) instead of
-// relying on kilo-auto/free's rotation: confirmed directly against the live
-// production endpoint (2026-09-24), 9/10 real brandability checks
-// succeeded, but one legitimately timed out at 15.9s and another only
-// barely made it at 15.66s. checkBrandability's own completeChat call
-// happens AFTER its search-provider fetch finishes (the prompt needs those
-// results), so a slow-but-working model plus any nontrivial search latency
-// in front of it can genuinely exceed 15s without either step actually
-// being broken. 25s gives real, working responses headroom above what's
-// been observed, while a truly hung model (the kind this timeout exists to
-// catch at all) fails the same either way — the difference between hanging
-// past 15s and hanging past 25s is nothing to a genuinely broken backend.
-const REQUEST_TIMEOUT_MS = 25000;
+// 15s (the original value) turned out too tight even with a specific,
+// reliable model pinned instead of relying on kilo-auto/free's rotation:
+// confirmed directly against the live production endpoint (2026-09-24),
+// 9/10 real brandability checks succeeded, but one legitimately timed out
+// at 15.9s and another only barely made it at 15.66s. checkBrandability's
+// own completeChat call happens AFTER its search-provider fetch finishes
+// (the prompt needs those results), so a slow-but-working model plus any
+// nontrivial search latency in front of it can genuinely exceed 15s
+// without either step actually being broken. Bumped to 30s.
+//
+// Back on kilo-auto/free as of this value (2026-09-24, by request) rather
+// than a pinned model — worth flagging: two of its rotated-through free
+// models were confirmed to hang with zero response at all for 25-40s+ in
+// direct testing the same day, so a 30s timeout doesn't fully cover them;
+// it mainly helps the case above (a working-but-slow response) and bounds
+// the wait before falling back, it doesn't make a genuinely broken
+// upstream succeed.
+const REQUEST_TIMEOUT_MS = 30000;
 
 export async function completeChat(prompt: string, signal?: AbortSignal): Promise<string> {
   const apiKey = process.env.KILOCODE_API_KEY;
