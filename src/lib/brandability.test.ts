@@ -23,7 +23,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkBrandability, DEFAULT_PROVIDER, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
+import { checkBrandability, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -42,10 +42,10 @@ describe("checkBrandability", () => {
     searchMock.mockResolvedValue([]);
   });
 
-  it("runs a single unquoted search in the default region when the name doesn't split into two words", async () => {
+  it("runs a single unquoted search in the default region, against serper first, when the name doesn't split into two words", async () => {
     await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serper");
   });
 
   it("doesn't attach a split when the name doesn't split into two dictionary words", async () => {
@@ -57,21 +57,37 @@ describe("checkBrandability", () => {
   it("merges the two-word split into the same query as an unquoted, parenthesized OR term instead of a second search", async () => {
     await checkBrandability("catdog");
     expect(searchMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, expect.any(AbortSignal), "serper");
   });
 
   it("uses the caller-supplied region for the merged query instead of the default", async () => {
     await checkBrandability("catdog", undefined, undefined, "gb");
-    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", "gb", undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", "gb", expect.any(AbortSignal), "serper");
   });
 
-  it("uses the caller-supplied provider for the merged query instead of the default", async () => {
-    await checkBrandability("catdog", undefined, undefined, DEFAULT_REGION, "serper");
-    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, "serper");
+  it("falls back to serpent when serper fails, and reports serpent as the provider that actually ran", async () => {
+    searchMock.mockRejectedValueOnce(new Error("serper down"));
+    searchMock.mockResolvedValueOnce([result({ title: "serpent hit" })]);
+    const res = await checkBrandability("fluidfew");
+    expect(searchMock).toHaveBeenCalledTimes(2);
+    expect(searchMock).toHaveBeenNthCalledWith(1, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serper");
+    expect(searchMock).toHaveBeenNthCalledWith(2, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serpent");
+    expect(res.provider).toBe("serpent");
   });
 
-  it("exposes which region and provider were checked", async () => {
-    const res = await checkBrandability("fluidfew", undefined, undefined, "au", "serper");
+  it("doesn't fall back to serpent, and propagates the error, when the caller's own signal was what aborted", async () => {
+    const controller = new AbortController();
+    searchMock.mockImplementationOnce(async () => {
+      controller.abort();
+      const err = new DOMException("Aborted", "AbortError");
+      throw err;
+    });
+    await expect(checkBrandability("fluidfew", undefined, controller.signal)).rejects.toThrow("Aborted");
+    expect(searchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("exposes which region was checked, and which provider actually succeeded", async () => {
+    const res = await checkBrandability("fluidfew", undefined, undefined, "au");
     expect(res.region).toBe("au");
     expect(res.provider).toBe("serper");
   });
@@ -159,12 +175,17 @@ describe("checkBrandability", () => {
     // Candidate.parts instead of re-derived from a dictionary lookup.
     await checkBrandability("poetapps", ["poet", "apps"]);
     expect(searchMock).toHaveBeenCalledTimes(1);
-    expect(searchMock).toHaveBeenCalledWith("poetapps OR (poet apps)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith(
+      "poetapps OR (poet apps)",
+      DEFAULT_REGION,
+      expect.any(AbortSignal),
+      "serper"
+    );
   });
 
   it("falls back to splitIntoWords when no parts is given or it doesn't concatenate to name", async () => {
     await checkBrandability("catdog", ["not", "matching"]);
-    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, undefined, DEFAULT_PROVIDER);
+    expect(searchMock).toHaveBeenCalledWith("catdog OR (cat dog)", DEFAULT_REGION, expect.any(AbortSignal), "serper");
   });
 });
 

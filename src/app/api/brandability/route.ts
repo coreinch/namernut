@@ -1,12 +1,4 @@
-import {
-  checkBrandability,
-  DEFAULT_PROVIDER,
-  DEFAULT_REGION,
-  PROVIDERS,
-  REGIONS,
-  type Provider,
-  type Region,
-} from "@/lib/brandability";
+import { checkBrandability, DEFAULT_REGION, REGIONS, type Region } from "@/lib/brandability";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +19,6 @@ const BRANDABILITY_RATE_WINDOW_MS = 60 * 60 * 1000;
  * filters (page.tsx) actually offers. */
 function parseRegion(raw: string | null): Region {
   return (REGIONS as readonly string[]).includes(raw ?? "") ? (raw as Region) : DEFAULT_REGION;
-}
-
-/** Same validate-against-a-fixed-set approach as parseRegion — PROVIDERS is
- * the set the provider dropdown in Advanced filters actually offers. */
-function parseProvider(raw: string | null): Provider {
-  return (PROVIDERS as readonly string[]).includes(raw ?? "") ? (raw as Provider) : DEFAULT_PROVIDER;
 }
 
 /** Same sanitization as parseKeyword in lib/candidates.ts — plain lowercase
@@ -72,13 +58,12 @@ export async function GET(request: Request) {
   const name = parseName(searchParams.get("name"));
   const parts = parseParts(searchParams.get("word1"), searchParams.get("word2"));
   const region = parseRegion(searchParams.get("region"));
-  const provider = parseProvider(searchParams.get("provider"));
   if (!name) {
     return Response.json({ error: "Missing or invalid 'name' query param" }, { status: 400 });
   }
 
   try {
-    const result = await checkBrandability(name, parts, request.signal, region, provider);
+    const result = await checkBrandability(name, parts, request.signal, region);
     return Response.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "SerperApiKeyMissingError") {

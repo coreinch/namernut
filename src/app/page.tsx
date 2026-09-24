@@ -5,7 +5,6 @@ import type { DiscoveryGates } from "@/lib/discovery";
 import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
 import {
   DEFAULT_COMBINED_LENGTH,
-  DEFAULT_PROVIDER,
   DEFAULT_REGION,
   DEFAULT_RESULT_COUNT,
   LANGS,
@@ -16,7 +15,6 @@ import {
   TLDS,
   type DictionaryStats,
   type Lang,
-  type ProviderOption,
   type RegionOption,
   type Tld,
 } from "@/lib/searchConfig";
@@ -153,26 +151,13 @@ export default function Home() {
   const [keywordInput, setKeywordInput] = useState("");
   const [gates, setGates] = useState<DiscoveryGates>(DEFAULT_GATES);
   const [region, setRegion] = useState<RegionOption>(DEFAULT_REGION);
-  // Intentionally NOT restored from localStorage (see the hydration effect
-  // below) — always starts each page load on DEFAULT_PROVIDER. This used
-  // to be persisted, which caused a real bug: a user whose session had
-  // fallen back to "serpent" (or who'd simply loaded the app before
-  // DEFAULT_PROVIDER was "serpent") got that value restored forever after,
-  // silently keeping autoCheck off with no UI left to notice or fix it
-  // (the provider picker was removed — see FiltersPanel). The in-session
-  // fallback in checkBrandabilityFor still switches this live when Serper
-  // actually fails, exactly as before — only the across-reloads
-  // persistence was the problem.
-  const [provider, setProvider] = useState<ProviderOption>(DEFAULT_PROVIDER);
-  // No longer an independent setting — derived entirely from provider,
-  // not a toggle a user can flip on their own. Fires the paid, metered
-  // brandability check (see checkBrandabilityFor) on every found result
-  // rather than only the ones a user picks via "Brandability" — viable
-  // only on Serper's concurrency limit and 2,500/month free quota;
-  // apiserpent.com's (see searchConfig.ts's PROVIDER_OPTIONS) can't absorb
-  // that volume, so it's off the instant checkBrandabilityFor falls back
-  // to apiserpent.com and switches `provider`.
-  const autoCheck = provider === "serper";
+  // Always on — which search provider actually backs a given check is no
+  // longer something the client knows or controls at all (see
+  // checkBrandabilityFor and /api/brandability's route — the server picks
+  // and falls back on its own now, see searchWithFallback in
+  // brandability.ts). Fires the paid, metered brandability check on every
+  // found result rather than only the ones a user picks via "Brandability".
+  const autoCheck = true;
   // On by default: this is one LLM call per search start (not per found
   // result), and it's purely additive on top of the dictionary pairing that
   // always runs anyway — see suggestKeywordSynonyms in lib/synonyms.ts and
@@ -319,8 +304,6 @@ export default function Home() {
       // query param and being parsed back as "off".
       if (parsed.gates) setGates((prev) => ({ ...prev, ...parsed.gates }));
       if (REGION_OPTIONS.some((opt) => opt.value === parsed.region)) setRegion(parsed.region as RegionOption);
-      // provider is deliberately not restored here — see its declaration
-      // comment above.
       if (typeof parsed.useAiSynonyms === "boolean") setUseAiSynonyms(parsed.useAiSynonyms);
       if (typeof parsed.useAiInvented === "boolean") setUseAiInvented(parsed.useAiInvented);
       if (typeof parsed.useAltSpellings === "boolean") setUseAltSpellings(parsed.useAltSpellings);
@@ -402,15 +385,6 @@ export default function Home() {
   // survive a reload.
   const [checkingBrandabilityNames, setCheckingBrandabilityNames] = useState<Set<string>>(new Set());
   const [brandabilityErrors, setBrandabilityErrors] = useState<Record<string, string>>({});
-  // Consecutive (not lifetime-total) non-rate-limit Serper failures — reset
-  // to 0 on any success. Serper doesn't document a distinct status code for
-  // "account out of credits" separate from a transient blip, so a fixed
-  // streak length stands in for "actually exhausted" rather than guessing
-  // a status code that might be wrong. A plain ref, not state: it's read
-  // and written only inside checkBrandabilityFor's own async callback,
-  // never rendered.
-  const serperFailureStreakRef = useRef(0);
-  const SERPER_FAILURE_THRESHOLD = 3;
 
   const checkBrandabilityFor = useCallback((name: string, parts: [string, string] | undefined) => {
     setCheckingBrandabilityNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
@@ -425,27 +399,14 @@ export default function Home() {
         const partsParam = parts
           ? `&word1=${encodeURIComponent(parts[0])}&word2=${encodeURIComponent(parts[1])}`
           : "";
+        // No provider param — which search provider actually runs is
+        // decided and, on failure, retried with the other one entirely
+        // server-side now (see searchWithFallback in brandability.ts).
         const res = await fetch(
-          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}&provider=${encodeURIComponent(provider)}`
+          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
         );
         const body = await res.json();
-        if (!res.ok) {
-          // A plain per-request rate limit (429) is routine and says
-          // nothing about the account being out of credits — only count
-          // toward the fallback threshold on anything else.
-          if (provider === "serper" && res.status !== 429) {
-            serperFailureStreakRef.current += 1;
-            if (serperFailureStreakRef.current >= SERPER_FAILURE_THRESHOLD) {
-              // autoCheck is derived from provider (see its declaration
-              // above) — switching this off is enough, no separate flag
-              // to update.
-              setProvider("serpent");
-              serperFailureStreakRef.current = 0;
-            }
-          }
-          throw new Error(body?.error || `Request failed (${res.status})`);
-        }
-        if (provider === "serper") serperFailureStreakRef.current = 0;
+        if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);
         const { brandabilityScore, summary } = body as { brandabilityScore: number; summary: string };
         // Keyed by bare name (not domain — a result found under several
         // TLDs shares one score), so every matching entry across both
@@ -470,7 +431,7 @@ export default function Home() {
         });
       }
     })();
-  }, [region, provider]);
+  }, [region]);
 
   const start = useCallback(async () => {
     if (abortRef.current) return;
@@ -596,9 +557,7 @@ export default function Home() {
                 ];
               });
               resolveLog(event.domain, "available");
-              // autoCheck is derived from provider (see its declaration
-              // above), so this is already scoped to Serper's concurrency
-              // profile — see PROVIDER_OPTIONS in searchConfig.ts.
+              // autoCheck is always true now — see its declaration above.
               if (autoCheck) checkBrandabilityFor(event.domain.split(".")[0], event.parts);
               break;
             }

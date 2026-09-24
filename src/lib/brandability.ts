@@ -1,22 +1,17 @@
 import { search, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool } from "@/lib/dictionary";
-import {
-  DEFAULT_PROVIDER,
-  DEFAULT_REGION,
-  PROVIDER_OPTIONS,
-  REGION_OPTIONS,
-  type ProviderOption,
-  type RegionOption,
-} from "@/lib/searchConfig";
+import { DEFAULT_REGION, REGION_OPTIONS, type ProviderOption, type RegionOption } from "@/lib/searchConfig";
 
 export type Region = RegionOption;
 export type Provider = ProviderOption;
-/** Search providers selectable for the brandability check — see the
- * provider dropdown in Advanced filters (page.tsx) and searchConfig.ts's
- * PROVIDER_OPTIONS for the operating-profile tradeoffs between them. */
-export const PROVIDERS: readonly Provider[] = PROVIDER_OPTIONS.map((p) => p.value);
-export { DEFAULT_PROVIDER };
+/** No longer a caller-facing choice — see checkBrandability's own doc
+ * comment. Primary is tried first; on any failure (including a timeout —
+ * see SEARCH_TIMEOUT_MS below), the other is tried once before giving up.
+ * apiserpent.com's own concurrency limit is tied to account balance (see
+ * https://apiserpent.com/faq), so it's the fallback, not the primary. */
+const PRIMARY_PROVIDER: Provider = "serper";
+const FALLBACK_PROVIDER: Provider = "serpent";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * Advanced filters (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -26,8 +21,8 @@ export { DEFAULT_PROVIDER };
  * on every check, since Google's silent query-override behavior is
  * region-dependent (confirmed directly: "fondterm" showed no override under
  * country=us, but silently overrode to a real brand, "Finterm", under
- * country=gr) — but apiserpent.com's (the active provider's) concurrent-
- * request rate limit is tied to account balance (see
+ * country=gr) — but apiserpent.com's concurrent-request rate limit is
+ * tied to account balance (see
  * https://apiserpent.com/faq: "Default" tier, balance <$100, allows only
  * 3-20 concurrent requests) and got hit in practice, so the check now runs
  * a single region at a time, user-selected, rather than fanning out
@@ -60,11 +55,12 @@ export interface BrandabilityResult {
    * since Google's results (including whether it silently overrides the
    * query) are region-dependent. */
   region: Region;
-  /** Which search provider actually ran the check — see PROVIDERS and the
-   * provider dropdown in Advanced filters (page.tsx). Exposed for the same
-   * transparency reason as `region`: the two providers have demonstrably
-   * different override-detection results for the same name (see
-   * searchProvider.ts). */
+  /** Which search provider actually ran the check — no longer a caller
+   * choice (see checkBrandability), but still exposed for transparency:
+   * the two providers have demonstrably different override-detection
+   * results for the same name (see searchProvider.ts), and this says
+   * which one this particular result came from, including whether a
+   * fallback happened. */
   provider: Provider;
   /** The two dictionary words the name was split into, e.g. "even chad" for
    * "evenchad" — present only when such a split exists. See splitIntoWords:
@@ -243,26 +239,69 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
   return { brandabilityScore: score, summary: summaryMatch[1].trim() };
 }
 
+// A single search-provider attempt gets this long before checkBrandability
+// gives up on it and tries the other provider — see searchWithFallback.
+// Necessary, not just nice-to-have: neither serperSearch.ts nor
+// serpentSearch.ts apply any timeout of their own (only the caller's own
+// cancellation signal, if any), so without this, a hang on the primary
+// provider would never reject at all — the fallback below would simply
+// never be reached, the same failure mode kilocode.ts's own timeout was
+// added to fix (see its comment). 12s each, plus completeChat's own 30s
+// (see kilocode.ts), keeps the worst realistic case (primary times out,
+// fallback also times out, then the LLM call) under nginx's 60s default
+// proxy_read_timeout for this route (see custom-domain.conf.j2 — no
+// override for /api/brandability, unlike /api/discover's SSE stream).
+const SEARCH_TIMEOUT_MS = 12000;
+
+/** Tries PRIMARY_PROVIDER first, falls back to FALLBACK_PROVIDER once on
+ * any failure — including a timeout (see SEARCH_TIMEOUT_MS) — except when
+ * the caller's own `signal` is what aborted: that's a real cancellation
+ * (the client disconnected, or checkBrandability's own outer `signal` was
+ * aborted for some other reason upstream), not a provider problem, so
+ * retrying with a different provider would be pointless and just add
+ * latency to a request nobody's waiting on anymore. */
+async function searchWithFallback(
+  query: string,
+  region: Region,
+  signal: AbortSignal | undefined
+): Promise<{ results: SearchResult[]; provider: Provider }> {
+  const withTimeout = (s: AbortSignal | undefined) => {
+    const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+    return s ? AbortSignal.any([s, timeoutSignal]) : timeoutSignal;
+  };
+  try {
+    const results = await search(query, region, withTimeout(signal), PRIMARY_PROVIDER);
+    return { results, provider: PRIMARY_PROVIDER };
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const results = await search(query, region, withTimeout(signal), FALLBACK_PROVIDER);
+    return { results, provider: FALLBACK_PROVIDER };
+  }
+}
+
 /**
  * Runs the brandability check for one candidate name: a single unquoted
  * broad-match search in `region` (default DEFAULT_REGION — what does a
  * search engine resolve it to there, including near-miss real brands and
  * region-specific silent overrides? — see the "oddago"/"Oddogo" case and
- * the override-detection rubric bullet in buildPrompt). When the name
- * splits into two words (see validateParts and splitIntoWords), that
- * two-word phrase is folded into the SAME query as an unquoted `OR` term
- * — `name OR (word1 word2)`, parenthesized (not quoted) so Google groups
- * it as one OR operand instead of implicitly AND-ing "word2" onto
- * whatever follows — rather than a second, separate search: halves the
- * search-provider calls this check costs (real money/quota either way,
- * and apiserpent.com's concurrency limit is tied to account balance — see
- * searchProvider.ts) for the cost of losing the ability to tell which
- * side of the OR a given result actually matched; buildPrompt asks the
- * LLM to work that out from each result's own content instead. No quoted
- * exact-match anywhere in the query: it only ever hid real collisions (a
- * quoted search finds literal reuse of the string, but a search engine's
- * own near-miss interpretation of it — the actual risk — only shows up
- * unquoted), so it's not run.
+ * the override-detection rubric bullet in buildPrompt), against whichever
+ * search provider is currently working (see searchWithFallback — no
+ * longer a caller choice at all; used to be a `provider` param threaded
+ * from a dropdown in Advanced filters, removed in favor of the app just
+ * handling it). When the name splits into two words (see validateParts
+ * and splitIntoWords), that two-word phrase is folded into the SAME query
+ * as an unquoted `OR` term — `name OR (word1 word2)`, parenthesized (not
+ * quoted) so Google groups it as one OR operand instead of implicitly
+ * AND-ing "word2" onto whatever follows — rather than a second, separate
+ * search: halves the search-provider calls this check costs (real
+ * money/quota either way, and apiserpent.com's concurrency limit is tied
+ * to account balance — see searchProvider.ts) for the cost of losing the
+ * ability to tell which side of the OR a given result actually matched;
+ * buildPrompt asks the LLM to work that out from each result's own
+ * content instead. No quoted exact-match anywhere in the query: it only
+ * ever hid real collisions (a quoted search finds literal reuse of the
+ * string, but a search engine's own near-miss interpretation of it — the
+ * actual risk — only shows up unquoted), so it's not run.
  *
  * An LLM (via completeChat, requires KILOCODE_API_KEY) always turns those
  * results into a 0-100 brandability score — there's no count-based fallback
@@ -284,29 +323,25 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
  * own knowledge of real brand names, checked independently of whatever the
  * results do or don't contain (the second rubric bullet). So a real verdict
  * is required rather than silently degrading to a blind guess. Called
- * on-demand via the "Brandability" button (checkBrandabilityFor in
- * page.tsx) for apiserpent, after a candidate's domain (and, if enabled,
- * Instagram) availability is already confirmed — its slow, balance-tied
- * concurrency limit (see searchProvider.ts) rules out running it against
- * every candidate a search merely examines. Serper's much higher
- * concurrency and 2,500/month free quota make that viable, which is what
- * the auto-check toggle (autoCheck in page.tsx, gated to the "serper"
- * provider) actually does — see the "found" SSE event case in start()
- * there.
+ * both automatically on every found result (checkBrandabilityFor's
+ * autoCheck path in page.tsx — always on, no longer gated to a specific
+ * provider, since which provider actually runs is now this function's own
+ * problem, not something the client needs to reason about) and on-demand
+ * via the "Brandability" button, after a candidate's domain (and, if
+ * enabled, Instagram) availability is already confirmed.
  */
 export async function checkBrandability(
   name: string,
   parts?: [string, string],
   signal?: AbortSignal,
-  region: Region = DEFAULT_REGION,
-  provider: Provider = DEFAULT_PROVIDER
+  region: Region = DEFAULT_REGION
 ): Promise<BrandabilityResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
   // Parenthesized, not quoted — see this function's own doc comment above
   // for why both the grouping and the no-quotes-anywhere choice matter.
   const query = twoWordSplitStr ? `${name} OR (${twoWordSplitStr})` : name;
-  const results = await search(query, region, signal, provider);
+  const { results, provider } = await searchWithFallback(query, region, signal);
 
   const raw = await completeChat(buildPrompt(name, results, twoWordSplitStr, region), signal);
   const parsed = parseLlmResponse(raw);

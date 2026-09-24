@@ -84,25 +84,9 @@ export const REGION_OPTIONS = [
 export type RegionOption = (typeof REGION_OPTIONS)[number]["value"];
 export const DEFAULT_REGION: RegionOption = "us";
 
-// Must stay in sync with PROVIDERS/DEFAULT_PROVIDER in
-// src/lib/searchProvider.ts — the brandability check runs against exactly
-// one of these at a time, picked here and sent as the `provider` query
-// param to /api/brandability. No longer user-facing (there used to be a
-// dropdown for this in FiltersPanel.tsx) — the app manages the choice
-// itself: starts on "serper" with autoCheck on, and page.tsx's
-// checkBrandabilityFor falls back to "serpent" with autoCheck forced off
-// after a few consecutive non-rate-limit Serper failures (its 2,500/month
-// free quota running out looks like this from the client, since Serper
-// doesn't document a distinct status code for it). apiserpent.com is
-// slower and its concurrency limit is tied to account balance (see
-// https://apiserpent.com/faq), which is exactly why autoCheck is forced
-// off once it's active — but it's demonstrated actually reproducing
-// Google's real silent query-override behavior in testing (see REGIONS
-// above), which Serper never has, so it's a reasonable fallback rather
-// than a downgrade in what it can catch.
-export const PROVIDER_OPTIONS = [
-  { value: "serpent", label: "apiserpent.com (thorough, slower)" },
-  { value: "serper", label: "Serper.dev (fast, enables auto-check)" },
-] as const;
-export type ProviderOption = (typeof PROVIDER_OPTIONS)[number]["value"];
-export const DEFAULT_PROVIDER: ProviderOption = "serper";
+// Not a client-facing choice at all anymore — no query param, no dropdown,
+// no client-side fallback tracking. brandability.ts's own
+// PRIMARY_PROVIDER/FALLBACK_PROVIDER pick and, on failure, retry between
+// these entirely server-side (see searchWithFallback there), which is the
+// only place left that imports this type (as its own `Provider` alias).
+export type ProviderOption = "serpent" | "serper";
