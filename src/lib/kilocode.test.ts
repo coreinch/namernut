@@ -75,8 +75,8 @@ describe("completeChat", () => {
   // left hanging until curl's own timeout cut it off. completeChat now
   // combines the caller's signal with an internal timeout (see
   // REQUEST_TIMEOUT_MS) via AbortSignal.any so a hang like that can't
-  // freeze a search forever. This doesn't wait out the real 15s timeout —
-  // it confirms the caller's signal is still correctly wired through that
+  // freeze a search forever. This doesn't wait out the real timeout — it
+  // confirms the caller's signal is still correctly wired through that
   // combination, which is the same mechanism the internal timeout uses.
   it("propagates abortion via the caller's signal (proves AbortSignal.any wiring)", async () => {
     // Aborted mid-flight, not before the call — an already-aborted signal
