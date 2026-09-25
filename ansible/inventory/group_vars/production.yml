@@ -10,8 +10,18 @@ deploy_dir: /opt/namernut
 app_port: 8092
 
 # Must match the GHCR path GitHub Actions pushes to: lowercase
-# "owner/repo" from ci-cd.yml.
-ghcr_owner: glassrun
+# "owner/repo" from ci-cd.yml, derived there from ${{ github.repository }}
+# — which tracks the GitHub account's CURRENT name, not whatever it was
+# when this file was last edited. Confirmed directly (2026-09-25): the
+# account was renamed glassrun -> coreinch at some point, git's own
+# push/gh CLI silently followed via GitHub's redirect, so nothing here
+# visibly broke — until this hardcoded value, still "glassrun", sent the
+# next deploy pulling a manifest that had actually been pushed to
+# ghcr.io/coreinch/namernut, and it failed outright ("manifest unknown").
+# There's no dynamic way to derive this ansible-side (unlike CI's
+# ${{ github.repository }}), so if the account is ever renamed again,
+# this needs a manual update too.
+ghcr_owner: coreinch
 ghcr_repo: namernut
 ghcr_image: "ghcr.io/{{ ghcr_owner }}/{{ ghcr_repo }}"
 

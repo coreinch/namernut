@@ -38,4 +38,4 @@ who wants a name that is (a) actually available as a domain today and
 ## Links
 
 - App: https://namernut.com
-- Source: https://github.com/glassrun/namernut
+- Source: https://github.com/coreinch/namernut
