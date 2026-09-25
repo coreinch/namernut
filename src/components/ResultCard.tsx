@@ -1,5 +1,5 @@
 import type { CandidateSource } from "@/lib/candidates";
-import type { FoundEntry, InstagramStatus } from "@/lib/types";
+import type { FoundEntry, SocialStatus } from "@/lib/types";
 import { FOCUS_RING } from "./constants";
 
 // Domain/Instagram availability (see below) says nothing about whether a
@@ -67,7 +67,9 @@ export function ResultCard({
             {name}
             <span className="font-normal text-muted">{tld}</span>
           </span>
-          <InstagramBadge status={entry.instagram} />
+          <SocialBadge status={entry.instagram} label="IG" platformName="Instagram" />
+          <SocialBadge status={entry.github} label="GH" platformName="GitHub" />
+          <SocialBadge status={entry.tiktok} label="TT" platformName="TikTok" />
         </div>
 
         {/* flex-wrap here too (not shrink-0-and-rigid) — on a narrow phone
@@ -118,28 +120,40 @@ export function ResultCard({
   );
 }
 
-// "unknown" (Instagram's response was inconclusive, e.g. rate-limited) or
-// no field at all (an entry persisted before this existed) both render
-// nothing — there's nothing useful to tell the user in either case, and the
-// "Instagram" button below still works either way.
-// Every result in this list already passed the "domain + Instagram both
-// available" gate in runDiscovery (see discovery.ts) — so "available" is
-// the expected, unremarkable case for a card that exists at all, and
-// saying so on every single card is noise, not information. "taken" only
-// happens via the rare fallback where Instagram checking got disabled
-// mid-search (see INSTAGRAM_BLOCKED_STREAK_THRESHOLD) and a domain-only
-// match started counting — that's the one outcome actually worth flagging,
-// so it's the only one rendered here. "unknown" (inconclusive check) is
-// unremarkable in the same way "available" is and also renders nothing.
-function InstagramBadge({ status }: { status: InstagramStatus | undefined }) {
+// "unknown" (that platform's check was inconclusive, e.g. rate-limited) or
+// no field at all (an entry persisted before this platform's check
+// existed) both render nothing — there's nothing useful to tell the user
+// in either case.
+// Every result in this list already passed the "domain + every currently-
+// required platform" gate in runDiscovery (see discovery.ts) — so
+// "available" is the expected, unremarkable case for a card that exists at
+// all, and saying so on every single card is noise, not information.
+// "taken" only happens via the rare fallback where that one platform's
+// checking got disabled mid-search (see SOCIAL_BLOCKED_STREAK_THRESHOLD)
+// and a domain-only match started counting on the remaining platforms
+// alone — that's the one outcome actually worth flagging, so it's the
+// only one rendered here. "unknown" (inconclusive check, or the platform
+// was never required at all) is unremarkable in the same way "available"
+// is and also renders nothing. One shared component for all three
+// platforms rather than a copy each — they differ only in which field
+// they read and their label/name.
+function SocialBadge({
+  status,
+  label,
+  platformName,
+}: {
+  status: SocialStatus | undefined;
+  label: string;
+  platformName: string;
+}) {
   if (status !== "taken") return null;
   return (
     <span
       className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-muted"
-      title="This name's domain is available, but the matching Instagram handle isn't"
+      title={`This name's domain is available, but the matching ${platformName} handle isn't`}
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-black/30 dark:bg-white/30" />
-      IG taken
+      {label} taken
     </span>
   );
 }

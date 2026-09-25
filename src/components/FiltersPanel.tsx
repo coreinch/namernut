@@ -375,6 +375,16 @@ export function FiltersPanel({
               onChange={(v) => onGatesChange((g) => ({ ...g, requireInstagram: v }))}
             />
             <GateToggle
+              label="Require GitHub username"
+              checked={gates.requireGithub}
+              onChange={(v) => onGatesChange((g) => ({ ...g, requireGithub: v }))}
+            />
+            <GateToggle
+              label="Require TikTok handle"
+              checked={gates.requireTiktok}
+              onChange={(v) => onGatesChange((g) => ({ ...g, requireTiktok: v }))}
+            />
+            <GateToggle
               label="Pronounceable only"
               checked={gates.filterPronounceable}
               onChange={(v) => onGatesChange((g) => ({ ...g, filterPronounceable: v }))}

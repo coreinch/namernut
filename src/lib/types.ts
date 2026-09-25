@@ -8,9 +8,11 @@
 // client bundle. Same pattern as DiscoveryGates in page.tsx.
 import type { CandidateSource } from "@/lib/candidates";
 
-// "filtered": the domain itself was available, but its Instagram username
-// wasn't (or the check was inconclusive) — see the "instagram" filter,
-// which requires both to count as a result.
+// "filtered": the domain itself was available, but one of its required
+// social handles wasn't (or that check was inconclusive) — see
+// SocialStatus/the requireInstagram/requireGithub/requireTiktok gates,
+// which require all three (whichever are currently on) to count as a
+// result.
 export type LogStatus = "checking" | "taken" | "unknown" | "available" | "filtered";
 
 export interface LogEntry {
@@ -19,7 +21,13 @@ export interface LogEntry {
   status: LogStatus;
 }
 
-export type InstagramStatus = "available" | "taken" | "unknown";
+// Duplicated from src/lib/socialStatus.ts's identical declaration rather
+// than imported — that file is server-side (used by discovery.ts), and
+// this one is the client-safe counterpart, same split as DiscoveryGates in
+// page.tsx and searchConfig.ts's own constants. The two must stay in sync
+// by hand; there's nothing here to import without pulling server code into
+// the client bundle.
+export type SocialStatus = "available" | "taken" | "unknown";
 
 export interface FoundEntry {
   id: string;
@@ -35,8 +43,11 @@ export interface FoundEntry {
   checkedCount: number;
   runId: string;
   // Optional so entries persisted before this field existed still hydrate
-  // fine — treated as "unknown" wherever it's read (see InstagramBadge).
-  instagram?: InstagramStatus;
+  // fine — treated as "unknown" wherever it's read (see the badge
+  // components in ResultCard.tsx).
+  instagram?: SocialStatus;
+  github?: SocialStatus;
+  tiktok?: SocialStatus;
   // Populated on demand via checkBrandabilityFor (the "Brandability" button
   // in BrandabilityBadge) — absent until checked, or if the check
   // failed. 0 = as unrankable as "Google" itself; 100 = a long random

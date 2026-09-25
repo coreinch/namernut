@@ -7,7 +7,10 @@ import { buildNicenessIndex } from "@/lib/niceness";
 import { ShuffledRange } from "@/lib/permutation";
 import { checkDomain } from "@/lib/rdap";
 import { checkDomainWhois } from "@/lib/whois";
-import { checkInstagramUsername, type InstagramStatus } from "@/lib/instagram";
+import { checkInstagramUsername } from "@/lib/instagram";
+import { checkGithubUsername } from "@/lib/github";
+import { checkTiktokUsername } from "@/lib/tiktok";
+import type { SocialStatus } from "@/lib/socialStatus";
 
 export type DiscoveryEvent =
   // Emitted by the /api/discover route itself (never by runDiscovery below)
@@ -39,10 +42,10 @@ export type DiscoveryEvent =
   | { type: "checking"; name: string; checkedCount: number }
   | { type: "taken"; name: string; checkedCount: number }
   | { type: "unknown"; name: string; checkedCount: number }
-  // The domain itself was available, but its Instagram username wasn't (or
-  // the check was inconclusive) — doesn't count toward the target, but is
-  // still worth a distinct log entry rather than looking identical to a
-  // plain domain-taken/unknown result.
+  // The domain itself was available, but one of its required social
+  // handles wasn't (or that check was inconclusive) — doesn't count
+  // toward the target, but is still worth a distinct log entry rather
+  // than looking identical to a plain domain-taken/unknown result.
   | { type: "filtered"; name: string; checkedCount: number }
   | {
       type: "found";
@@ -55,7 +58,14 @@ export type DiscoveryEvent =
       parts: [string, string];
       checkedCount: number;
       foundCount: number;
-      instagram: InstagramStatus;
+      /** All three are always present regardless of which gates were on —
+       * "unknown" for any platform that wasn't required (see
+       * DiscoveryGates) rather than the field being absent, so the client
+       * never has to distinguish "not checked" from "checked, but
+       * inconclusive" itself. */
+      instagram: SocialStatus;
+      github: SocialStatus;
+      tiktok: SocialStatus;
       /** Which generation mechanism produced this candidate — see CandidateSource — carried through so the UI can tell a dictionary pairing apart from an AI synonym/invented name/alt-spelling without re-parsing `meaning`. */
       source: CandidateSource;
     }
@@ -69,11 +79,15 @@ export type DiscoveryEvent =
  * defaulting to true (on) so the out-of-the-box behavior is unchanged from
  * before these were exposed. Turning a gate off doesn't relax it — it
  * removes that check entirely, so more candidates (including lower-quality
- * ones) reach a real domain/Instagram check.
+ * ones) reach a real domain/social check.
  */
 export interface DiscoveryGates {
-  /** A result also requires an available Instagram username for the name — see the instagramGateDisabled logic below. */
+  /** A result also requires an available Instagram username for the name — see SOCIAL_PLATFORMS/gateDisabled below. */
   requireInstagram: boolean;
+  /** Same requirement, for GitHub — see SOCIAL_PLATFORMS/gateDisabled below. */
+  requireGithub: boolean;
+  /** Same requirement, for TikTok — see SOCIAL_PLATFORMS/gateDisabled below. */
+  requireTiktok: boolean;
   /** Reject candidates isPronounceable() flags as unpronounceable. */
   filterPronounceable: boolean;
   /** Reject candidates that read as a likely typo of a common word — see typocheck.ts. Only ever applies with no keyword (see worker() below). */
@@ -82,11 +96,13 @@ export interface DiscoveryGates {
   filterNiceness: boolean;
 }
 
-/** Parses the four gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
+/** Parses the six gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
 export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
   const on = (key: string) => searchParams.get(key) !== "false";
   return {
     requireInstagram: on("requireInstagram"),
+    requireGithub: on("requireGithub"),
+    requireTiktok: on("requireTiktok"),
     filterPronounceable: on("filterPronounceable"),
     filterTypos: on("filterTypos"),
     filterNiceness: on("filterNiceness"),
@@ -162,34 +178,78 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
   return status;
 }
 
-// How many consecutive LoginWallError results (see instagram.ts) it takes
-// before a search concludes Instagram checking is structurally blocked
-// right now, not just having a rough patch — at which point it stops
-// gating results on it. Reset by any non-blocked result, so a handful of
-// sporadic blips can't trip it; only a sustained run can.
-const INSTAGRAM_BLOCKED_STREAK_THRESHOLD = 3;
+/**
+ * One entry per social platform runDiscovery can require a result's
+ * handle be available on — see DiscoveryGates and checkSocialOne/worker
+ * below. Each platform's own lib module (instagram.ts, github.ts,
+ * tiktok.ts) knows nothing about the others; this is the one place that
+ * treats them as an interchangeable list, which is what lets the worker
+ * loop check all three with one generic path instead of three copies of
+ * the same concurrency-sensitive logic.
+ */
+interface SocialPlatform {
+  key: "instagram" | "github" | "tiktok";
+  /** Used in user-facing log/error messages — see checkSocialOne and the
+   * "structurally blocked" breaker below. */
+  label: string;
+  gate: keyof Pick<DiscoveryGates, "requireInstagram" | "requireGithub" | "requireTiktok">;
+  check: (name: string, signal?: AbortSignal) => Promise<SocialStatus>;
+  /** The Error.name a check throws for "structurally blocked, not just
+   * rate-limited" (retrying the identical request won't help — only
+   * dropping the requirement will) — see instagram.ts's LoginWallError.
+   * Undefined for a platform with no such distinct failure mode: github.ts
+   * hits a real, documented API that has no login-wall-style redirect to
+   * detect, and tiktok.ts's scraping hasn't shown one either (its own
+   * failure modes so far are 429 and generic non-200s, both already
+   * covered by the same retry/backoff every platform gets below).
+   */
+  blockedErrorName?: string;
+}
+const SOCIAL_PLATFORMS: SocialPlatform[] = [
+  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
+  { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
+  { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
+];
+
+// How many consecutive "blocked" results (see SocialPlatform.blockedErrorName
+// above) it takes before a search concludes a given platform's checking is
+// structurally blocked right now, not just having a rough patch — at which
+// point it stops requiring that one platform for the rest of this search.
+// Reset by any non-blocked result for that platform, so a handful of
+// sporadic blips can't trip it; only a sustained run can. Each platform
+// tracks its own streak independently (see gateDisabled/blockedStreaks in
+// runDiscovery) — one platform tripping this never affects the others.
+const SOCIAL_BLOCKED_STREAK_THRESHOLD = 3;
 
 // Checked once per found name (see worker below), not once per TLD, so this
-// runs far less often than checkOne — but Instagram's page-scraping check is
-// on much shakier ground than RDAP/whois (an undocumented HTML structure,
-// not a protocol meant for this), so it gets the same retry/backoff
-// treatment rather than failing a whole search over one flaky response.
-// Returns "blocked" (rather than retrying) for a login-wall redirect — that
-// isn't transient the way a rate limit is, so retrying the same candidate
-// won't help; the caller tracks how often this happens across candidates.
-async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (event: DiscoveryEvent) => void) {
-  let status: InstagramStatus = "unknown";
+// runs far less often than checkOne — but every platform here is on much
+// shakier ground than RDAP/whois (either undocumented HTML structure, or —
+// for GitHub — a real API but one this app has no elevated access to), so
+// each gets the same retry/backoff treatment rather than failing a whole
+// search over one flaky response. Returns "blocked" (rather than retrying)
+// when the platform's own blockedErrorName fires — that isn't transient the
+// way a rate limit is, so retrying the same candidate won't help; the
+// caller tracks how often this happens per platform.
+async function checkSocialOne(
+  platform: SocialPlatform,
+  name: string,
+  signal: AbortSignal,
+  onEvent: (event: DiscoveryEvent) => void
+) {
+  let status: SocialStatus = "unknown";
   let attempt = 0;
   for (;;) {
     if (signal.aborted) return "aborted" as const;
     try {
-      status = await checkInstagramUsername(name, signal);
+      status = await platform.check(name, signal);
       break;
     } catch (err) {
       if (signal.aborted) return "aborted" as const;
-      if (err instanceof Error && err.name === "LoginWallError") return "blocked" as const;
+      if (platform.blockedErrorName && err instanceof Error && err.name === platform.blockedErrorName) {
+        return "blocked" as const;
+      }
       if (err instanceof Error && err.name === "RateLimitError") {
-        onEvent({ type: "error", message: "Instagram rate limited, backing off..." });
+        onEvent({ type: "error", message: `${platform.label} rate limited, backing off...` });
         attempt++;
         if (attempt >= MAX_TRANSIENT_RETRIES) {
           status = "unknown";
@@ -209,8 +269,10 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
   if (signal.aborted) return "aborted" as const;
   // A slightly longer delay than the domain check's: this only fires once
   // per found name (bounded by targetCount) rather than once per TLD, but
-  // Instagram's anti-scraping posture is stricter than a domain registry's,
-  // so it's worth being more conservative per-request here.
+  // every platform here has a stricter anti-scraping/rate-limit posture
+  // than a domain registry's, so it's worth being more conservative
+  // per-request. Platforms run concurrently (see worker below), so this
+  // delay overlaps across them rather than stacking.
   await delay(CHECK_DELAY_MS * 2, signal);
   return status;
 }
@@ -220,16 +282,19 @@ async function checkInstagramOne(name: string, signal: AbortSignal, onEvent: (ev
  * over the candidate-name space, checking each candidate across every
  * selected TLD (a handful of candidates at a time, see CONCURRENCY) and
  * collecting up to `targetCount` results before finishing (or until the
- * caller aborts). A result requires both an available domain *and* an
- * available Instagram username for the same name — a domain match whose
- * Instagram username is taken (or inconclusive) doesn't count toward the
- * target and is reported as "filtered" instead of "found", so the search
- * keeps going rather than surfacing it. If Instagram checking turns out to
- * be structurally blocked for this whole search (see
- * INSTAGRAM_BLOCKED_STREAK_THRESHOLD) rather than just occasionally
- * flaky, that requirement is dropped part-way through — a domain match
- * counts on its own again — rather than the search silently producing
- * zero results forever. A candidate that doesn't read as a
+ * caller aborts). A result requires an available domain *and* the handle
+ * being available on every social platform currently required (see
+ * SOCIAL_PLATFORMS and gates.requireInstagram/requireGithub/requireTiktok)
+ * for the same name — a domain match where any one of those is taken (or
+ * inconclusive) doesn't count toward the target and is reported as
+ * "filtered" instead of "found", so the search keeps going rather than
+ * surfacing it. If a given platform's checking turns out to be
+ * structurally blocked for this whole search (see
+ * SOCIAL_BLOCKED_STREAK_THRESHOLD) rather than just occasionally flaky,
+ * that one platform's requirement is dropped part-way through — the other
+ * still-required platforms (if any) keep being enforced, and once none are
+ * left a domain match counts on its own — rather than the search silently
+ * producing zero results forever. A candidate that doesn't read as a
  * natural-sounding name (see niceness.ts) is rejected outright, the same
  * as an unpronounceable one — but only when there's no keyword: those two
  * checks assume the whole name was algorithmically generated, which isn't
@@ -310,17 +375,23 @@ export async function runDiscovery(
   let nextTier = 0;
   let checkedCount = 0;
   let foundCount = 0;
-  // See INSTAGRAM_BLOCKED_STREAK_THRESHOLD / checkInstagramOne. Once
-  // tripped, Instagram is no longer checked at all for the rest of this
-  // search (no point spending requests on a mechanism confirmed blocked)
-  // and stops gating results — a domain match counts on its own again,
-  // same as before Instagram checking existed.
-  let instagramBlockedStreak = 0;
-  // Starting "disabled" when the Instagram gate is turned off reuses the
+  // See SOCIAL_BLOCKED_STREAK_THRESHOLD / checkSocialOne. Once a platform's
+  // streak trips, it's no longer checked at all for the rest of this search
+  // (no point spending requests on a mechanism confirmed blocked) and stops
+  // gating results — the other still-required platforms (if any) keep
+  // being enforced. Keyed by SocialPlatform.key, one entry per platform in
+  // SOCIAL_PLATFORMS.
+  const blockedStreaks: Record<string, number> = { instagram: 0, github: 0, tiktok: 0 };
+  // Starting "disabled" when a platform's gate is turned off reuses the
   // exact same fallback path the blocked-streak breaker below drops into
-  // once it trips at runtime — a domain match counts on its own, with no
-  // separate code path needed for "never required" vs. "no longer required".
-  let instagramGateDisabled = !gates.requireInstagram;
+  // once it trips at runtime — a domain match counts on its own for that
+  // platform, with no separate code path needed for "never required" vs.
+  // "no longer required".
+  const gateDisabled: Record<string, boolean> = {
+    instagram: !gates.requireInstagram,
+    github: !gates.requireGithub,
+    tiktok: !gates.requireTiktok,
+  };
   // Word concatenation has no separator, so two different underlying word
   // pairs can occasionally produce the identical candidate string (e.g. a
   // 3+4 split landing on the same characters as a different 4+3 split) —
@@ -392,12 +463,13 @@ export async function runDiscovery(
         if (gates.filterNiceness && nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
       }
 
-      // Instagram is checked once per name (it has no TLD), lazily — only
-      // once a domain actually turns out available for this name, and
-      // cached here so a name matching several TLDs doesn't re-check it.
-      // That bounds Instagram requests to roughly targetCount rather than
-      // one per candidate examined, which would be a much larger volume.
-      let instagramForName: ReturnType<typeof checkInstagramOne> | null = null;
+      // Each social platform is checked once per name (none of them have a
+      // TLD), lazily — only once a domain actually turns out available for
+      // this name, and cached here (one slot per platform key) so a name
+      // matching several TLDs doesn't re-check any of them. That bounds
+      // each platform's requests to roughly targetCount rather than one
+      // per candidate examined, which would be a much larger volume.
+      const socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>> = {};
 
       for (const tld of tlds) {
         if (signal.aborted) return;
@@ -421,50 +493,88 @@ export async function runDiscovery(
           // increment — overshooting by up to CONCURRENCY-1 results.
           if (foundCount >= targetCount) continue;
 
-          let instagram: InstagramStatus = "unknown";
-          if (!instagramGateDisabled) {
-            if (!instagramForName) instagramForName = checkInstagramOne(name, signal, onEvent);
-            const result = await instagramForName;
-            if (result === "aborted") return;
+          // "unknown" is the correct resting value for every platform
+          // that's disabled (never required, or dropped mid-search — see
+          // gateDisabled below) — SocialStatus has no separate "not
+          // checked" state, and DiscoveryEvent's "found" case always
+          // carries all three (see its own doc comment), so a disabled
+          // platform reports the same "unknown" a genuinely inconclusive
+          // check would.
+          const social: Record<string, SocialStatus> = { instagram: "unknown", github: "unknown", tiktok: "unknown" };
+
+          // Run every still-required platform's check concurrently rather
+          // than one after another — sequentially, three platforms each
+          // paying their own CHECK_DELAY_MS*2 tail delay (see
+          // checkSocialOne) would nearly triple this section's latency for
+          // no benefit, since the checks are fully independent of each
+          // other.
+          const activePlatforms = SOCIAL_PLATFORMS.filter((p) => !gateDisabled[p.key]);
+          const results = await Promise.all(
+            activePlatforms.map(async (platform) => {
+              if (!socialForName[platform.key]) {
+                socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
+              }
+              return { platform, result: await socialForName[platform.key]! };
+            })
+          );
+          if (results.some((r) => r.result === "aborted")) return;
+
+          for (const { platform, result } of results) {
             if (result === "blocked") {
-              instagramBlockedStreak++;
-              // Guarded on !instagramGateDisabled too: several workers can
-              // have a check in flight when the streak first trips, and
-              // each one's in-flight request can still resolve "blocked"
-              // afterward — without this, each of those would re-trip the
-              // (already-tripped) breaker and emit a duplicate event.
-              if (!instagramGateDisabled && instagramBlockedStreak >= INSTAGRAM_BLOCKED_STREAK_THRESHOLD) {
-                instagramGateDisabled = true;
+              blockedStreaks[platform.key]++;
+              // Guarded on !gateDisabled[platform.key] too: several
+              // workers can have a check for this platform in flight when
+              // its streak first trips, and each one's in-flight request
+              // can still resolve "blocked" afterward — without this,
+              // each of those would re-trip the (already-tripped) breaker
+              // and emit a duplicate event.
+              if (!gateDisabled[platform.key] && blockedStreaks[platform.key] >= SOCIAL_BLOCKED_STREAK_THRESHOLD) {
+                gateDisabled[platform.key] = true;
                 onEvent({
                   type: "error",
-                  message:
-                    "Instagram checking appears to be blocked (redirecting to login) — no longer requiring it for the rest of this search.",
+                  message: `${platform.label} checking appears to be blocked — no longer requiring it for the rest of this search.`,
                 });
               }
             } else {
-              instagramBlockedStreak = 0;
-              instagram = result;
+              blockedStreaks[platform.key] = 0;
+              social[platform.key] = result as SocialStatus;
             }
           }
 
-          // Only a domain+Instagram-username match counts as a result —
-          // "taken" and "unknown" (an inconclusive check, e.g. rate
-          // limited, or Instagram checking confirmed blocked for this
-          // whole search) are both treated as not qualifying, since
-          // "unknown" is not the same as confirmed available. Once the
-          // gate above is disabled, though, a domain match counts on its
-          // own — Instagram is no longer required at all.
-          if (!instagramGateDisabled && instagram !== "available") {
+          // Only a domain match plus every *currently* required platform's
+          // handle being available counts as a result — "taken" and
+          // "unknown" (an inconclusive check, or a platform confirmed
+          // blocked for this whole search) both fail to qualify, since
+          // "unknown" is not the same as confirmed available. Evaluated
+          // against gateDisabled's state *after* the loop above, so a
+          // platform whose breaker just tripped on this very candidate is
+          // already exempted for it too — same as it always was for
+          // Instagram alone.
+          const anyRequiredUnavailable = SOCIAL_PLATFORMS.some(
+            (p) => !gateDisabled[p.key] && social[p.key] !== "available"
+          );
+          if (anyRequiredUnavailable) {
             onEvent({ type: "filtered", name: domain, checkedCount });
             continue;
           }
 
-          // Re-check once more: the Instagram lookup above can take a
-          // while, and another worker may have filled the last slot during
-          // it (same overshoot race as above, closed the same way).
+          // Re-check once more: the social checks above can take a while,
+          // and another worker may have filled the last slot during them
+          // (same overshoot race as above, closed the same way).
           if (foundCount >= targetCount) continue;
           foundCount++;
-          onEvent({ type: "found", domain, meaning, parts, checkedCount, foundCount, instagram, source });
+          onEvent({
+            type: "found",
+            domain,
+            meaning,
+            parts,
+            checkedCount,
+            foundCount,
+            instagram: social.instagram,
+            github: social.github,
+            tiktok: social.tiktok,
+            source,
+          });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }

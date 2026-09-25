@@ -3,6 +3,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 vi.mock("./rdap", () => ({ checkDomain: vi.fn() }));
 vi.mock("./whois", () => ({ checkDomainWhois: vi.fn() }));
 vi.mock("./instagram", () => ({ checkInstagramUsername: vi.fn() }));
+vi.mock("./github", () => ({ checkGithubUsername: vi.fn() }));
+vi.mock("./tiktok", () => ({ checkTiktokUsername: vi.fn() }));
 // The real niceness index is built from the actual candidate pool passed
 // in — these tests use tiny 2-3 word fixtures, far too little data for
 // real bigram statistics, so almost every combined candidate would fail
@@ -14,6 +16,8 @@ vi.mock("./niceness", () => ({ buildNicenessIndex: vi.fn() }));
 import { checkDomain } from "./rdap";
 import { checkDomainWhois } from "./whois";
 import { checkInstagramUsername } from "./instagram";
+import { checkGithubUsername } from "./github";
+import { checkTiktokUsername } from "./tiktok";
 import { buildNicenessIndex } from "./niceness";
 import { parseGates, runDiscovery, type DiscoveryEvent, type DiscoveryGates } from "./discovery";
 import { isPronounceable } from "./pronounceable";
@@ -23,6 +27,8 @@ import type { WordEntry } from "./dictionary";
 // toggle — matches runDiscovery's pre-gates behavior (everything on).
 const ALL_GATES_ON: DiscoveryGates = {
   requireInstagram: true,
+  requireGithub: true,
+  requireTiktok: true,
   filterPronounceable: true,
   filterTypos: true,
   filterNiceness: true,
@@ -30,13 +36,15 @@ const ALL_GATES_ON: DiscoveryGates = {
 
 describe("runDiscovery", () => {
   // Every test drives checkDomain/checkDomainWhois explicitly, but most of
-  // them don't care about Instagram specifically (that's covered below) —
-  // default it to "available" so a domain match still counts as "found"
-  // the way it did before the Instagram gate existed (an available domain
-  // whose Instagram username is taken/unknown no longer counts — see the
-  // dedicated tests below).
+  // them don't care about the social checks specifically (that's covered
+  // below) — default all three to "available" so a domain match still
+  // counts as "found" the way it did before these gates existed (an
+  // available domain where any required platform's handle is taken/unknown
+  // no longer counts — see the dedicated tests below).
   beforeEach(() => {
     vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+    vi.mocked(checkGithubUsername).mockResolvedValue("available");
+    vi.mocked(checkTiktokUsername).mockResolvedValue("available");
     vi.mocked(buildNicenessIndex).mockReturnValue({ score: () => 1 });
   });
 
@@ -98,7 +106,7 @@ describe("runDiscovery", () => {
     if (complete?.type === "complete") expect(complete.foundCount).toBe(2);
   });
 
-  it("counts a result only when both the domain and its Instagram username are available", async () => {
+  it("counts a result only when the domain and every required platform's handle are all available", async () => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
       { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
@@ -106,6 +114,8 @@ describe("runDiscovery", () => {
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
     vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+    vi.mocked(checkGithubUsername).mockResolvedValue("available");
+    vi.mocked(checkTiktokUsername).mockResolvedValue("available");
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
@@ -114,8 +124,33 @@ describe("runDiscovery", () => {
     const found = events.filter((e) => e.type === "found");
     expect(found.length).toBe(2);
     for (const f of found) {
-      if (f.type === "found") expect(f.instagram).toBe("available");
+      if (f.type === "found") {
+        expect(f.instagram).toBe("available");
+        expect(f.github).toBe("available");
+        expect(f.tiktok).toBe("available");
+      }
     }
+  });
+
+  it("filters out a domain match if even one required platform's handle is taken, with the rest available", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(checkInstagramUsername).mockResolvedValue("available");
+    vi.mocked(checkTiktokUsername).mockResolvedValue("available");
+    // Only GitHub is taken — this must be enough to disqualify the
+    // candidate on its own, not just when every platform agrees.
+    vi.mocked(checkGithubUsername).mockResolvedValue("taken");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.filter((e) => e.type === "found").length).toBe(0);
+    expect(events.filter((e) => e.type === "filtered").length).toBeGreaterThan(0);
   });
 
   it("filters out (rather than counts) a domain match whose Instagram username is taken, checked once per name not per TLD", async () => {
@@ -204,6 +239,64 @@ describe("runDiscovery", () => {
     // drops into at runtime) rather than checking and then ignoring the
     // result, so it's never called at all.
     expect(checkInstagramUsername).not.toHaveBeenCalled();
+  });
+
+  // GitHub and TikTok share the exact same gate/require/skip mechanism as
+  // Instagram (see SOCIAL_PLATFORMS in discovery.ts) — parameterized here
+  // rather than copy-pasting the two tests above a second and third time.
+  // Neither has a "structurally blocked" circuit-breaker test of its own:
+  // that failure mode is specific to Instagram's login-wall redirect (see
+  // SocialPlatform.blockedErrorName) — GitHub's official API and TikTok's
+  // scraping haven't shown an analogous distinct signal, so neither
+  // platform's checker can ever return "blocked" at all.
+  it.each([
+    { label: "GitHub", gate: "requireGithub" as const, fn: checkGithubUsername },
+    { label: "TikTok", gate: "requireTiktok" as const, fn: checkTiktokUsername },
+  ])(
+    "filters out (rather than counts) a domain match whose $label handle is taken, checked once per name not per TLD",
+    async ({ fn }) => {
+      const pool: WordEntry[] = [
+        { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+        { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+      ];
+      vi.mocked(checkDomain).mockResolvedValue("available");
+      vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+      vi.mocked(fn).mockResolvedValue("taken");
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      await runDiscovery(pool, undefined, ["com", "net"], 4, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+      expect(events.filter((e) => e.type === "found").length).toBe(0);
+      expect(events.filter((e) => e.type === "filtered").length).toBeGreaterThan(0);
+      // 4 names (2x2 pool) x 2 TLDs = 8 possible domain matches, but every
+      // name is only checked on this platform once regardless of how many
+      // TLDs match it.
+      expect(vi.mocked(fn).mock.calls.length).toBeLessThanOrEqual(4);
+    }
+  );
+
+  it.each([
+    { label: "GitHub", gate: "requireGithub" as const, fn: checkGithubUsername },
+    { label: "TikTok", gate: "requireTiktok" as const, fn: checkTiktokUsername },
+  ])("does not require (or even check) $label availability when its gate is off", async ({ gate, fn }) => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(fn).mockResolvedValue("taken");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 2, (e) => events.push(e), controller.signal, 20, {
+      ...ALL_GATES_ON,
+      [gate]: false,
+    });
+
+    expect(events.filter((e) => e.type === "found").length).toBe(2);
+    expect(fn).not.toHaveBeenCalled();
   });
 
   it("rejects a candidate that isn't pronounceable", async () => {
@@ -650,6 +743,11 @@ describe("parseGates", () => {
     expect(parseGates(new URLSearchParams("requireInstagram=false"))).toEqual({
       ...ALL_GATES_ON,
       requireInstagram: false,
+    });
+    expect(parseGates(new URLSearchParams("requireGithub=false&requireTiktok=false"))).toEqual({
+      ...ALL_GATES_ON,
+      requireGithub: false,
+      requireTiktok: false,
     });
     expect(parseGates(new URLSearchParams("filterPronounceable=false&filterTypos=false"))).toEqual({
       ...ALL_GATES_ON,

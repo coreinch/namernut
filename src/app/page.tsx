@@ -47,6 +47,8 @@ interface PersistedState {
 // existed, comes back unchanged.
 const DEFAULT_GATES: DiscoveryGates = {
   requireInstagram: true,
+  requireGithub: true,
+  requireTiktok: true,
   filterPronounceable: true,
   filterTypos: true,
   filterNiceness: true,
@@ -476,7 +478,8 @@ export default function Home() {
     try {
       const res = await fetch(
         `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(effectiveKeywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${DEFAULT_RESULT_COUNT}` +
-          `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
+          `&requireInstagram=${gates.requireInstagram}&requireGithub=${gates.requireGithub}&requireTiktok=${gates.requireTiktok}` +
+          `&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
         { signal: controller.signal }
@@ -572,6 +575,8 @@ export default function Home() {
                     checkedCount: event.checkedCount,
                     runId,
                     instagram: event.instagram,
+                    github: event.github,
+                    tiktok: event.tiktok,
                     source: event.source,
                   },
                   ...prev,

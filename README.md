@@ -7,18 +7,19 @@ that instantly checks domain, Instagram & search availability.
 Type a keyword, and Namernut pairs it against an English dictionary (plus
 optional AI-suggested synonyms, AI-invented names, and alternate spellings)
 to generate candidate names, checks each one's live availability as a domain
-across selectable TLDs (.com, .io, .ai, .co, and more) and as an Instagram
-handle, filters out anything unpronounceable or typo-prone, and — on
-request — runs an AI web-search-backed "brandability" check that scores 0–100
-how much real-world competition the name already faces (an existing company,
-product, or well-known use), with a plain-language summary of what it found.
+across selectable TLDs (.com, .io, .ai, .co, and more) and as an Instagram,
+GitHub, and TikTok handle, filters out anything unpronounceable or
+typo-prone, and — on request — runs an AI web-search-backed "brandability"
+check that scores 0–100 how much real-world competition the name already
+faces (an existing company, product, or well-known use), with a
+plain-language summary of what it found.
 
 ## Features
 
 - Dictionary-based name generation, augmented by AI synonyms, AI-invented
   names, and deterministic alternate spellings
 - Live domain availability across multiple TLDs (RDAP/WHOIS)
-- Live Instagram handle availability
+- Live Instagram, GitHub, and TikTok handle availability
 - Pronounceability, typo, and "niceness" filters
 - AI brandability scoring (0–100) with a written summary per name
 - Favorites and a running archive of every name found, ranked by score
