@@ -164,6 +164,7 @@ export function FiltersPanel({
   primaryLabel,
   onStart,
   onStop,
+  onTryExample,
 }: {
   showAdvanced: boolean;
   onToggleShowAdvanced: () => void;
@@ -193,6 +194,7 @@ export function FiltersPanel({
   primaryLabel: string;
   onStart: () => void;
   onStop: () => void;
+  onTryExample: () => void;
 }) {
   const activeGateCount = Object.values(gates).filter(Boolean).length;
 
@@ -201,6 +203,13 @@ export function FiltersPanel({
       <h1 className="text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
         What&rsquo;s your idea?
       </h1>
+      {/* The value prop used to live only in <meta description> — real
+          visitors never saw it, just the h1 above, which reads fine once
+          you already know what the tool does but says nothing to a
+          first-time visitor deciding whether to type anything at all. */}
+      <p className="text-center text-sm text-muted sm:text-base">
+        Brandable names, live domain &amp; Instagram availability, and an AI brandability score — all in one search.
+      </p>
 
       <div className="flex items-center gap-1.5 rounded-full bg-card p-1.5 shadow-[0_2px_10px_rgba(27,21,51,0.08)] dark:shadow-none">
         <input
@@ -209,13 +218,17 @@ export function FiltersPanel({
           aria-label="Keyword to include (optional)"
           value={keywordInput}
           onChange={(e) => onKeywordInputChange(e.target.value)}
-          // Short on purpose — this input shares its pill with the
-          // Generate/Stop button (see the flex row below), so on a narrow
-          // phone width there's only ~150-200px left for the placeholder
-          // before it clips. The longer, friendlier "Include a word
-          // (optional), e.g. nova" that used to be here read fine on
-          // desktop but got cut off well before "optional" on mobile.
-          placeholder="Keyword (optional)"
+          // An example, not just a label — "Keyword (optional)" told a
+          // visitor a field existed without telling them what belongs in
+          // it. Still short on purpose (see the mobile-width comment this
+          // replaced): this pill also holds the Generate/Stop button, so
+          // there's only ~150-200px for the placeholder on a narrow phone.
+          // A real word/short phrase, not a full sentence — this field
+          // pairs one dictionary or AI-suggested word onto exactly what's
+          // typed here (see sanitizeKeyword below and parseKeyword in
+          // lib/candidates.ts), so an example implying it interprets a
+          // whole pitch would set the wrong expectation.
+          placeholder="e.g. glow, coffee"
           maxLength={20}
           className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 ${FOCUS_RING}`}
         />
@@ -229,6 +242,23 @@ export function FiltersPanel({
           {isRunning ? "Stop" : primaryLabel}
         </button>
       </div>
+
+      {/* Lets a first-time visitor see real output (names, live
+          availability, an AI score once auto-check resolves) with zero
+          typing, before deciding whether their own idea is worth trying.
+          Hidden mid-search rather than left as a dead click — there's
+          nothing useful for it to do while a run is already going. */}
+      {!isRunning && (
+        <div className="-mt-2 text-center">
+          <button
+            type="button"
+            onClick={onTryExample}
+            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
+          >
+            Try an example
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap justify-center gap-2">
         <StyleChip icon={<BookIcon />} label="Dictionary" active />

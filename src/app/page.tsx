@@ -62,6 +62,18 @@ const LEGACY_STORAGE_KEYS = ["namerag:state:v1", "domain-finder:state:v1"];
 
 const MAX_LOG_ENTRIES = 200;
 
+// Fed to tryExample below (the "Try an example" link) — verified directly
+// to produce real, varied output (dictionary pairings plus AI synonyms/
+// invented names) rather than a picked-for-looks string that might not
+// actually demonstrate the product. Deliberately a single plain word: the
+// keyword field only ever pairs one dictionary/AI word onto this literal
+// string (see sanitizeKeyword below and parseKeyword in lib/candidates.ts,
+// which strips anything past 15-20 characters and non-letters) — it was
+// never a "describe your idea" field, so the example has to be honest
+// about that rather than modeling a longer pitch a first-time visitor
+// might reasonably try typing themselves.
+const EXAMPLE_KEYWORD = "glow";
+
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or
 // localhost) — this app is also used over plain HTTP on a LAN (e.g.
 // http://192.168.x.x:3000), where the browser doesn't expose it at all.
@@ -433,7 +445,14 @@ export default function Home() {
     })();
   }, [region]);
 
-  const start = useCallback(async () => {
+  // overrideKeyword lets a caller (see tryExample below) run a search with
+  // a specific keyword in the same click that sets it, rather than calling
+  // setKeywordInput and start() back to back — React doesn't apply a
+  // setState call before the rest of the same event handler runs, so
+  // start() would otherwise still see the *previous* keywordInput/
+  // keywordParam value (a stale closure over pre-update state) for that
+  // one run.
+  const start = useCallback(async (overrideKeyword?: string) => {
     if (abortRef.current) return;
     // Every start is a brand new, independently seeded search — this tab's
     // own random walk over the candidate space, isolated from any other
@@ -452,9 +471,11 @@ export default function Home() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const effectiveKeywordParam = overrideKeyword !== undefined ? sanitizeKeyword(overrideKeyword) : keywordParam;
+
     try {
       const res = await fetch(
-        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${DEFAULT_RESULT_COUNT}` +
+        `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(effectiveKeywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${DEFAULT_RESULT_COUNT}` +
           `&requireInstagram=${gates.requireInstagram}&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
@@ -603,6 +624,20 @@ export default function Home() {
     useAltSpellings,
   ]);
 
+  // "Try an example" — fills the input and runs a real search in one
+  // click, with zero typing, so a first-time visitor sees actual output
+  // (names, live domain/Instagram availability, and a brandability score
+  // once auto-check resolves) before deciding whether to try their own
+  // idea. setKeywordInput keeps the input box visibly in sync with what
+  // actually ran; start(EXAMPLE_KEYWORD) is what makes the run itself use
+  // it immediately rather than the pre-click (likely empty) keywordInput
+  // — see start's own comment on overrideKeyword for why passing it
+  // directly is necessary here.
+  const tryExample = useCallback(() => {
+    setKeywordInput(EXAMPLE_KEYWORD);
+    start(EXAMPLE_KEYWORD);
+  }, [start]);
+
   const stop = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -701,8 +736,14 @@ export default function Home() {
             onRegionChange={setRegion}
             isRunning={isRunning}
             primaryLabel={primaryLabel}
-            onStart={start}
+            // Wrapped, not passed directly: start() now takes an optional
+            // overrideKeyword (see tryExample above), and FiltersPanel's
+            // Generate button wires this straight to a DOM onClick, which
+            // would otherwise pass the click's SyntheticEvent through as
+            // that argument.
+            onStart={() => start()}
             onStop={stop}
+            onTryExample={tryExample}
           />
 
           {errorMessage && (
