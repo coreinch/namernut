@@ -16,4 +16,4 @@ export const TITLE = "Namernut – AI Business Name Generator + Availability Che
 // different reader (someone already evaluating the tool, not deciding
 // whether to click into it at all).
 export const DESCRIPTION =
-  "Never fall for a name that's already taken. AI business name generator that instantly checks domain, Instagram & search availability.";
+  "Never fall for a name that's already taken. AI business name generator that instantly checks domain, social & search availability.";

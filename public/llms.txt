@@ -1,7 +1,7 @@
 # Namernut
 
 > Never fall for a name that's already taken. Namernut is a free AI
-> business name generator that instantly checks domain, Instagram &
+> business name generator that instantly checks domain, social &
 > search availability. It suggests brandable, pronounceable names for
 > startups and products, checks live availability of each one as a domain
 > (via RDAP/WHOIS across many TLDs) and as an Instagram handle, then scores

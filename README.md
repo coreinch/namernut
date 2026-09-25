@@ -2,7 +2,7 @@
 
 Never fall for a name that's already taken.
 **[namernut.com](https://namernut.com)** is an AI business name generator
-that instantly checks domain, Instagram & search availability.
+that instantly checks domain, social & search availability.
 
 Type a keyword, and Namernut pairs it against an English dictionary (plus
 optional AI-suggested synonyms, AI-invented names, and alternate spellings)
