@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import { DESCRIPTION } from "@/lib/copy";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -55,8 +56,7 @@ export default function OpengraphImage() {
             maxWidth: 980,
           }}
         >
-          Generate brandable startup names, check live domain availability,
-          and get an AI brandability score for each one.
+          {DESCRIPTION}
         </div>
       </div>
     ),

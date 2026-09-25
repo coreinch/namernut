@@ -1,11 +1,11 @@
 import type { MetadataRoute } from "next";
+import { APP_NAME, DESCRIPTION } from "@/lib/copy";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Namernut",
-    short_name: "Namernut",
-    description:
-      "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.",
+    name: APP_NAME,
+    short_name: APP_NAME,
+    description: DESCRIPTION,
     start_url: "/",
     display: "standalone",
     background_color: "#0a0a0a",

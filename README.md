@@ -1,7 +1,8 @@
 # Namernut
 
-**[namernut.com](https://namernut.com)** — a free domain name generator that
-checks live availability and scores how brandable each name actually is.
+**[namernut.com](https://namernut.com)** — an AI business name generator that
+instantly checks domain, Instagram & search availability, so you never fall
+for a name that's already taken.
 
 Type a keyword, and Namernut pairs it against an English dictionary (plus
 optional AI-suggested synonyms, AI-invented names, and alternate spellings)

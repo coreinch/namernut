@@ -1,4 +1,5 @@
 import type { DiscoveryGates } from "@/lib/discovery";
+import { DESCRIPTION } from "@/lib/copy";
 import {
   MAX_COMBINED_LENGTH,
   MIN_COMBINED_LENGTH,
@@ -206,10 +207,12 @@ export function FiltersPanel({
       {/* The value prop used to live only in <meta description> — real
           visitors never saw it, just the h1 above, which reads fine once
           you already know what the tool does but says nothing to a
-          first-time visitor deciding whether to type anything at all. */}
-      <p className="text-center text-sm text-muted sm:text-base">
-        Brandable names, live domain &amp; Instagram availability, and an AI brandability score — all in one search.
-      </p>
+          first-time visitor deciding whether to type anything at all.
+          Shares its text with lib/copy.ts's DESCRIPTION (also used for
+          <meta>, the OG image, and the PWA manifest) rather than its own
+          paraphrase, so this — the one spot an actual visitor reads it —
+          can't quietly drift from what everywhere else claims. */}
+      <p className="text-center text-sm text-muted sm:text-base">{DESCRIPTION}</p>
 
       <div className="flex items-center gap-1.5 rounded-full bg-card p-1.5 shadow-[0_2px_10px_rgba(27,21,51,0.08)] dark:shadow-none">
         <input

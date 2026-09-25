@@ -1,11 +1,13 @@
 # Namernut
 
-> Namernut is a free, browser-based domain name generator. It suggests
-> brandable, pronounceable names for startups and products, checks live
-> availability of each one as a domain (via RDAP/WHOIS across many TLDs) and
-> as an Instagram handle, then scores how "brandable" each available name is
-> using an AI web-search-backed collision check — how likely the name is to
-> already be crowded by an existing company, product, or well-known use.
+> Namernut is a free AI business name generator that instantly checks
+> domain, Instagram & search availability, so you never fall for a name
+> that's already taken. It suggests brandable, pronounceable names for
+> startups and products, checks live availability of each one as a domain
+> (via RDAP/WHOIS across many TLDs) and as an Instagram handle, then scores
+> how "brandable" each available name is using an AI web-search-backed
+> collision check — how likely the name is to already be crowded by an
+> existing company, product, or well-known use.
 
 ## What it does
 

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Space_Grotesk, Sora } from "next/font/google";
+import { APP_NAME, DESCRIPTION, TITLE } from "@/lib/copy";
 import "./globals.css";
 
 // Display face — headline, wordmark, and every domain name shown in a
@@ -18,18 +19,15 @@ const sora = Sora({
   weight: ["400", "500", "600"],
 });
 
-const TITLE = "Namernut – Domain Name Generator + AI Brandability Score";
-const DESCRIPTION =
-  "Generate brandable startup names, check live domain & Instagram availability, then get an AI brandability score for how much competition it already faces.";
-
 // Structured data (schema.org WebApplication) — read directly by search
 // crawlers and AI answer engines (GEO) without executing any JS, unlike the
-// rest of this page. Kept in sync with TITLE/DESCRIPTION above by hand
-// since JSON-LD has no shared-variable mechanism of its own.
+// rest of this page. Shares DESCRIPTION with the metadata below via
+// lib/copy.ts, so the two can't drift out of sync the way they used to
+// when each was its own hardcoded copy of the same sentence.
 const JSON_LD = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
-  name: "Namernut",
+  name: APP_NAME,
   url: "https://namernut.com",
   description: DESCRIPTION,
   applicationCategory: "BusinessApplication",
@@ -46,10 +44,11 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   keywords: [
+    "AI business name generator",
+    "business name generator",
     "domain name generator",
     "brand name generator",
     "startup name generator",
-    "AI domain name generator",
     "available domain names",
     "brandability score",
   ],
@@ -61,7 +60,7 @@ export const metadata: Metadata = {
     description: DESCRIPTION,
     type: "website",
     url: "https://namernut.com",
-    siteName: "Namernut",
+    siteName: APP_NAME,
   },
   twitter: {
     card: "summary_large_image",
@@ -73,7 +72,7 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     // Short brand name only — this is what shows under the home-screen
     // icon, where there's no room for the full SEO title above.
-    title: "Namernut",
+    title: APP_NAME,
   },
 };
 
