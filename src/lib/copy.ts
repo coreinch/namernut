@@ -9,10 +9,11 @@ export const APP_NAME = "Namernut";
 
 export const TITLE = "Namernut – AI Business Name Generator + Availability Check";
 
-// The exact framing requested directly (2026-09-25): lead with what a
-// visitor gets, not with the mechanism (dictionary pairing, RDAP/WHOIS,
-// LLM scoring) — that detail still lives in README.md and llms.txt's
-// longer explanations, which serve a different reader (someone already
-// evaluating the tool, not deciding whether to click into it at all).
+// The exact framing requested directly (2026-09-25, reordered later the
+// same day to lead with the pain point rather than the mechanism): the
+// deeper explanation (dictionary pairing, RDAP/WHOIS, LLM scoring) still
+// lives in README.md and llms.txt's longer explanations, which serve a
+// different reader (someone already evaluating the tool, not deciding
+// whether to click into it at all).
 export const DESCRIPTION =
-  "AI business name generator that instantly checks domain, Instagram & search availability, so you never fall for a name that's already taken.";
+  "Never fall for a name that's already taken. AI business name generator that instantly checks domain, Instagram & search availability.";
