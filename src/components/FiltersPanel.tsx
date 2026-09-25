@@ -202,7 +202,7 @@ export function FiltersPanel({
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
-        What&rsquo;s your idea?
+        What&rsquo;s your keyword?
       </h1>
       {/* The value prop used to live only in <meta description> — real
           visitors never saw it, just the h1 above, which reads fine once

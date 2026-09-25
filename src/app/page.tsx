@@ -799,7 +799,7 @@ export default function Home() {
               )}
               {currentRunResults.length === 0 && !isRunning ? (
                 <p className="py-8 text-center text-sm text-muted">
-                  Type an idea above and hit Generate to see results here.
+                  Type a keyword above and hit Generate to see results here.
                 </p>
               ) : (
                 <ResultsGrid
