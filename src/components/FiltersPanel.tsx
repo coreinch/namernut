@@ -245,7 +245,11 @@ export function FiltersPanel({
           // lib/candidates.ts), so an example implying it interprets a
           // whole pitch would set the wrong expectation.
           placeholder="e.g. glow, coffee"
-          maxLength={20}
+          // Matches the 15-char cap sanitizeKeyword/parseKeyword actually
+          // enforce (page.tsx, lib/candidates.ts) — was 20, which let a user
+          // type 5 characters that would then be silently dropped on search
+          // with no indication anything was truncated.
+          maxLength={15}
           className={`min-h-12 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 sm:min-h-14 sm:text-lg ${FOCUS_RING}`}
         />
         <button

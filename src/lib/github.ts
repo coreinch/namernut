@@ -11,13 +11,11 @@
  * as Instagram — see checkGithubOne in discovery.ts) stays well under that
  * in normal use.
  */
-import type { SocialStatus } from "@/lib/socialStatus";
-
-const USER_AGENT = "Mozilla/5.0 (compatible; DomainFinderBot/1.0)";
+import { SOCIAL_CHECK_USER_AGENT, type SocialStatus } from "@/lib/socialStatus";
 
 export async function checkGithubUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
   const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "application/vnd.github+json" },
+    headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "application/vnd.github+json" },
     signal,
   });
 

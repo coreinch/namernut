@@ -26,18 +26,15 @@
  * behavior detection, which anonymous requests (just an inconclusive login
  * page) don't risk. Falls back to the unauthenticated path when unset.
  */
-export type InstagramStatus = "available" | "taken" | "unknown";
+import { SOCIAL_CHECK_USER_AGENT } from "@/lib/socialStatus";
 
-// Honestly identifies this tool as itself, not as a browser or as any
-// other service's crawler (e.g. Googlebot) — it doesn't need to claim to
-// be one to get the server-rendered response; see the module doc above.
-const USER_AGENT = "Mozilla/5.0 (compatible; DomainFinderBot/1.0)";
+export type InstagramStatus = "available" | "taken" | "unknown";
 
 export async function checkInstagramUsername(
   username: string,
   signal?: AbortSignal
 ): Promise<InstagramStatus> {
-  const headers: Record<string, string> = { "User-Agent": USER_AGENT, Accept: "text/html" };
+  const headers: Record<string, string> = { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" };
   if (process.env.INSTAGRAM_SESSION_ID) {
     headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;
   }

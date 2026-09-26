@@ -14,13 +14,11 @@
  * it can change without notice, so anything inconclusive resolves to
  * "unknown" rather than failing the whole search.
  */
-import type { SocialStatus } from "@/lib/socialStatus";
-
-const USER_AGENT = "Mozilla/5.0 (compatible; DomainFinderBot/1.0)";
+import { SOCIAL_CHECK_USER_AGENT, type SocialStatus } from "@/lib/socialStatus";
 
 export async function checkTiktokUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
   const res = await fetch(`https://www.tiktok.com/@${encodeURIComponent(username)}`, {
-    headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
+    headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" },
     signal,
   });
 

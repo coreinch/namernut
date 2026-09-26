@@ -14,6 +14,21 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
 
   return (
     <html lang="en">
+      <head>
+        {/* error.tsx/not-found.tsx inherit the app's light/dark theme via
+            globals.css's --background/--foreground; this boundary can't,
+            since it renders its own bare <html>/<body> (see comment above).
+            Without this, a dark-mode visitor got the browser's default
+            white-page fallback here — a jarring flash inconsistent with
+            the rest of the app. Values match globals.css's --background/
+            --foreground for each mode. */}
+        <style>{`
+          body { background: #f7f5ff; color: #1b1533; }
+          @media (prefers-color-scheme: dark) {
+            body { background: #181233; color: #ede9fb; }
+          }
+        `}</style>
+      </head>
       <body>
         <div
           style={{

@@ -66,6 +66,18 @@ body {
   animation: fade-in-up 0.25s ease-out both;
 }
 
+/* Search results/log lines fade-slide in continuously during an active
+   search, and several elements (Footer's Stop button, GateToggle,
+   LogDot, PendingCard) use Tailwind's animate-pulse — both can be
+   uncomfortable for motion-sensitive users with no in-app way to opt
+   out, so honor the OS-level setting directly. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-pulse {
+    animation: none;
+  }
+}
+
 /* Thin, unobtrusive scrollbar for the log feed */
 .thin-scrollbar {
   scrollbar-width: thin;
