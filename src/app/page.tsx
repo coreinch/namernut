@@ -694,11 +694,15 @@ export default function Home() {
   // brandability check as soon as a result is found, scores stream in
   // asynchronously and the list re-sorts as they land. Entries with no
   // score yet sort last via the ?? -1 fallback.
-  const currentRunResults = foundHistory
-    .filter((e) => e.runId === activeRunId)
-    .slice()
-    .reverse()
-    .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1));
+  const currentRunResults = useMemo(
+    () =>
+      foundHistory
+        .filter((e) => e.runId === activeRunId)
+        .slice()
+        .reverse()
+        .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1)),
+    [foundHistory, activeRunId]
+  );
   // Everything not from the active run, ranked best-first (highest
   // brandabilityScore — easiest to actually rank #1 for — at the top): once
   // a result has aged out of the current run, how promising it is matters
@@ -708,17 +712,25 @@ export default function Home() {
   // via the Archive tab (see Header) — there's no separate "top ranked"
   // slot to fill an idle screen anymore, since the tab itself is always on
   // screen.
-  const archiveResults = foundHistory
-    .filter((e) => e.runId !== activeRunId)
-    .slice()
-    .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1));
+  const archiveResults = useMemo(
+    () =>
+      foundHistory
+        .filter((e) => e.runId !== activeRunId)
+        .slice()
+        .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1)),
+    [foundHistory, activeRunId]
+  );
   // Matches on the domain only (not `meaning`'s free-text description) —
   // the filter box exists to jump back to a specific name someone
   // remembers, not to full-text search every dictionary-pairing blurb.
   const trimmedArchiveFilter = archiveFilter.trim().toLowerCase();
-  const filteredArchiveResults = trimmedArchiveFilter
-    ? archiveResults.filter((e) => e.domain.toLowerCase().includes(trimmedArchiveFilter))
-    : archiveResults;
+  const filteredArchiveResults = useMemo(
+    () =>
+      trimmedArchiveFilter
+        ? archiveResults.filter((e) => e.domain.toLowerCase().includes(trimmedArchiveFilter))
+        : archiveResults,
+    [archiveResults, trimmedArchiveFilter]
+  );
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
   const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
   const tabCounts: Record<ResultsTab, number> = {
@@ -799,18 +811,20 @@ export default function Home() {
               )}
               {aiSynonymWords.length > 0 && (
                 <p className="text-xs text-muted">
-                  Also searching AI synonym{aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
+                  {isRunning ? "Also searching" : "Also searched"} AI synonym
+                  {aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
                 </p>
               )}
               {aiInventedWords.length > 0 && (
                 <p className="text-xs text-muted">
-                  Also searching AI-invented name{aiInventedWords.length === 1 ? "" : "s"}:{" "}
-                  {aiInventedWords.join(", ")}
+                  {isRunning ? "Also searching" : "Also searched"} AI-invented name
+                  {aiInventedWords.length === 1 ? "" : "s"}: {aiInventedWords.join(", ")}
                 </p>
               )}
               {altSpellingWords.length > 0 && (
                 <p className="text-xs text-muted">
-                  Also searching alt spelling{altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
+                  {isRunning ? "Also searching" : "Also searched"} alt spelling
+                  {altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
                   {gates.filterPronounceable &&
                     // Only worth saying while the gate is actually on —
                     // with it off there's nothing being skipped to call
@@ -823,7 +837,9 @@ export default function Home() {
               )}
               {currentRunResults.length === 0 && !isRunning ? (
                 <p className="py-8 text-center text-sm text-muted">
-                  Type a keyword above and hit Generate to see results here.
+                  {runStatus === "idle"
+                    ? "Type a keyword above and hit Generate to see results here."
+                    : "No matches found — try loosening a quality gate or a different keyword."}
                 </p>
               ) : (
                 <ResultsGrid

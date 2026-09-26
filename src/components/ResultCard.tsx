@@ -180,14 +180,16 @@ function BrandabilityBadge({ brandability, onCheck }: { brandability: Brandabili
   }
   if (brandability.error) {
     return (
-      <button
-        type="button"
-        onClick={onCheck}
-        className={`whitespace-nowrap text-xs font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
-        title={brandability.error}
-      >
-        Retry
-      </button>
+      <span className="flex min-w-0 items-center gap-1.5 text-xs">
+        <span className="min-w-0 truncate text-red-600 dark:text-red-400">{brandability.error}</span>
+        <button
+          type="button"
+          onClick={onCheck}
+          className={`shrink-0 whitespace-nowrap font-medium text-red-600 underline decoration-red-600/40 underline-offset-2 transition-colors hover:text-red-700 dark:text-red-400 dark:decoration-red-400/40 dark:hover:text-red-300 ${FOCUS_RING}`}
+        >
+          Retry
+        </button>
+      </span>
     );
   }
   if (brandability.score === undefined) {
