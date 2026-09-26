@@ -471,6 +471,18 @@ export async function runDiscovery(
       // per candidate examined, which would be a much larger volume.
       const socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>> = {};
 
+      // TLDs whose domain came back available, in the order found. Kicking
+      // off (but not yet awaiting) this name's social checks the moment the
+      // *first* one is found — see below — lets them run in the background
+      // while the loop moves straight on to the next TLD's domain check,
+      // instead of paying the full social-check latency before that next
+      // domain check can even start. They're only actually awaited once
+      // every TLD has been checked, by which point they're often already
+      // resolved. This overlaps domain and social checking without
+      // increasing social request volume: a candidate whose domain is
+      // unavailable on every TLD still never triggers a social check.
+      const pendingAvailable: { domain: string }[] = [];
+
       for (const tld of tlds) {
         if (signal.aborted) return;
         if (foundCount >= targetCount) return;
@@ -484,103 +496,112 @@ export async function runDiscovery(
         checkedCount++;
 
         if (status === "available") {
-          // Re-check right here, with no `await` before the increment: the
-          // guard at the top of this loop only catches workers that hadn't
-          // yet started an in-flight RDAP/whois check when the target was
-          // reached. Without this second, synchronous check, several
-          // concurrent workers can all pass that guard while foundCount is
-          // still under target, then all resolve "available" and all
-          // increment — overshooting by up to CONCURRENCY-1 results.
-          if (foundCount >= targetCount) continue;
-
-          // "unknown" is the correct resting value for every platform
-          // that's disabled (never required, or dropped mid-search — see
-          // gateDisabled below) — SocialStatus has no separate "not
-          // checked" state, and DiscoveryEvent's "found" case always
-          // carries all three (see its own doc comment), so a disabled
-          // platform reports the same "unknown" a genuinely inconclusive
-          // check would.
-          const social: Record<string, SocialStatus> = { instagram: "unknown", github: "unknown", tiktok: "unknown" };
-
-          // Run every still-required platform's check concurrently rather
-          // than one after another — sequentially, three platforms each
-          // paying their own CHECK_DELAY_MS*2 tail delay (see
-          // checkSocialOne) would nearly triple this section's latency for
-          // no benefit, since the checks are fully independent of each
-          // other.
-          const activePlatforms = SOCIAL_PLATFORMS.filter((p) => !gateDisabled[p.key]);
-          const results = await Promise.all(
-            activePlatforms.map(async (platform) => {
-              if (!socialForName[platform.key]) {
-                socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
-              }
-              return { platform, result: await socialForName[platform.key]! };
-            })
-          );
-          if (results.some((r) => r.result === "aborted")) return;
-
-          for (const { platform, result } of results) {
-            if (result === "blocked") {
-              blockedStreaks[platform.key]++;
-              // Guarded on !gateDisabled[platform.key] too: several
-              // workers can have a check for this platform in flight when
-              // its streak first trips, and each one's in-flight request
-              // can still resolve "blocked" afterward — without this,
-              // each of those would re-trip the (already-tripped) breaker
-              // and emit a duplicate event.
-              if (!gateDisabled[platform.key] && blockedStreaks[platform.key] >= SOCIAL_BLOCKED_STREAK_THRESHOLD) {
-                gateDisabled[platform.key] = true;
-                onEvent({
-                  type: "error",
-                  message: `${platform.label} checking appears to be blocked — no longer requiring it for the rest of this search.`,
-                });
-              }
-            } else {
-              blockedStreaks[platform.key] = 0;
-              social[platform.key] = result as SocialStatus;
+          for (const platform of SOCIAL_PLATFORMS) {
+            if (!gateDisabled[platform.key] && !socialForName[platform.key]) {
+              socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
             }
           }
-
-          // Only a domain match plus every *currently* required platform's
-          // handle being available counts as a result — "taken" and
-          // "unknown" (an inconclusive check, or a platform confirmed
-          // blocked for this whole search) both fail to qualify, since
-          // "unknown" is not the same as confirmed available. Evaluated
-          // against gateDisabled's state *after* the loop above, so a
-          // platform whose breaker just tripped on this very candidate is
-          // already exempted for it too — same as it always was for
-          // Instagram alone.
-          const anyRequiredUnavailable = SOCIAL_PLATFORMS.some(
-            (p) => !gateDisabled[p.key] && social[p.key] !== "available"
-          );
-          if (anyRequiredUnavailable) {
-            onEvent({ type: "filtered", name: domain, checkedCount });
-            continue;
-          }
-
-          // Re-check once more: the social checks above can take a while,
-          // and another worker may have filled the last slot during them
-          // (same overshoot race as above, closed the same way).
-          if (foundCount >= targetCount) continue;
-          foundCount++;
-          onEvent({
-            type: "found",
-            domain,
-            meaning,
-            parts,
-            checkedCount,
-            foundCount,
-            instagram: social.instagram,
-            github: social.github,
-            tiktok: social.tiktok,
-            source,
-          });
+          pendingAvailable.push({ domain });
         } else {
           onEvent({ type: status === "taken" ? "taken" : "unknown", name: domain, checkedCount });
         }
 
         if (signal.aborted) return;
         await delay(CHECK_DELAY_MS, signal);
+      }
+
+      for (const { domain } of pendingAvailable) {
+        if (signal.aborted) return;
+        // Re-check right here, with no `await` before the increment below:
+        // the guard at the top of the domain-check loop only catches
+        // workers that hadn't yet started an in-flight RDAP/whois check
+        // when the target was reached. Without this second, synchronous
+        // check, several concurrent workers can all pass that guard while
+        // foundCount is still under target, then all resolve "available"
+        // and all increment — overshooting by up to CONCURRENCY-1 results.
+        if (foundCount >= targetCount) continue;
+
+        // "unknown" is the correct resting value for every platform
+        // that's disabled (never required, or dropped mid-search — see
+        // gateDisabled below) — SocialStatus has no separate "not
+        // checked" state, and DiscoveryEvent's "found" case always
+        // carries all three (see its own doc comment), so a disabled
+        // platform reports the same "unknown" a genuinely inconclusive
+        // check would.
+        const social: Record<string, SocialStatus> = { instagram: "unknown", github: "unknown", tiktok: "unknown" };
+
+        // Every still-required platform's checkSocialOne call was already
+        // started above (as soon as this name's first available TLD was
+        // found) rather than here — awaiting them now just picks up
+        // results that have often already arrived while later TLDs in this
+        // candidate were still being domain-checked.
+        const activePlatforms = SOCIAL_PLATFORMS.filter((p) => !gateDisabled[p.key]);
+        const results = await Promise.all(
+          activePlatforms.map(async (platform) => {
+            if (!socialForName[platform.key]) {
+              socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
+            }
+            return { platform, result: await socialForName[platform.key]! };
+          })
+        );
+        if (results.some((r) => r.result === "aborted")) return;
+
+        for (const { platform, result } of results) {
+          if (result === "blocked") {
+            blockedStreaks[platform.key]++;
+            // Guarded on !gateDisabled[platform.key] too: several
+            // workers can have a check for this platform in flight when
+            // its streak first trips, and each one's in-flight request
+            // can still resolve "blocked" afterward — without this,
+            // each of those would re-trip the (already-tripped) breaker
+            // and emit a duplicate event.
+            if (!gateDisabled[platform.key] && blockedStreaks[platform.key] >= SOCIAL_BLOCKED_STREAK_THRESHOLD) {
+              gateDisabled[platform.key] = true;
+              onEvent({
+                type: "error",
+                message: `${platform.label} checking appears to be blocked — no longer requiring it for the rest of this search.`,
+              });
+            }
+          } else {
+            blockedStreaks[platform.key] = 0;
+            social[platform.key] = result as SocialStatus;
+          }
+        }
+
+        // Only a domain match plus every *currently* required platform's
+        // handle being available counts as a result — "taken" and
+        // "unknown" (an inconclusive check, or a platform confirmed
+        // blocked for this whole search) both fail to qualify, since
+        // "unknown" is not the same as confirmed available. Evaluated
+        // against gateDisabled's state *after* the loop above, so a
+        // platform whose breaker just tripped on this very candidate is
+        // already exempted for it too — same as it always was for
+        // Instagram alone.
+        const anyRequiredUnavailable = SOCIAL_PLATFORMS.some(
+          (p) => !gateDisabled[p.key] && social[p.key] !== "available"
+        );
+        if (anyRequiredUnavailable) {
+          onEvent({ type: "filtered", name: domain, checkedCount });
+          continue;
+        }
+
+        // Re-check once more: the social checks above can take a while,
+        // and another worker may have filled the last slot during them
+        // (same overshoot race as above, closed the same way).
+        if (foundCount >= targetCount) continue;
+        foundCount++;
+        onEvent({
+          type: "found",
+          domain,
+          meaning,
+          parts,
+          checkedCount,
+          foundCount,
+          instagram: social.instagram,
+          github: social.github,
+          tiktok: social.tiktok,
+          source,
+        });
       }
     }
   }
