@@ -7,7 +7,10 @@
   --background: #f7f5ff;
   --foreground: #1b1533;
   --card: #ffffff;
-  --accent: #ff6b35;
+  /* Darkened from #ff6b35 — white text on that shade (the primary "Generate"
+     button, error/not-found CTAs) measured ~2.8:1, under WCAG AA's 4.5:1
+     minimum for normal-size text. This shade measures ~5.1:1. */
+  --accent: #c2440a;
   /* Darkened from #7c6cf0 — that shade as text on --card (#ffffff) measured
      ~4.0:1, under WCAG AA's 4.5:1 minimum for normal-size text (e.g. the
      Brandability button label, the selected-TLD chip). This shade measures
@@ -32,7 +35,11 @@
     --background: #181233;
     --foreground: #ede9fb;
     --card: #221a44;
-    --accent: #ff8659;
+    /* Darkened from #ff8659 for the same reason as light mode's --accent
+       above — white text on that shade measured ~2.4:1. This shade measures
+       ~5.0:1 for white text, and still ~3.2:1 as the favorited-star glyph
+       color against --card, above the 3:1 non-text/icon minimum. */
+    --accent: #c24618;
     --accent-2: #9c8cff;
     --muted: #a79ecf;
   }

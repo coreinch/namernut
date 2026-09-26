@@ -267,14 +267,21 @@ export default function Home() {
     // the stale, unfiltered pool size. Aborting means only the latest
     // request's response can ever reach setStats.
     const controller = new AbortController();
-    fetch(
-      `/api/stats?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}`,
-      { signal: controller.signal }
-    )
-      .then((r) => r.json())
-      .then(setStats)
-      .catch(() => {});
-    return () => controller.abort();
+    // keywordParam changes on every keystroke in the keyword field — debounce
+    // so typing doesn't fire a request per character.
+    const id = setTimeout(() => {
+      fetch(
+        `/api/stats?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}`,
+        { signal: controller.signal }
+      )
+        .then((r) => r.json())
+        .then(setStats)
+        .catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(id);
+      controller.abort();
+    };
   }, [langsParam, maxLength, keywordParam]);
 
   // Restore results, favorites, and filters on load. localStorage means

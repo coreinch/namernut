@@ -42,6 +42,7 @@ export function Footer({
           {announcedStatus}
         </span>
         <button
+          type="button"
           onClick={onStop}
           className={`min-h-9 shrink-0 rounded-full bg-black/70 px-4 text-xs font-semibold text-white transition-transform active:scale-95 hover:bg-black/80 dark:bg-white/20 dark:hover:bg-white/30 ${FOCUS_RING}`}
         >

@@ -82,6 +82,7 @@ export function ResultCard({
             step right before deciding to register. */}
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <button
+            type="button"
             onClick={onToggleFavorite}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={favorited}
@@ -92,6 +93,7 @@ export function ResultCard({
             {favorited ? "★" : "☆"}
           </button>
           <button
+            type="button"
             onClick={onSearch}
             aria-label="Open a Google search for this name in a new tab"
             title="Google search"
@@ -101,6 +103,7 @@ export function ResultCard({
           </button>
           <BrandabilityBadge brandability={brandability} onCheck={onCheckBrandability} />
           <button
+            type="button"
             onClick={onRegister}
             title="Register this domain on Namecheap"
             className={`flex min-h-9 shrink-0 items-center justify-center rounded-full bg-foreground px-4 text-xs font-semibold text-background transition-all active:scale-95 hover:opacity-90 ${FOCUS_RING}`}
