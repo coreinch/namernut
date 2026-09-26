@@ -14,7 +14,8 @@ export function LiveLogSection({ log, logBoxRef }: { log: LogEntry[]; logBoxRef:
       <div
         ref={logBoxRef}
         className="thin-scrollbar max-h-[35vh] overflow-y-auto rounded-2xl bg-card p-3 text-sm shadow-[0_1px_3px_rgba(27,21,51,0.05)] dark:shadow-none"
-        aria-live="polite"
+        role="log"
+        aria-label="Search activity"
       >
         <ul className="space-y-0.5">
           {log.map((entry) => (

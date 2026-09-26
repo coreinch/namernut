@@ -15,8 +15,9 @@ RUN npm ci
 
 COPY . .
 
-# Runtime secrets (BRAVE_API_KEY, KILOCODE_API_KEY, INSTAGRAM_SESSION_ID)
-# are read from process.env at request time by the API routes, not at
+# Runtime secrets (SERPER_API_KEY/SERPENT_API_KEY, KILOCODE_API_KEY,
+# INSTAGRAM_SESSION_ID) are read from process.env at request time by the
+# API routes, not at
 # build time, and none of this app's env vars are NEXT_PUBLIC_-prefixed
 # — so the build needs no secrets and produces one image usable across
 # environments, per Next.js's self-hosting guidance.

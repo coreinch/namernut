@@ -8,7 +8,11 @@
   --foreground: #1b1533;
   --card: #ffffff;
   --accent: #ff6b35;
-  --accent-2: #7c6cf0;
+  /* Darkened from #7c6cf0 — that shade as text on --card (#ffffff) measured
+     ~4.0:1, under WCAG AA's 4.5:1 minimum for normal-size text (e.g. the
+     Brandability button label, the selected-TLD chip). This shade measures
+     ~5.1:1. Dark mode's --accent-2 below is unaffected — it already passes. */
+  --accent-2: #6a5ae0;
   --muted: #6e6690;
 }
 
