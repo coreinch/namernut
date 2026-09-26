@@ -20,17 +20,19 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: [
-          // 'unsafe-inline'/'unsafe-eval' on script-src are needed for
-          // Next.js's own inline bootstrap scripts and dev-mode HMR; there's
-          // no external ad/analytics script this app loads that a stricter
-          // policy would be protecting against. connect-src covers the
-          // client's direct calls to this app's own /api/* routes only —
-          // no third-party API is called from the browser.
+          // 'unsafe-inline' on script-src is needed for Next.js's own
+          // inline bootstrap scripts. 'unsafe-eval' was verified
+          // unnecessary against a real production build (npm run build +
+          // npm run start) — dev-mode HMR needs it, production doesn't.
+          // There's no external ad/analytics script this app loads that a
+          // stricter policy would be protecting against. connect-src
+          // covers the client's direct calls to this app's own /api/*
+          // routes only — no third-party API is called from the browser.
           {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+              "script-src 'self' 'unsafe-inline'",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self' data:",
