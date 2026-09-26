@@ -681,12 +681,19 @@ export default function Home() {
   // "Searching…" branch needed here.
   const primaryLabel = runStatus === "idle" ? "Generate" : "Search again";
   // foundHistory is stored newest-first (new finds are prepended, so
-  // Favorites/Archive read newest-first). But within the *current* run's
-  // list, that ordering made each new find jump to the front and push
-  // earlier ones down. Reverse just this slice so finds render in discovery
-  // order — first found stays put, each new one appends after it — instead
-  // of reshuffling the whole list every find.
-  const currentRunResults = foundHistory.filter((e) => e.runId === activeRunId).slice().reverse();
+  // Favorites/Archive read newest-first). Reverse just this slice first so
+  // ties (equal score, or both still unscored) fall back to discovery
+  // order — first found stays earlier, each new one appends after it —
+  // rather than reshuffling on every find. Then rank by brandabilityScore,
+  // highest first, same as the Archive tab below: since autoCheck fires a
+  // brandability check as soon as a result is found, scores stream in
+  // asynchronously and the list re-sorts as they land. Entries with no
+  // score yet sort last via the ?? -1 fallback.
+  const currentRunResults = foundHistory
+    .filter((e) => e.runId === activeRunId)
+    .slice()
+    .reverse()
+    .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1));
   // Everything not from the active run, ranked best-first (highest
   // brandabilityScore — easiest to actually rank #1 for — at the top): once
   // a result has aged out of the current run, how promising it is matters
