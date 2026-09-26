@@ -1,5 +1,5 @@
 import type { DiscoveryGates } from "@/lib/discovery";
-import { DESCRIPTION } from "@/lib/copy";
+import { HOOK, MECHANISM } from "@/lib/copy";
 import {
   MAX_COMBINED_LENGTH,
   MIN_COMBINED_LENGTH,
@@ -202,21 +202,32 @@ export function FiltersPanel({
   return (
     <div className="flex flex-col gap-4">
       {/* Swapped emphasis (2026-09-26): the value prop used to render as
-          this small muted <p> below a big "What's your keyword?" h1 — the
-          h1 was the one thing every first-time visitor actually looked
-          at, and it says nothing about what the tool does. Shares its
-          text with lib/copy.ts's DESCRIPTION (also used for <meta>, the
-          OG image, and the PWA manifest) rather than its own paraphrase,
-          so this — the one spot a real visitor reads it — can't quietly
-          drift from what everywhere else claims. */}
-      <h1 className="text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
-        {DESCRIPTION}
+          a small muted <p> below a big "What's your keyword?" h1 — the h1
+          was the one thing every first-time visitor actually looked at,
+          and it said nothing about what the tool does. Rendering HOOK and
+          MECHANISM (lib/copy.ts) at two different weights, rather than
+          the full DESCRIPTION sentence as one same-weight block, gives a
+          skimming visitor an actual hierarchy: the pain point lands
+          first, the explanation of how second and smaller. HOOK +
+          MECHANISM concatenate back into the same DESCRIPTION used for
+          <meta>, the OG image, and the PWA manifest, so this — the one
+          spot a real visitor reads it — can't quietly drift from what
+          everywhere else claims.
+
+          Copy explains, but the keyword input + Generate button is the
+          actual product — sized down the headline (was the single
+          biggest thing on the page) and sized up the input/button pill
+          below so the generate action, not a sentence, is the visual
+          center of the hero. */}
+      <h1 className="text-center font-display text-xl font-semibold leading-tight sm:text-2xl">
+        {HOOK}
       </h1>
-      <p className="text-center text-xs font-medium uppercase tracking-wide text-muted">
+      <p className="text-center text-sm text-muted">{MECHANISM}</p>
+      <p className="mt-2 text-center text-xs font-medium uppercase tracking-wide text-muted">
         What&rsquo;s your keyword?
       </p>
 
-      <div className="flex items-center gap-1.5 rounded-full bg-card p-1.5 shadow-[0_2px_10px_rgba(27,21,51,0.08)] dark:shadow-none">
+      <div className="flex items-center gap-2 rounded-full bg-card p-2 shadow-[0_4px_20px_rgba(27,21,51,0.12)] dark:shadow-none">
         <input
           type="text"
           inputMode="text"
@@ -235,12 +246,12 @@ export function FiltersPanel({
           // whole pitch would set the wrong expectation.
           placeholder="e.g. glow, coffee"
           maxLength={20}
-          className={`min-h-11 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 ${FOCUS_RING}`}
+          className={`min-h-12 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 sm:min-h-14 sm:text-lg ${FOCUS_RING}`}
         />
         <button
           type="button"
           onClick={isRunning ? onStop : onStart}
-          className={`min-h-11 shrink-0 whitespace-nowrap rounded-full px-5 text-sm font-semibold text-white transition-all active:scale-95 ${
+          className={`min-h-12 shrink-0 whitespace-nowrap rounded-full px-6 text-base font-semibold text-white transition-all active:scale-95 sm:min-h-14 sm:px-8 sm:text-lg ${
             isRunning ? "bg-black/70 hover:bg-black/80 dark:bg-white/25 dark:hover:bg-white/35" : "bg-accent hover:opacity-90"
           } ${FOCUS_RING}`}
         >

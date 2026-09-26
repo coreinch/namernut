@@ -15,5 +15,13 @@ export const TITLE = "Namernut – AI Business Name Generator + Availability Che
 // lives in README.md and llms.txt's longer explanations, which serve a
 // different reader (someone already evaluating the tool, not deciding
 // whether to click into it at all).
-export const DESCRIPTION =
-  "Never fall for a name that's already taken. AI business name generator that instantly checks domain, social & search availability.";
+//
+// Split into HOOK (the pain point) and MECHANISM (how it's solved) so the
+// hero in FiltersPanel.tsx can give the hook more visual weight than the
+// mechanism — a plain-text visitor reading top to bottom hits the pain
+// point first and largest, then the explanation, then the keyword prompt.
+// DESCRIPTION stays the single combined sentence for every other consumer
+// (meta tags, manifest, OG image) so none of them need their own split.
+export const HOOK = "Never fall for a name that's already taken.";
+export const MECHANISM = "AI business name generator that instantly checks domain, social & search availability.";
+export const DESCRIPTION = `${HOOK} ${MECHANISM}`;
