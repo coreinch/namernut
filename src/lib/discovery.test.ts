@@ -217,6 +217,89 @@ describe("runDiscovery", () => {
     ).toBe(true);
   });
 
+  it("retries a rate-limited social check after backing off, and the candidate still resolves", async () => {
+    // Distinct from the LoginWallError breaker above: a rate limit is
+    // transient (retry the same request after a delay), not structural
+    // (drop the requirement) — see checkSocialOne's two separate branches
+    // in discovery.ts. Real timers would make this test wait out the actual
+    // 5s RATE_LIMIT_BACKOFF_MS, so fake timers stand in for it.
+    vi.useFakeTimers();
+    try {
+      // A single-word pool pairs only with itself ("catcat") — exactly one
+      // candidate, so there's no concurrency ambiguity over which of
+      // several in-flight candidates consumes the one-time rejection below.
+      const pool: WordEntry[] = [{ word: "cat", langs: ["english"], definition: "", common: false, noun: true }];
+      vi.mocked(checkDomain).mockResolvedValue("available");
+      vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+      const rateLimitError = new Error("instagram_rate_limited");
+      rateLimitError.name = "RateLimitError";
+      vi.mocked(checkInstagramUsername).mockRejectedValueOnce(rateLimitError).mockResolvedValue("available");
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      const promise = runDiscovery(pool, undefined, ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // Told the user it was backing off, not just silently retrying.
+      expect(
+        events.some((e) => e.type === "error" && e.message.includes("Instagram rate limited, backing off"))
+      ).toBe(true);
+
+      // The retry succeeded — this is not the structurally-blocked path, so
+      // the candidate still counts once Instagram comes back "available".
+      const found = events.filter((e) => e.type === "found");
+      expect(found.length).toBe(1);
+      if (found[0].type === "found") expect(found[0].instagram).toBe("available");
+      expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up on a social check as 'unknown' (not 'blocked') after repeated non-rate-limit errors", async () => {
+    // A generic error (no blockedErrorName match, not a RateLimitError)
+    // retries with the flat 1000ms delay and then settles as "unknown" —
+    // it never trips the structural-block breaker, since only
+    // blockedErrorName does that (see checkSocialOne in discovery.ts).
+    vi.useFakeTimers();
+    try {
+      // Single-word pool, same reasoning as the rate-limit test above: one
+      // deterministic candidate, so the retry count below is exact.
+      const pool: WordEntry[] = [{ word: "cat", langs: ["english"], definition: "", common: false, noun: true }];
+      vi.mocked(checkDomain).mockResolvedValue("available");
+      vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+      vi.mocked(checkInstagramUsername).mockRejectedValue(new Error("instagram_network_error"));
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      // Target 5 is unreachable (the pool has exactly one candidate,
+      // "catcat", and it never qualifies — see below) — this just lets
+      // runDiscovery run the pool to exhaustion rather than stopping after
+      // one result, since "unknown" doesn't count as found for a required
+      // platform.
+      const promise = runDiscovery(pool, undefined, ["com"], 5, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // "unknown" is not "available" — Instagram is still required (the
+      // gate never tripped, see below), so the domain match is filtered
+      // rather than counted, distinct from the breaker case where the
+      // requirement itself gets dropped.
+      expect(events.filter((e) => e.type === "found").length).toBe(0);
+      expect(events.some((e) => e.type === "filtered" && e.name === "catcat.com")).toBe(true);
+
+      // Retried up to the cap, then gave up on this one check — not the
+      // "checking appears to be blocked" breaker message, and the gate
+      // stays on for any further candidates.
+      expect(events.some((e) => e.type === "error" && e.message.toLowerCase().includes("blocked"))).toBe(false);
+      expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not require (or even check) Instagram availability when requireInstagram is off", async () => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
