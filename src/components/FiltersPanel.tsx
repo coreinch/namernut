@@ -201,18 +201,20 @@ export function FiltersPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Swapped emphasis (2026-09-26): the value prop used to render as
+          this small muted <p> below a big "What's your keyword?" h1 — the
+          h1 was the one thing every first-time visitor actually looked
+          at, and it says nothing about what the tool does. Shares its
+          text with lib/copy.ts's DESCRIPTION (also used for <meta>, the
+          OG image, and the PWA manifest) rather than its own paraphrase,
+          so this — the one spot a real visitor reads it — can't quietly
+          drift from what everywhere else claims. */}
       <h1 className="text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
-        What&rsquo;s your keyword?
+        {DESCRIPTION}
       </h1>
-      {/* The value prop used to live only in <meta description> — real
-          visitors never saw it, just the h1 above, which reads fine once
-          you already know what the tool does but says nothing to a
-          first-time visitor deciding whether to type anything at all.
-          Shares its text with lib/copy.ts's DESCRIPTION (also used for
-          <meta>, the OG image, and the PWA manifest) rather than its own
-          paraphrase, so this — the one spot an actual visitor reads it —
-          can't quietly drift from what everywhere else claims. */}
-      <p className="text-center text-sm text-muted sm:text-base">{DESCRIPTION}</p>
+      <p className="text-center text-xs font-medium uppercase tracking-wide text-muted">
+        What&rsquo;s your keyword?
+      </p>
 
       <div className="flex items-center gap-1.5 rounded-full bg-card p-1.5 shadow-[0_2px_10px_rgba(27,21,51,0.08)] dark:shadow-none">
         <input
