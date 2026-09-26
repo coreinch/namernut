@@ -226,6 +226,11 @@ export default function Home() {
   // reloading the page is a fresh look at the app, and "Current" is always
   // the most relevant place to land.
   const [activeTab, setActiveTab] = useState<ResultsTab>("current");
+  // Archive accumulates every past search's results (see archiveResults
+  // below) with no cap — a returning user can easily have hundreds of
+  // entries there and no way to jump to the one they remember, hence the
+  // filter box rendered alongside it.
+  const [archiveFilter, setArchiveFilter] = useState("");
 
   const selectedLangs = useMemo(
     () => (Object.keys(enabledLangs) as Lang[]).filter((l) => enabledLangs[l]),
@@ -707,6 +712,13 @@ export default function Home() {
     .filter((e) => e.runId !== activeRunId)
     .slice()
     .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1));
+  // Matches on the domain only (not `meaning`'s free-text description) —
+  // the filter box exists to jump back to a specific name someone
+  // remembers, not to full-text search every dictionary-pairing blurb.
+  const trimmedArchiveFilter = archiveFilter.trim().toLowerCase();
+  const filteredArchiveResults = trimmedArchiveFilter
+    ? archiveResults.filter((e) => e.domain.toLowerCase().includes(trimmedArchiveFilter))
+    : archiveResults;
   const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
   const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
   const tabCounts: Record<ResultsTab, number> = {
@@ -863,23 +875,46 @@ export default function Home() {
               id={tabPanelId("archive")}
               aria-labelledby={tabButtonId("archive")}
               tabIndex={0}
-              className={`flex flex-col gap-2 ${FOCUS_RING}`}
+              className={`flex flex-col gap-3 ${FOCUS_RING}`}
             >
               {archiveResults.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted">
                   Past searches will collect here once you run more than one.
                 </p>
               ) : (
-                <ResultsGrid
-                  entries={archiveResults}
-                  favoriteDomains={favoriteDomains}
-                  checkingBrandabilityNames={checkingBrandabilityNames}
-                  brandabilityErrors={brandabilityErrors}
-                  onSearch={searchDomain}
-                  onToggleFavorite={toggleFavorite}
-                  onCheckBrandability={checkBrandabilityFor}
-                  onRegister={registerDomain}
-                />
+                <>
+                  {/* Only worth the extra control once there's enough here
+                      that scrolling to find one name stops being quick —
+                      below that, the input would just be one more thing to
+                      skip past. */}
+                  {archiveResults.length > 8 && (
+                    <input
+                      type="text"
+                      inputMode="text"
+                      value={archiveFilter}
+                      onChange={(e) => setArchiveFilter(e.target.value)}
+                      placeholder={`Filter ${formatNumber(archiveResults.length)} archived names…`}
+                      aria-label="Filter archived names"
+                      className={`min-h-10 w-full rounded-full border border-black/15 bg-transparent px-4 text-sm text-foreground outline-none placeholder:text-black/40 dark:border-white/15 dark:placeholder:text-white/40 ${FOCUS_RING}`}
+                    />
+                  )}
+                  {filteredArchiveResults.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted">
+                      No archived names match &ldquo;{archiveFilter.trim()}&rdquo;.
+                    </p>
+                  ) : (
+                    <ResultsGrid
+                      entries={filteredArchiveResults}
+                      favoriteDomains={favoriteDomains}
+                      checkingBrandabilityNames={checkingBrandabilityNames}
+                      brandabilityErrors={brandabilityErrors}
+                      onSearch={searchDomain}
+                      onToggleFavorite={toggleFavorite}
+                      onCheckBrandability={checkBrandabilityFor}
+                      onRegister={registerDomain}
+                    />
+                  )}
+                </>
               )}
             </section>
           )}
