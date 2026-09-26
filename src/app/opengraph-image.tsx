@@ -37,7 +37,8 @@ export default function OpengraphImage() {
               background: "linear-gradient(135deg, #2b2158 0%, #100a29 100%)",
               fontSize: 76,
               fontWeight: 700,
-              color: "#ff6b35",
+              // Matches globals.css's dark-mode --accent — see icon.tsx.
+              color: "#c24618",
             }}
           >
             n

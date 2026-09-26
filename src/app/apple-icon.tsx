@@ -22,7 +22,8 @@ export default function AppleIcon() {
             fontSize: 100,
             fontWeight: 700,
             fontFamily: "sans-serif",
-            color: "#ff6b35",
+            // Matches globals.css's dark-mode --accent — see icon.tsx.
+            color: "#c24618",
             letterSpacing: -3,
           }}
         >

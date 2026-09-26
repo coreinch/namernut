@@ -42,10 +42,11 @@ interface SerpentApiResponse {
 /**
  * `region` is a required, explicit ISO country code — never left to
  * apiserpent's own default; see the matching comment in serperSearch.ts.
- * brandability.ts checks several in parallel (see REGIONS there): confirmed
- * directly that "fondterm" returned generic results under country=us, but
- * silently overrode to a real brand, "Finterm", under country=gr — a real
- * override can trigger in one region and not another for the same query.
+ * brandability.ts checks a single, user-selected region per request (see the
+ * REGIONS comment there): confirmed directly that "fondterm" returned
+ * generic results under country=us, but silently overrode to a real brand,
+ * "Finterm", under country=gr — a real override can trigger in one region
+ * and not another for the same query.
  */
 export async function serpentSearch(
   query: string,

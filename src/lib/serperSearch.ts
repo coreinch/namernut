@@ -27,14 +27,15 @@ interface SerperApiResponse {
  * never left to Serper's own default. Google's results (including whether
  * it silently overrides an unusual query with a different, existing term —
  * see the override-detection rubric bullet in brandability.ts's buildPrompt)
- * vary by region, and brandability.ts checks several in parallel (see REGIONS
- * there) since a real override can trigger in one region and not another.
- * Note Serper specifically didn't reliably reproduce the override behavior
- * at all in testing — confirmed directly across 10 different `gl` values
- * for "fondterm" (including retrying the same one), none consistently
- * showed the real override to "Finterm" that apiserpent.com's country=gr
- * did — so multi-region checking on Serper may have limited value; see
- * serpentSearch.ts for the provider that's actually demonstrated this.
+ * vary by region; brandability.ts checks a single, user-selected region per
+ * request (see the REGIONS comment there for why it isn't checked
+ * concurrently across regions). Note Serper specifically didn't reliably
+ * reproduce the override behavior at all in testing — confirmed directly
+ * across 10 different `gl` values for "fondterm" (including retrying the
+ * same one), none consistently showed the real override to "Finterm" that
+ * apiserpent.com's country=gr did — so switching regions on Serper may have
+ * limited value; see serpentSearch.ts for the provider that's actually
+ * demonstrated this.
  */
 export async function serperSearch(
   query: string,

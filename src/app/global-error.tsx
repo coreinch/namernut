@@ -40,7 +40,12 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
               padding: "0 1.5rem",
               borderRadius: "9999px",
               border: "none",
-              background: "#f97316",
+              // Matches globals.css's --accent (light mode) — hardcoded
+              // rather than var(--accent) since this boundary renders its
+              // own <html>/<body>, bypassing globals.css entirely. White
+              // text on #ff6b35 (the pre-round-5 accent) measured ~2.8:1,
+              // under WCAG AA's 4.5:1; this value measures ~5.1:1.
+              background: "#c2440a",
               color: "#fff",
               fontSize: "1rem",
               fontWeight: 600,

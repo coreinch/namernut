@@ -23,7 +23,10 @@ export default function Icon() {
             fontSize: 300,
             fontWeight: 700,
             fontFamily: "sans-serif",
-            color: "#ff6b35",
+            // Matches globals.css's dark-mode --accent (this icon renders on
+            // a dark gradient, so the dark-mode shade applies) — was the
+            // pre-round-5 accent, since drifted from the live app's color.
+            color: "#c24618",
             letterSpacing: -8,
           }}
         >
