@@ -406,7 +406,19 @@ export default function Home() {
   const [brandabilityErrors, setBrandabilityErrors] = useState<Record<string, string>>({});
 
   const checkBrandabilityFor = useCallback((name: string, parts: [string, string] | undefined) => {
-    setCheckingBrandabilityNames((prev) => (prev.has(name) ? prev : new Set(prev).add(name)));
+    // A name found under several selected TLDs fires one "found" event per
+    // TLD, each independently calling this — without this guard every one
+    // of them fired its own real, metered /api/brandability request (a
+    // paid search + LLM call) for the identical name.
+    let alreadyChecking = false;
+    setCheckingBrandabilityNames((prev) => {
+      if (prev.has(name)) {
+        alreadyChecking = true;
+        return prev;
+      }
+      return new Set(prev).add(name);
+    });
+    if (alreadyChecking) return;
     setBrandabilityErrors((prev) => {
       if (!(name in prev)) return prev;
       const next = { ...prev };

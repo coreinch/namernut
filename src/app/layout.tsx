@@ -79,8 +79,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // No maximumScale/userScalable lock — that combination blocks
+  // pinch-to-zoom and browser text scaling site-wide, which fails WCAG
+  // 2.1 SC 1.4.4 (Resize Text) for low-vision users relying on it to read
+  // the app's text-xs meaning lines, TLD chips, and log entries.
   viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#F7F5FF" },
