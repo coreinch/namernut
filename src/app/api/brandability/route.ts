@@ -100,6 +100,17 @@ export async function GET(request: Request) {
             : "Serper.dev";
       return Response.json({ error: `${service} rate limit hit — try again shortly.` }, { status: 429 });
     }
+    // AbortSignal.timeout() (see SEARCH_TIMEOUT_MS in brandability.ts and
+    // REQUEST_TIMEOUT_MS in kilocode.ts) rejects with a DOMException whose
+    // .name is "TimeoutError" and whose .message is a raw, implementation-
+    // specific string like "The operation was aborted due to timeout" — not
+    // something written for an end user. searchWithFallback already retries
+    // once on a search-provider timeout, so reaching here means both the
+    // fallback provider and/or the LLM scoring call were too slow; that's
+    // worth telling the user in their own words, not the browser's.
+    if (err instanceof DOMException && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return Response.json({ error: "Brandability check timed out — try again." }, { status: 504 });
+    }
     return Response.json(
       { error: err instanceof Error ? err.message : "Brandability check failed" },
       { status: 500 }
