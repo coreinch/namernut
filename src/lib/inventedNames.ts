@@ -1,6 +1,10 @@
 import { completeChat } from "@/lib/kilocode";
 
-const BATCH_SIZE = 20;
+// Bumped from 20: buildInventedTier (candidates.ts) has no retry/backfill —
+// it caps the invented tier at exactly however many words come back from
+// this one-shot call — so a bigger batch is the only way to give that tier
+// more to draw from over the course of a search.
+export const BATCH_SIZE = 40;
 
 /**
  * Asks the LLM to invent a batch of short, coined, brandable words — the

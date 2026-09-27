@@ -1,6 +1,6 @@
 import { completeChat } from "@/lib/kilocode";
 
-const MAX_SYNONYMS = 6;
+export const MAX_SYNONYMS = 6;
 
 /**
  * Asks the LLM for a handful of short, single-word synonyms/related

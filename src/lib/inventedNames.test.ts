@@ -47,12 +47,13 @@ describe("suggestInventedNames", () => {
     expect(result).toEqual(["zuvio"]);
   });
 
-  it("caps the result at 20 words even if the LLM returns more", async () => {
+  it("caps the result at 40 words even if the LLM returns more", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
     const alphabet = "abcdefghijklmnopqrstuvwxyz".split("");
-    completeChatMock.mockResolvedValue(alphabet.map((letter) => `word${letter}`).join("\n"));
+    const words = alphabet.flatMap((a) => alphabet.map((b) => `word${a}${b}`)).slice(0, 50);
+    completeChatMock.mockResolvedValue(words.join("\n"));
     const result = await suggestInventedNames("fast");
-    expect(result.length).toBe(20);
+    expect(result.length).toBe(40);
   });
 
   it("returns [] (not a rejection) when the LLM call fails", async () => {

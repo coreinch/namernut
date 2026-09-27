@@ -3,6 +3,7 @@ import { getSelectedPool, parseLangs, parseMaxLength } from "@/lib/dictionary";
 import { parseCount, parseKeyword, parseTlds } from "@/lib/candidates";
 import { suggestKeywordSynonyms } from "@/lib/synonyms";
 import { suggestInventedNames } from "@/lib/inventedNames";
+import { suggestSynonymsAndInvented } from "@/lib/suggestNames";
 import { alternateSpellings } from "@/lib/alternateSpelling";
 import { checkRateLimit, getClientIp } from "@/lib/rateLimit";
 
@@ -54,6 +55,14 @@ export async function GET(request: Request) {
   const altSpellings = keyword && useAltSpellings ? alternateSpellings(keyword) : [];
   const willFetchSynonyms = Boolean(keyword && useAiSynonyms);
   const willFetchInvented = useAiInvented;
+  // Both AI sources are on and there's a keyword to steer them by (the
+  // common case) — merge into one LLM call via suggestSynonymsAndInvented
+  // instead of two, since they're independent prompts asked of the same
+  // model at the same time anyway. Any other combination (only one toggle
+  // on, or no keyword — suggestInventedNames works keyword-less but
+  // suggestKeywordSynonyms doesn't) falls back to the two standalone calls
+  // below.
+  const willFetchCombined = Boolean(keyword && useAiSynonyms && useAiInvented);
 
   const encoder = new TextEncoder();
   const abortController = new AbortController();
@@ -95,12 +104,21 @@ export async function GET(request: Request) {
       // runDiscovery below, so hitting Stop during this wait actually
       // cancels the in-flight LLM calls instead of letting them finish
       // uselessly.
-      const [aiSynonyms, inventedNames] = await Promise.all([
-        keyword && useAiSynonyms
-          ? suggestKeywordSynonyms(keyword, abortController.signal)
-          : Promise.resolve<string[]>([]),
-        willFetchInvented ? suggestInventedNames(keyword, abortController.signal) : Promise.resolve<string[]>([]),
-      ]);
+      let aiSynonyms: string[];
+      let inventedNames: string[];
+      if (willFetchCombined) {
+        ({ synonyms: aiSynonyms, invented: inventedNames } = await suggestSynonymsAndInvented(
+          keyword as string,
+          abortController.signal
+        ));
+      } else {
+        [aiSynonyms, inventedNames] = await Promise.all([
+          keyword && useAiSynonyms
+            ? suggestKeywordSynonyms(keyword, abortController.signal)
+            : Promise.resolve<string[]>([]),
+          willFetchInvented ? suggestInventedNames(keyword, abortController.signal) : Promise.resolve<string[]>([]),
+        ]);
+      }
 
       if (abortController.signal.aborted) {
         if (heartbeat) clearInterval(heartbeat);

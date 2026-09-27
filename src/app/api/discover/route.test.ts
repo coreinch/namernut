@@ -18,6 +18,9 @@ vi.mock("@/lib/synonyms", () => ({ suggestKeywordSynonyms }));
 const { suggestInventedNames } = vi.hoisted(() => ({ suggestInventedNames: vi.fn() }));
 vi.mock("@/lib/inventedNames", () => ({ suggestInventedNames }));
 
+const { suggestSynonymsAndInvented } = vi.hoisted(() => ({ suggestSynonymsAndInvented: vi.fn() }));
+vi.mock("@/lib/suggestNames", () => ({ suggestSynonymsAndInvented }));
+
 import { GET } from "./route";
 
 function req(query: string) {
@@ -38,6 +41,8 @@ describe("GET /api/discover", () => {
     suggestKeywordSynonyms.mockResolvedValue([]);
     suggestInventedNames.mockReset();
     suggestInventedNames.mockResolvedValue([]);
+    suggestSynonymsAndInvented.mockReset();
+    suggestSynonymsAndInvented.mockResolvedValue({ synonyms: [], invented: [] });
   });
 
   it("returns plain JSON with 429 and Retry-After when rate limited, without opening a stream", async () => {
@@ -51,6 +56,7 @@ describe("GET /api/discover", () => {
     expect(runDiscovery).not.toHaveBeenCalled();
     expect(suggestKeywordSynonyms).not.toHaveBeenCalled();
     expect(suggestInventedNames).not.toHaveBeenCalled();
+    expect(suggestSynonymsAndInvented).not.toHaveBeenCalled();
   });
 
   it("opens an SSE stream with the expected headers on success", async () => {
@@ -61,10 +67,10 @@ describe("GET /api/discover", () => {
   });
 
   it("emits a 'preparing' event before awaiting AI helpers when synonyms are requested", async () => {
-    let resolveSynonyms!: (v: string[]) => void;
-    suggestKeywordSynonyms.mockReturnValue(
-      new Promise<string[]>((resolve) => {
-        resolveSynonyms = resolve;
+    let resolveCombined!: (v: { synonyms: string[]; invented: string[] }) => void;
+    suggestSynonymsAndInvented.mockReturnValue(
+      new Promise<{ synonyms: string[]; invented: string[] }>((resolve) => {
+        resolveCombined = resolve;
       })
     );
 
@@ -75,7 +81,7 @@ describe("GET /api/discover", () => {
     const { value } = await reader.read();
     expect(decoder.decode(value)).toContain(`data: ${JSON.stringify({ type: "preparing" })}`);
 
-    resolveSynonyms([]);
+    resolveCombined({ synonyms: [], invented: [] });
     await reader.cancel();
   });
 
@@ -97,16 +103,29 @@ describe("GET /api/discover", () => {
 
   it("passes an AbortSignal to the AI helpers and runDiscovery that aborts when the client disconnects", async () => {
     let capturedSignal: AbortSignal | undefined;
-    suggestKeywordSynonyms.mockImplementation(async (_keyword: string, signal?: AbortSignal) => {
+    let resolveCombined!: (v: { synonyms: string[]; invented: string[] }) => void;
+    // A manually-controlled pending promise (rather than an immediately-
+    // resolving one) pins down the ordering explicitly: cancel() is
+    // guaranteed to run before the AI call resolves, instead of racing
+    // against however many microtask ticks the combined single-await path
+    // happens to take versus the old two-call Promise.all.
+    suggestSynonymsAndInvented.mockImplementation(async (_keyword: string, signal?: AbortSignal) => {
       capturedSignal = signal;
-      return [];
+      return new Promise<{ synonyms: string[]; invented: string[] }>((resolve) => {
+        resolveCombined = resolve;
+      });
     });
 
     const res = await GET(req("keyword=glow&count=5&aiSynonyms=true"));
     const reader = res.body!.getReader();
+    await reader.read(); // consume the "preparing" event
     await reader.cancel();
 
     expect(capturedSignal?.aborted).toBe(true);
+
+    resolveCombined({ synonyms: [], invented: [] });
+    await new Promise((r) => setTimeout(r, 0));
+
     // runDiscovery is only reached after the AI-helper await resolves; since
     // the signal was already aborted by cancel() above, the route's own
     // abort check must skip calling it entirely rather than running a
@@ -115,10 +134,10 @@ describe("GET /api/discover", () => {
   });
 
   it("skips runDiscovery entirely when the client disconnects before the AI helpers resolve", async () => {
-    let resolveSynonyms!: (v: string[]) => void;
-    suggestKeywordSynonyms.mockReturnValue(
-      new Promise<string[]>((resolve) => {
-        resolveSynonyms = resolve;
+    let resolveCombined!: (v: { synonyms: string[]; invented: string[] }) => void;
+    suggestSynonymsAndInvented.mockReturnValue(
+      new Promise<{ synonyms: string[]; invented: string[] }>((resolve) => {
+        resolveCombined = resolve;
       })
     );
 
@@ -127,9 +146,52 @@ describe("GET /api/discover", () => {
     await reader.read(); // consume the "preparing" event
     await reader.cancel();
 
-    resolveSynonyms([]);
+    resolveCombined({ synonyms: [], invented: [] });
     await new Promise((r) => setTimeout(r, 0));
 
     expect(runDiscovery).not.toHaveBeenCalled();
+  });
+
+  it("uses the combined synonyms+invented call when both AI sources are enabled for a keyword search", async () => {
+    suggestSynonymsAndInvented.mockResolvedValue({ synonyms: ["glimmer"], invented: ["zuvio"] });
+
+    await GET(req("keyword=glow&count=5&aiSynonyms=true&aiInvented=true"));
+
+    expect(suggestSynonymsAndInvented).toHaveBeenCalledWith("glow", expect.any(AbortSignal));
+    expect(suggestKeywordSynonyms).not.toHaveBeenCalled();
+    expect(suggestInventedNames).not.toHaveBeenCalled();
+    expect(runDiscovery).toHaveBeenCalledWith(
+      expect.anything(),
+      "glow",
+      expect.anything(),
+      5,
+      expect.any(Function),
+      expect.any(AbortSignal),
+      expect.anything(),
+      expect.anything(),
+      ["glimmer"],
+      ["zuvio"],
+      expect.anything()
+    );
+  });
+
+  it("falls back to the standalone calls when only one AI source is enabled", async () => {
+    suggestKeywordSynonyms.mockResolvedValue(["glimmer"]);
+
+    await GET(req("keyword=glow&count=5&aiSynonyms=true&aiInvented=false"));
+
+    expect(suggestSynonymsAndInvented).not.toHaveBeenCalled();
+    expect(suggestKeywordSynonyms).toHaveBeenCalledWith("glow", expect.any(AbortSignal));
+    expect(suggestInventedNames).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the standalone invented-names call when there's no keyword", async () => {
+    suggestInventedNames.mockResolvedValue(["zuvio"]);
+
+    await GET(req("count=5&aiInvented=true"));
+
+    expect(suggestSynonymsAndInvented).not.toHaveBeenCalled();
+    expect(suggestKeywordSynonyms).not.toHaveBeenCalled();
+    expect(suggestInventedNames).toHaveBeenCalledWith(undefined, expect.any(AbortSignal));
   });
 });
