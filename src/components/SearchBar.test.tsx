@@ -93,4 +93,21 @@ describe("SearchBar", () => {
     render(<SearchBar mode="compact" {...baseProps()} />);
     expect(screen.queryByRole("button", { name: "Customize search options" })).toBeNull();
   });
+
+  it("Customize button's aria-expanded tracks settingsOpen", () => {
+    const { rerender } = render(
+      <SearchBar mode="compact" {...baseProps()} onOpenSettings={vi.fn()} settingsOpen={false} />
+    );
+    const button = screen.getByRole("button", { name: "Customize search options" });
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    rerender(<SearchBar mode="compact" {...baseProps()} onOpenSettings={vi.fn()} settingsOpen />);
+    expect(button.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("Customize button defaults aria-expanded to false when settingsOpen is omitted", () => {
+    render(<SearchBar mode="compact" {...baseProps()} onOpenSettings={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Customize search options" }).getAttribute("aria-expanded")).toBe(
+      "false"
+    );
+  });
 });

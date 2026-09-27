@@ -332,6 +332,7 @@ export default function Home() {
     onStop: stop,
     exampleKeywords: EXAMPLE_KEYWORDS,
     onTryExample: tryExample,
+    settingsOpen,
   };
 
   return (

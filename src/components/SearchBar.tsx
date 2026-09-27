@@ -37,6 +37,7 @@ export function SearchBar({
   exampleKeywords,
   onTryExample,
   onOpenSettings,
+  settingsOpen,
 }: {
   mode: "hero" | "compact";
   keywordInput: string;
@@ -48,6 +49,11 @@ export function SearchBar({
   exampleKeywords: string[];
   onTryExample: (keyword: string) => void;
   onOpenSettings?: () => void;
+  /** Whether SettingsDrawer (opened by onOpenSettings) is currently open —
+   * surfaced as aria-expanded on the trigger below so a screen-reader user
+   * gets the same open/closed signal a sighted user reads from the drawer's
+   * own visibility, rather than a static button with no state at all. */
+  settingsOpen?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -89,6 +95,8 @@ export function SearchBar({
             type="button"
             onClick={onOpenSettings}
             aria-label="Customize search options"
+            aria-haspopup="dialog"
+            aria-expanded={settingsOpen ?? false}
             title="Search options"
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-black/40 transition-colors hover:bg-black/5 hover:text-black/70 lg:hidden dark:text-white/40 dark:hover:bg-white/10 dark:hover:text-white/70 ${FOCUS_RING}`}
           >

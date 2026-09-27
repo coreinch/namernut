@@ -23,11 +23,36 @@ export function SettingsDrawer({
   children: ReactNode;
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // Focus trap: the backdrop button and everything in SettingsPanel's
+      // form controls are still real, tabbable DOM elements sitting behind
+      // this overlay in z-index only, not in tab order — without this, Tab
+      // from the last control (or Shift+Tab from the first) escapes the
+      // open dialog into the page underneath it, which a sighted mouse user
+      // never notices but leaves a keyboard/screen-reader user acting on
+      // controls they can't see.
+      if (e.key !== "Tab" || !containerRef.current) return;
+      const focusable = containerRef.current.querySelectorAll<HTMLElement>(
+        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     // Moves focus into the dialog on open — without this, focus stays on
@@ -41,7 +66,7 @@ export function SettingsDrawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
+    <div ref={containerRef} className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
       <button
         type="button"
         aria-label="Close search options"

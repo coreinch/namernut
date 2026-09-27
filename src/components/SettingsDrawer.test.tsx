@@ -66,4 +66,35 @@ describe("SettingsDrawer", () => {
     );
     expect(document.activeElement).toBe(screen.getAllByLabelText("Close search options")[1]);
   });
+
+  it("traps Tab focus: forward from the last focusable element wraps to the first", () => {
+    render(
+      <SettingsDrawer open onClose={vi.fn()}>
+        <button type="button">a control</button>
+      </SettingsDrawer>
+    );
+    const [backdrop, closeButton] = screen.getAllByLabelText("Close search options");
+    const control = screen.getByRole("button", { name: "a control" });
+    (control as HTMLButtonElement).focus();
+    expect(document.activeElement).toBe(control);
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(backdrop);
+    // Sanity check that closeButton (the actual last focusable element
+    // before this test's extra control) isn't what wrapping landed on.
+    expect(document.activeElement).not.toBe(closeButton);
+  });
+
+  it("traps Tab focus: Shift+Tab from the first focusable element wraps to the last", () => {
+    render(
+      <SettingsDrawer open onClose={vi.fn()}>
+        <button type="button">a control</button>
+      </SettingsDrawer>
+    );
+    const [backdrop] = screen.getAllByLabelText("Close search options");
+    const control = screen.getByRole("button", { name: "a control" });
+    (backdrop as HTMLButtonElement).focus();
+    expect(document.activeElement).toBe(backdrop);
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(control);
+  });
 });
