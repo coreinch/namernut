@@ -371,138 +371,90 @@ export default function Home() {
               )}
 
               {activeTab === "current" && (
-            <section
-              role="tabpanel"
-              id={tabPanelId("current")}
-              aria-labelledby={tabButtonId("current")}
-              tabIndex={0}
-              className={`flex flex-col gap-2 ${FOCUS_RING}`}
-            >
-              {isRunning && (
-                <div className="flex items-center justify-end">
-                  <span className="text-xs tabular-nums text-muted">
-                    {currentRunFound}/{DEFAULT_RESULT_COUNT}
-                  </span>
-                </div>
-              )}
-              {gettingIdeas && (
-                <p className="flex items-center gap-1.5 text-xs text-muted">
-                  <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
-                  Getting AI ideas before this search starts checking domains…
-                </p>
-              )}
-              {aiSynonymWords.length > 0 && (
-                <p className="text-xs text-muted">
-                  {isRunning ? "Also searching" : "Also searched"} AI synonym
-                  {aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
-                </p>
-              )}
-              {aiInventedWords.length > 0 && (
-                <p className="text-xs text-muted">
-                  {isRunning ? "Also searching" : "Also searched"} AI-invented name
-                  {aiInventedWords.length === 1 ? "" : "s"}: {aiInventedWords.join(", ")}
-                </p>
-              )}
-              {altSpellingWords.length > 0 && (
-                <p className="text-xs text-muted">
-                  {isRunning ? "Also searching" : "Also searched"} alt spelling
-                  {altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
-                  {gates.filterPronounceable &&
-                    // Only worth saying while the gate is actually on —
-                    // with it off there's nothing being skipped to call
-                    // out. Surfaced here too (not just in the settings
-                    // panel itself) since this is the live, no-need-to-
-                    // go-look-elsewhere view of what a run is actually
-                    // doing.
-                    ' — these skip the "Pronounceable only" filter below.'}
-                </p>
-              )}
-              {currentRunResults.length === 0 && !isRunning && runStatus !== "error" ? (
-                <p className="py-8 text-center text-sm text-muted">
-                  {runStatus === "idle"
-                    ? "Type a keyword above and hit Generate to see results here."
-                    : "No matches found — try loosening a quality gate or a different keyword."}
-                </p>
-              ) : (
-                <ResultsGrid
-                  entries={currentRunResults}
-                  favoriteDomains={favoriteDomains}
-                  checkingBrandabilityNames={checkingBrandabilityNames}
-                  brandabilityErrors={brandabilityErrors}
-                  onSearch={searchDomain}
-                  onToggleFavorite={toggleFavorite}
-                  onCheckBrandability={checkBrandabilityFor}
-                  onRegister={registerDomain}
-                  pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
-                />
-              )}
-              <LiveLogSection log={log} logBoxRef={logBoxRef} />
-            </section>
-          )}
-
-          {activeTab === "favorites" && (
-            <section
-              role="tabpanel"
-              id={tabPanelId("favorites")}
-              aria-labelledby={tabButtonId("favorites")}
-              tabIndex={0}
-              className={`flex flex-col gap-2 ${FOCUS_RING}`}
-            >
-              {favorites.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted">
-                  Tap the star on a result to save it here.
-                </p>
-              ) : (
-                <ResultsGrid
-                  entries={favorites}
-                  favoriteDomains={favoriteDomains}
-                  checkingBrandabilityNames={checkingBrandabilityNames}
-                  brandabilityErrors={brandabilityErrors}
-                  onSearch={searchDomain}
-                  onToggleFavorite={toggleFavorite}
-                  onCheckBrandability={checkBrandabilityFor}
-                  onRegister={registerDomain}
-                />
-              )}
-            </section>
-          )}
-
-          {activeTab === "archive" && (
-            <section
-              role="tabpanel"
-              id={tabPanelId("archive")}
-              aria-labelledby={tabButtonId("archive")}
-              tabIndex={0}
-              className={`flex flex-col gap-3 ${FOCUS_RING}`}
-            >
-              {archiveResults.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted">
-                  Past searches will collect here once you run more than one.
-                </p>
-              ) : (
-                <>
-                  {/* Only worth the extra control once there's enough here
-                      that scrolling to find one name stops being quick —
-                      below that, the input would just be one more thing to
-                      skip past. */}
-                  {archiveResults.length > 8 && (
-                    <input
-                      type="text"
-                      inputMode="text"
-                      value={archiveFilter}
-                      onChange={(e) => setArchiveFilter(e.target.value)}
-                      placeholder={`Filter ${formatNumber(archiveResults.length)} archived names…`}
-                      aria-label="Filter archived names"
-                      className={`min-h-10 w-full rounded-full border border-black/15 bg-transparent px-4 text-sm text-foreground outline-none placeholder:text-black/40 dark:border-white/15 dark:placeholder:text-white/40 ${FOCUS_RING}`}
-                    />
+                <section
+                  role="tabpanel"
+                  id={tabPanelId("current")}
+                  aria-labelledby={tabButtonId("current")}
+                  tabIndex={0}
+                  className={`flex flex-col gap-2 ${FOCUS_RING}`}
+                >
+                  {isRunning && (
+                    <div className="flex items-center justify-end">
+                      <span className="text-xs tabular-nums text-muted">
+                        {currentRunFound}/{DEFAULT_RESULT_COUNT}
+                      </span>
+                    </div>
                   )}
-                  {filteredArchiveResults.length === 0 ? (
+                  {gettingIdeas && (
+                    <p className="flex items-center gap-1.5 text-xs text-muted">
+                      <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-black/40 dark:bg-white/40" />
+                      Getting AI ideas before this search starts checking domains…
+                    </p>
+                  )}
+                  {aiSynonymWords.length > 0 && (
+                    <p className="text-xs text-muted">
+                      {isRunning ? "Also searching" : "Also searched"} AI synonym
+                      {aiSynonymWords.length === 1 ? "" : "s"}: {aiSynonymWords.join(", ")}
+                    </p>
+                  )}
+                  {aiInventedWords.length > 0 && (
+                    <p className="text-xs text-muted">
+                      {isRunning ? "Also searching" : "Also searched"} AI-invented name
+                      {aiInventedWords.length === 1 ? "" : "s"}: {aiInventedWords.join(", ")}
+                    </p>
+                  )}
+                  {altSpellingWords.length > 0 && (
+                    <p className="text-xs text-muted">
+                      {isRunning ? "Also searching" : "Also searched"} alt spelling
+                      {altSpellingWords.length === 1 ? "" : "s"}: {altSpellingWords.join(", ")}
+                      {gates.filterPronounceable &&
+                        // Only worth saying while the gate is actually on —
+                        // with it off there's nothing being skipped to call
+                        // out. Surfaced here too (not just in the settings
+                        // panel itself) since this is the live, no-need-to-
+                        // go-look-elsewhere view of what a run is actually
+                        // doing.
+                        ' — these skip the "Pronounceable only" filter below.'}
+                    </p>
+                  )}
+                  {currentRunResults.length === 0 && !isRunning && runStatus !== "error" ? (
                     <p className="py-8 text-center text-sm text-muted">
-                      No archived names match &ldquo;{archiveFilter.trim()}&rdquo;.
+                      {runStatus === "idle"
+                        ? "Type a keyword above and hit Generate to see results here."
+                        : "No matches found — try loosening a quality gate or a different keyword."}
                     </p>
                   ) : (
                     <ResultsGrid
-                      entries={filteredArchiveResults}
+                      entries={currentRunResults}
+                      favoriteDomains={favoriteDomains}
+                      checkingBrandabilityNames={checkingBrandabilityNames}
+                      brandabilityErrors={brandabilityErrors}
+                      onSearch={searchDomain}
+                      onToggleFavorite={toggleFavorite}
+                      onCheckBrandability={checkBrandabilityFor}
+                      onRegister={registerDomain}
+                      pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
+                    />
+                  )}
+                  <LiveLogSection log={log} logBoxRef={logBoxRef} />
+                </section>
+              )}
+
+              {activeTab === "favorites" && (
+                <section
+                  role="tabpanel"
+                  id={tabPanelId("favorites")}
+                  aria-labelledby={tabButtonId("favorites")}
+                  tabIndex={0}
+                  className={`flex flex-col gap-2 ${FOCUS_RING}`}
+                >
+                  {favorites.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted">
+                      Tap the star on a result to save it here.
+                    </p>
+                  ) : (
+                    <ResultsGrid
+                      entries={favorites}
                       favoriteDomains={favoriteDomains}
                       checkingBrandabilityNames={checkingBrandabilityNames}
                       brandabilityErrors={brandabilityErrors}
@@ -512,9 +464,57 @@ export default function Home() {
                       onRegister={registerDomain}
                     />
                   )}
-                </>
+                </section>
               )}
-            </section>
+
+              {activeTab === "archive" && (
+                <section
+                  role="tabpanel"
+                  id={tabPanelId("archive")}
+                  aria-labelledby={tabButtonId("archive")}
+                  tabIndex={0}
+                  className={`flex flex-col gap-3 ${FOCUS_RING}`}
+                >
+                  {archiveResults.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted">
+                      Past searches will collect here once you run more than one.
+                    </p>
+                  ) : (
+                    <>
+                      {/* Only worth the extra control once there's enough here
+                          that scrolling to find one name stops being quick —
+                          below that, the input would just be one more thing to
+                          skip past. */}
+                      {archiveResults.length > 8 && (
+                        <input
+                          type="text"
+                          inputMode="text"
+                          value={archiveFilter}
+                          onChange={(e) => setArchiveFilter(e.target.value)}
+                          placeholder={`Filter ${formatNumber(archiveResults.length)} archived names…`}
+                          aria-label="Filter archived names"
+                          className={`min-h-10 w-full rounded-full border border-black/15 bg-transparent px-4 text-sm text-foreground outline-none placeholder:text-black/40 dark:border-white/15 dark:placeholder:text-white/40 ${FOCUS_RING}`}
+                        />
+                      )}
+                      {filteredArchiveResults.length === 0 ? (
+                        <p className="py-8 text-center text-sm text-muted">
+                          No archived names match &ldquo;{archiveFilter.trim()}&rdquo;.
+                        </p>
+                      ) : (
+                        <ResultsGrid
+                          entries={filteredArchiveResults}
+                          favoriteDomains={favoriteDomains}
+                          checkingBrandabilityNames={checkingBrandabilityNames}
+                          brandabilityErrors={brandabilityErrors}
+                          onSearch={searchDomain}
+                          onToggleFavorite={toggleFavorite}
+                          onCheckBrandability={checkBrandabilityFor}
+                          onRegister={registerDomain}
+                        />
+                      )}
+                    </>
+                  )}
+                </section>
               )}
             </div>
           </div>
