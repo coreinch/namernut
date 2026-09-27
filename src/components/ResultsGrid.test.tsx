@@ -95,6 +95,31 @@ describe("ResultsGrid", () => {
     expect(container.firstChild?.childNodes).toHaveLength(4);
   });
 
+  it("wires onSearch/onToggleFavorite/onRegister to the clicked entry", () => {
+    const onSearch = vi.fn();
+    const onToggleFavorite = vi.fn();
+    const onRegister = vi.fn();
+    const entries = [makeEntry({ id: "1", domain: "glowtastic.com" })];
+    render(
+      <ResultsGrid
+        entries={entries}
+        favoriteDomains={new Set()}
+        checkingBrandabilityNames={new Set()}
+        brandabilityErrors={{}}
+        onSearch={onSearch}
+        onToggleFavorite={onToggleFavorite}
+        onCheckBrandability={() => {}}
+        onRegister={onRegister}
+      />
+    );
+    screen.getByRole("button", { name: "Open a Google search for this name in a new tab" }).click();
+    screen.getByRole("button", { name: "Add to favorites" }).click();
+    screen.getByRole("button", { name: "Register" }).click();
+    expect(onSearch).toHaveBeenCalledWith(entries[0]);
+    expect(onToggleFavorite).toHaveBeenCalledWith(entries[0]);
+    expect(onRegister).toHaveBeenCalledWith(entries[0]);
+  });
+
   it("defaults pendingCount to 0 — no placeholder rows when omitted", () => {
     const { container } = render(
       <ResultsGrid
