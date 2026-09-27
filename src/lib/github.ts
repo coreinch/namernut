@@ -22,14 +22,15 @@ export async function checkGithubUsername(username: string, signal?: AbortSignal
 
   if (res.status === 404) return "available";
   if (res.status === 200) return "taken";
-  // Per GitHub's own API docs (not independently reproduced here — doing
-  // so would mean deliberately exhausting the real rate limit): the
-  // unauthenticated rate limit is reported as 403 with an
-  // X-RateLimit-Remaining: 0 header, not 429. Checked explicitly rather
-  // than treating every 403 as a rate limit (a 403 can also mean e.g. an
-  // abuse-detection block, which retrying identically wouldn't fix any
-  // faster) — but the same backoff-then-give-up handling in discovery.ts's
-  // generalized checker is a reasonable response to either.
+  // Per GitHub's own API docs, later independently confirmed by a real
+  // 100-request-in-a-row burst (2026-09-27, see DEFERRED_PLATFORMS in
+  // discovery.ts) that hit this exact response — 403 with
+  // X-RateLimit-Remaining: 0, not 429 — right on schedule at request #61:
+  // the unauthenticated rate limit. Checked explicitly rather than treating
+  // every 403 as a rate limit (a 403 can also mean e.g. an abuse-detection
+  // block, which retrying identically wouldn't fix any faster) — but the
+  // same backoff-then-give-up handling in discovery.ts's generalized
+  // checker is a reasonable response to either.
   if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
     throwRateLimited("github_rate_limited");
   }
