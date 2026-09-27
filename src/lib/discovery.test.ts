@@ -461,9 +461,10 @@ describe("runDiscovery", () => {
     expect(checkInstagramUsername).not.toHaveBeenCalled();
   });
 
-  // GitHub and TikTok share the exact same gate/require/skip mechanism as
-  // Instagram (see SOCIAL_PLATFORMS in discovery.ts) — parameterized here
-  // rather than copy-pasting the two tests above a second and third time.
+  // GitHub, TikTok, npm, YouTube, and X share the exact same gate/require/
+  // skip mechanism as Instagram (see EAGER_PLATFORMS/DEFERRED_PLATFORMS in
+  // discovery.ts) — parameterized here rather than copy-pasting the two
+  // tests above a second, third, fourth, and fifth time.
   // Neither has a "structurally blocked" circuit-breaker test of its own:
   // that failure mode is specific to Instagram's login-wall redirect (see
   // SocialPlatform.blockedErrorName) — GitHub's official API and TikTok's
@@ -961,34 +962,35 @@ describe("runDiscovery", () => {
 });
 
 // parseGates's actual default when no query params are present at all —
-// distinct from ALL_GATES_ON above. The three DEFERRED_PLATFORMS handle
-// gates (requireGithub/requireYoutube/requireTwitter) default off: those
-// are the platforms actually confirmed (or suspected) to hit a real rate
-// limit in practice (see DEFERRED_PLATFORMS in discovery.ts), so requiring
-// them out of the box would rate-limit most searches before they produce
-// any results. requireInstagram/requireTiktok/requireNpm keep the original
-// on-by-default behavior, same as every quality filter, since none of the
-// three has actually shown a rate-limit problem.
+// distinct from ALL_GATES_ON above. requireGithub defaults off: GitHub is
+// the only platform actually confirmed to hit a real rate limit in
+// practice, by a 100-request-in-a-row test (see DEFERRED_PLATFORMS in
+// discovery.ts) that came back clean for every other platform — so
+// requiring GitHub out of the box would rate-limit most searches before
+// they produce any results, while the rest of the gates keep the original
+// on-by-default behavior, same as every quality filter.
 const DEFAULT_QUERY_GATES: DiscoveryGates = {
   ...ALL_GATES_ON,
   requireGithub: false,
-  requireYoutube: false,
-  requireTwitter: false,
 };
 
 describe("parseGates", () => {
-  it("defaults every gate on for an empty/missing query string, except the three deferred-platform gates", () => {
+  it("defaults every gate on for an empty/missing query string, except requireGithub", () => {
     expect(parseGates(new URLSearchParams(""))).toEqual(DEFAULT_QUERY_GATES);
   });
 
   it("turns an on-by-default gate off only when its param is exactly the string 'false'", () => {
     expect(
-      parseGates(new URLSearchParams("requireInstagram=false&requireTiktok=false&requireNpm=false"))
+      parseGates(
+        new URLSearchParams("requireInstagram=false&requireTiktok=false&requireNpm=false&requireYoutube=false&requireTwitter=false")
+      )
     ).toEqual({
       ...DEFAULT_QUERY_GATES,
       requireInstagram: false,
       requireTiktok: false,
       requireNpm: false,
+      requireYoutube: false,
+      requireTwitter: false,
     });
     expect(parseGates(new URLSearchParams("filterPronounceable=false&filterTypos=false"))).toEqual({
       ...DEFAULT_QUERY_GATES,
@@ -997,15 +999,10 @@ describe("parseGates", () => {
     });
   });
 
-  it("turns an off-by-default deferred-platform gate on only when its param is exactly the string 'true'", () => {
+  it("turns the off-by-default requireGithub gate on only when its param is exactly the string 'true'", () => {
     expect(parseGates(new URLSearchParams("requireGithub=true"))).toEqual({
       ...DEFAULT_QUERY_GATES,
       requireGithub: true,
-    });
-    expect(parseGates(new URLSearchParams("requireYoutube=true&requireTwitter=true"))).toEqual({
-      ...DEFAULT_QUERY_GATES,
-      requireYoutube: true,
-      requireTwitter: true,
     });
     // Anything other than the literal string "true" fails safe (stays off).
     expect(parseGates(new URLSearchParams("requireGithub=1"))).toEqual(DEFAULT_QUERY_GATES);

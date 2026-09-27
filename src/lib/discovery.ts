@@ -83,15 +83,16 @@ export type DiscoveryEvent =
  * Which of runDiscovery's candidate-rejection gates are actually active —
  * user-configurable (see the "Filters" section in page.tsx). Every gate
  * defaults to true (on) so the out-of-the-box behavior is unchanged from
- * before these were exposed, EXCEPT the three DEFERRED_PLATFORMS gates
- * (requireGithub/requireYoutube/requireTwitter), which default to false
- * (off) — see DEFERRED_PLATFORMS below for why those three specifically
- * (not "every social platform," and not "every non-documented-API
- * platform" — GitHub is a real documented API, and Instagram/TikTok are
- * undocumented scraping that stayed on-by-default anyway). Turning a gate
- * off doesn't relax it — it removes that check entirely, so more
- * candidates (including lower-quality ones) reach a real domain/social
- * check.
+ * before these were exposed, EXCEPT requireGithub, which defaults to false
+ * (off) — see DEFERRED_PLATFORMS below for why GitHub specifically: it's
+ * the one platform in this app confirmed (by a real 100-request-in-a-row
+ * test, 2026-09-27) to actually hit a hard rate limit in practice, unlike
+ * every other platform here (including two, Instagram/TikTok, that are
+ * undocumented scraping just like GitHub's neighbors YouTube/X, and
+ * including YouTube/X themselves, which cleared that same 100-request test
+ * with zero rate-limit responses). Turning a gate off doesn't relax it —
+ * it removes that check entirely, so more candidates (including
+ * lower-quality ones) reach a real domain/social check.
  */
 export interface DiscoveryGates {
   /** A result also requires an available Instagram username for the name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
@@ -102,9 +103,9 @@ export interface DiscoveryGates {
   requireTiktok: boolean;
   /** Same requirement, for an npm package name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireNpm: boolean;
-  /** Same requirement, for a YouTube channel handle — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
+  /** Same requirement, for a YouTube channel handle — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireYoutube: boolean;
-  /** Same requirement, for an X (Twitter) handle — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
+  /** Same requirement, for an X (Twitter) handle — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireTwitter: boolean;
   /** Reject candidates isPronounceable() flags as unpronounceable. */
   filterPronounceable: boolean;
@@ -116,12 +117,11 @@ export interface DiscoveryGates {
 
 /**
  * Parses the nine gate toggles from request query params. Every gate
- * except the three DEFERRED_PLATFORMS ones defaults to on (true) if
- * absent/malformed, reproducing the pre-gates behavior; only the literal
- * string "false" turns one of those off. requireGithub/requireYoutube/
- * requireTwitter default to off (false) instead — see the DiscoveryGates
- * doc comment above — so only the literal string "true" turns one of
- * those on.
+ * except requireGithub defaults to on (true) if absent/malformed,
+ * reproducing the pre-gates behavior; only the literal string "false"
+ * turns one of those off. requireGithub defaults to off (false) instead —
+ * see the DiscoveryGates doc comment above — so only the literal string
+ * "true" turns it on.
  */
 export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
   const onByDefault = (key: string) => searchParams.get(key) !== "false";
@@ -131,8 +131,8 @@ export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
     requireGithub: offByDefault("requireGithub"),
     requireTiktok: onByDefault("requireTiktok"),
     requireNpm: onByDefault("requireNpm"),
-    requireYoutube: offByDefault("requireYoutube"),
-    requireTwitter: offByDefault("requireTwitter"),
+    requireYoutube: onByDefault("requireYoutube"),
+    requireTwitter: onByDefault("requireTwitter"),
     filterPronounceable: onByDefault("filterPronounceable"),
     filterTypos: onByDefault("filterTypos"),
     filterNiceness: onByDefault("filterNiceness"),
@@ -222,11 +222,13 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
  * loop in worker()). The split is by which platforms have actually been
  * observed hitting a real rate limit in practice, not by "documented API
  * vs. scraping" or "dev tool vs. social platform" — see the two groups'
- * own doc comments below for specifics (e.g. Instagram is fine once
- * INSTAGRAM_SESSION_ID is configured, and TikTok hasn't shown a problem
- * either, so both stayed eager despite being scraping-based; GitHub, a
- * real documented API, moved to deferred anyway because its rate limit is
- * the one that's actually been hit).
+ * own doc comments below for specifics. A 100-request-in-a-row burst
+ * against each platform (2026-09-27) settled this empirically: GitHub hit
+ * its documented cap exactly on schedule (403 starting at request #61 of
+ * 100), while npm, Instagram (with INSTAGRAM_SESSION_ID configured),
+ * TikTok, YouTube, and X all came back clean with zero rate-limit
+ * responses — including two (YouTube, X) that had been deferred on a mere
+ * suspicion before that test ran.
  */
 interface SocialPlatform {
   key: "instagram" | "github" | "tiktok" | "npm" | "youtube" | "twitter";
@@ -253,37 +255,41 @@ interface SocialPlatform {
   blockedErrorName?: string;
 }
 // Every platform here (like every one below) throws RateLimitError on a
-// 429, but none of these three have actually been observed hitting it in
-// practice: npm's public registry limit isn't documented, Instagram's
-// only real out-of-the-box failure mode is its login wall (a structural
-// block, not a rate limit — see LoginWallError above — and a non-issue at
-// all once INSTAGRAM_SESSION_ID is configured), and TikTok's scraping has
-// held up fine too. Cheap enough to run eagerly alongside the domain
-// checks and on by default.
+// 429, but none of these five have actually been observed hitting it in
+// practice: npm's public registry limit isn't documented and a 100-request
+// burst (2026-09-27) came back clean; Instagram's only real out-of-the-box
+// failure mode is its login wall (a structural block, not a rate limit —
+// see LoginWallError above — and a non-issue at all once
+// INSTAGRAM_SESSION_ID is configured); and TikTok/YouTube/X all held up
+// through that same 100-request burst with zero rate-limit responses
+// (YouTube and X had been grouped as deferred before that test ran, on a
+// suspicion neither actually panned out). Cheap enough to run eagerly
+// alongside the domain checks and on by default.
 const EAGER_PLATFORMS: SocialPlatform[] = [
   { key: "npm", label: "npm", gate: "requireNpm", check: checkNpmPackageName },
   { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
   { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
+  { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
+  { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
 ];
 
 // Checked only once every EAGER_PLATFORMS requirement has already passed
 // (see the pendingAvailable loop below), so a candidate that would be
-// filtered out anyway never burns one of these requests, and they default
+// filtered out anyway never burns one of these requests, and it defaults
 // off (see parseGates/DEFAULT_GATES) rather than requiring the user to
-// hit a rate limit before discovering they should turn one off. GitHub is
-// the one platform here confirmed to actually hit its limit in practice:
-// unlike every other platform, its 403 + X-RateLimit-Remaining:0 response
-// documents a hard, tight cap (60 unauthenticated requests/hour per IP —
-// confirmed directly 2026-09-25, see github.ts), and was the platform
-// whose exhausted-rate-limit case this app's SOCIAL_BLOCKED_STREAK_THRESHOLD
-// breaker was originally written to handle. YouTube and X handle 429
-// defensively but haven't shown an equivalent real-world problem yet —
-// grouped here anyway since (unlike npm/Instagram/TikTok above) neither
-// has been specifically confirmed fine either.
+// hit a rate limit before discovering they should turn it off. GitHub is
+// the only platform in this app confirmed to actually hit its limit in
+// practice: unlike every other platform, its 403 + X-RateLimit-Remaining:0
+// response documents a hard, tight cap (60 unauthenticated requests/hour
+// per IP — confirmed directly 2026-09-25 by reading its docs, and again
+// 2026-09-27 by an actual 100-request-in-a-row test that hit 403 exactly
+// at request #61), and was the platform whose exhausted-rate-limit case
+// this app's SOCIAL_BLOCKED_STREAK_THRESHOLD breaker was originally
+// written to handle. That same test ran against npm/Instagram/TikTok/
+// YouTube/X too (see EAGER_PLATFORMS above) and came back clean for all
+// five, so GitHub stands alone here now.
 const DEFERRED_PLATFORMS: SocialPlatform[] = [
   { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
-  { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
-  { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
 ];
 
 // How many consecutive "blocked" results (see SocialPlatform.blockedErrorName
