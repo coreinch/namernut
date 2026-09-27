@@ -1,9 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { getDictionaryStats } = vi.hoisted(() => ({ getDictionaryStats: vi.fn() }));
 vi.mock("@/lib/dictionary", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/dictionary")>();
   return { ...actual, getDictionaryStats };
+});
+
+const { checkRateLimit } = vi.hoisted(() => ({ checkRateLimit: vi.fn(() => ({ ok: true, retryAfterSeconds: 0 })) }));
+vi.mock("@/lib/rateLimit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rateLimit")>();
+  return { ...actual, checkRateLimit };
 });
 
 import { GET } from "./route";
@@ -13,6 +19,22 @@ function req(query: string) {
 }
 
 describe("GET /api/stats", () => {
+  beforeEach(() => {
+    checkRateLimit.mockReset();
+    checkRateLimit.mockReturnValue({ ok: true, retryAfterSeconds: 0 });
+    getDictionaryStats.mockReset();
+  });
+
+  it("returns 429 with Retry-After when rate limited, without computing stats", async () => {
+    checkRateLimit.mockReturnValue({ ok: false, retryAfterSeconds: 15 });
+    const res = await GET(req("langs=english&maxLength=8&keyword="));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("15");
+    const body = await res.json();
+    expect(body.error).toMatch(/too many/i);
+    expect(getDictionaryStats).not.toHaveBeenCalled();
+  });
+
   it("returns the computed stats on success", async () => {
     getDictionaryStats.mockReturnValue({ total: 5, matched: 2 });
     const res = await GET(req("langs=english&maxLength=8&keyword=glow"));

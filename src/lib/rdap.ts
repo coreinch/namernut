@@ -8,6 +8,13 @@ export type DomainStatus = "available" | "taken" | "unknown";
 
 const BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json";
 
+// Matches whois.ts's `timeout 10` for its CLI fallback — without this, an
+// unbounded IANA bootstrap hang would leave bootstrapPromise pending
+// forever (its .catch only resets it on rejection, never on a stall),
+// stalling every TLD lookup process-wide, not just the search that
+// triggered it.
+const FETCH_TIMEOUT_MS = 10000;
+
 // Verisign runs .com/.net but (as of this writing) isn't listed in IANA's
 // bootstrap file for them — hardcode these two as a safety net.
 const STATIC_RDAP_BASE: Record<string, string> = {
@@ -24,7 +31,7 @@ let bootstrapPromise: Promise<Map<string, string>> | null = null;
 
 async function loadBootstrap(): Promise<Map<string, string>> {
   if (!bootstrapPromise) {
-    bootstrapPromise = fetch(BOOTSTRAP_URL)
+    bootstrapPromise = fetch(BOOTSTRAP_URL, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
       .then((res) => res.json())
       .then((data: { services: [string[], string[]][] }) => {
         const map = new Map<string, string>();
@@ -66,9 +73,10 @@ export async function checkDomain(
   if (!base) return "unknown";
 
   const domain = `${name}.${tld}`;
+  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   const res = await fetch(`${base}/domain/${domain}`, {
     headers: { Accept: "application/rdap+json" },
-    signal,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });
 
   if (res.status === 404) return "available";

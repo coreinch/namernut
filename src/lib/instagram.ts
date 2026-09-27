@@ -30,6 +30,11 @@ import { SOCIAL_CHECK_USER_AGENT } from "@/lib/socialStatus";
 
 export type InstagramStatus = "available" | "taken" | "unknown";
 
+// Matches rdap.ts's FETCH_TIMEOUT_MS — without this, a hung request here
+// would keep discovery.ts's checkSocialOne waiting indefinitely rather than
+// the retry/backoff path it's built for.
+const FETCH_TIMEOUT_MS = 10000;
+
 export async function checkInstagramUsername(
   username: string,
   signal?: AbortSignal
@@ -39,9 +44,10 @@ export async function checkInstagramUsername(
     headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;
   }
 
+  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   const res = await fetch(`https://www.instagram.com/${encodeURIComponent(username)}/`, {
     headers,
-    signal,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });
 
   if (res.status === 429) {

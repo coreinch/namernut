@@ -16,10 +16,16 @@
  */
 import { SOCIAL_CHECK_USER_AGENT, type SocialStatus } from "@/lib/socialStatus";
 
+// Matches rdap.ts's FETCH_TIMEOUT_MS — without this, a hung request here
+// would keep discovery.ts's checkSocialOne waiting indefinitely rather than
+// the retry/backoff path it's built for.
+const FETCH_TIMEOUT_MS = 10000;
+
 export async function checkTiktokUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
+  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
   const res = await fetch(`https://www.tiktok.com/@${encodeURIComponent(username)}`, {
     headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" },
-    signal,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });
 
   if (res.status === 429) {

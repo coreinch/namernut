@@ -106,6 +106,85 @@ describe("runDiscovery", () => {
     if (complete?.type === "complete") expect(complete.foundCount).toBe(2);
   });
 
+  it("falls back to whois immediately (no delay) when RDAP rate-limits once but whois resolves", async () => {
+    // Distinct from the exhausted-retries case below: whois answering
+    // conclusively on the first attempt breaks out of checkOne's retry loop
+    // right away — no backoff delay, and no second (unconditional) whois
+    // call after the loop, since status is no longer "unknown" by then.
+    const pool: WordEntry[] = [{ word: "cat", langs: ["english"], definition: "", common: false, noun: true }];
+    const rateLimitError = new Error("rdap_rate_limited");
+    rateLimitError.name = "RateLimitError";
+    vi.mocked(checkDomain).mockRejectedValueOnce(rateLimitError);
+    vi.mocked(checkDomainWhois).mockResolvedValueOnce("available");
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    expect(events.some((e) => e.type === "error" && e.message.includes("RDAP rate limited, falling back to whois"))).toBe(true);
+    expect(events.filter((e) => e.type === "found").length).toBe(1);
+    expect(vi.mocked(checkDomain).mock.calls.length).toBe(1);
+    expect(vi.mocked(checkDomainWhois).mock.calls.length).toBe(1);
+  });
+
+  it("gives up after repeated RDAP rate limits and inconclusive whois, reporting the domain as unknown", async () => {
+    // Every RateLimitError retry calls whois inline (checkOne line ~148),
+    // and once the retry cap is hit there's still one more *unconditional*
+    // whois call after the loop (checkOne line ~176, shared with the
+    // generic-error path) — so with whois never resolving, 3 loop-internal
+    // calls plus 1 trailing call is the correct total, not 3.
+    vi.useFakeTimers();
+    try {
+      const pool: WordEntry[] = [{ word: "cat", langs: ["english"], definition: "", common: false, noun: true }];
+      const rateLimitError = new Error("rdap_rate_limited");
+      rateLimitError.name = "RateLimitError";
+      vi.mocked(checkDomain).mockRejectedValue(rateLimitError);
+      vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      const promise = runDiscovery(pool, undefined, ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // An inconclusive domain check is its own event type, not "filtered"
+      // (which is reserved for a domain that's actually available but a
+      // required social handle isn't) and not "found".
+      expect(events.some((e) => e.type === "unknown" && e.name === "catcat.com")).toBe(true);
+      expect(events.filter((e) => e.type === "found").length).toBe(0);
+      expect(vi.mocked(checkDomain).mock.calls.length).toBe(3);
+      expect(vi.mocked(checkDomainWhois).mock.calls.length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a generic RDAP error after a flat delay, and succeeds on the retry", async () => {
+    // A non-RateLimitError, non-blocked error takes the flat 1000ms retry
+    // path (no whois fallback attempted inline) rather than RateLimitError's
+    // 5000ms-backoff-plus-whois path — this is the success-on-retry case;
+    // the exhaustion shape of this same path is already implicitly covered
+    // by the RateLimitError-exhaustion test above sharing the post-loop
+    // whois fallback.
+    vi.useFakeTimers();
+    try {
+      const pool: WordEntry[] = [{ word: "cat", langs: ["english"], definition: "", common: false, noun: true }];
+      vi.mocked(checkDomain).mockRejectedValueOnce(new Error("rdap_network_error")).mockResolvedValue("available");
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      const promise = runDiscovery(pool, undefined, ["com"], 1, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      expect(events.filter((e) => e.type === "found").length).toBe(1);
+      expect(vi.mocked(checkDomain).mock.calls.length).toBe(2);
+      expect(vi.mocked(checkDomainWhois).mock.calls.length).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("counts a result only when the domain and every required platform's handle are all available", async () => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
