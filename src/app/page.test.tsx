@@ -15,7 +15,7 @@ const OLDER_LEGACY_KEY = "domain-finder:state:v1";
 beforeEach(() => {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue({ json: () => Promise.resolve({ total: 0, matching: 0 }) })
+    vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ total: 0, matching: 0 }) })
   );
 });
 

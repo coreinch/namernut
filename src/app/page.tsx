@@ -301,8 +301,16 @@ export default function Home() {
         `/api/stats?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}`,
         { signal: controller.signal }
       )
-        .then((r) => r.json())
-        .then(setStats)
+        // A non-2xx response (e.g. STATS_RATE_LIMIT hit) is a plain
+        // {error: "..."} JSON body, not a DictionaryStats shape — passing
+        // it straight to setStats crashed FiltersPanel's
+        // formatNumber(stats.totalCombinations) on the resulting
+        // `undefined`. Match the res.ok guard already used by the
+        // discover/brandability fetches below.
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data) setStats(data);
+        })
         .catch(() => {});
     }, 250);
     return () => {
