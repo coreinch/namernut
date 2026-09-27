@@ -50,6 +50,7 @@ function baseProps() {
     primaryLabel: "Generate",
     onStart: vi.fn(),
     onStop: vi.fn(),
+    exampleKeywords: ["glow", "coffee"],
     onTryExample: vi.fn(),
   };
 }
@@ -73,12 +74,12 @@ describe("FiltersPanel", () => {
     expect(props.onStart).not.toHaveBeenCalled();
   });
 
-  it("hides the 'Try an example' link while a search is running", () => {
+  it("hides the example-keyword chips while a search is running", () => {
     const props = baseProps();
     const { rerender } = render(<FiltersPanel {...props} />);
-    expect(screen.getByRole("button", { name: "Try an example" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "glow" })).toBeTruthy();
     rerender(<FiltersPanel {...props} isRunning />);
-    expect(screen.queryByRole("button", { name: "Try an example" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "glow" })).toBeNull();
   });
 
   it("calls onKeywordInputChange as the keyword field is typed", () => {
@@ -211,10 +212,11 @@ describe("FiltersPanel", () => {
     }
   });
 
-  it("clicking 'Try an example' calls onTryExample", () => {
+  it("clicking an example-keyword chip calls onTryExample with that word", () => {
     const props = baseProps();
     render(<FiltersPanel {...props} />);
-    screen.getByRole("button", { name: "Try an example" }).click();
+    screen.getByRole("button", { name: "coffee" }).click();
     expect(props.onTryExample).toHaveBeenCalledTimes(1);
+    expect(props.onTryExample).toHaveBeenCalledWith("coffee");
   });
 });

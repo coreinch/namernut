@@ -79,17 +79,21 @@ const MAX_LOG_ENTRIES = 200;
 // dropped; oldest entries (the array is newest-first) are the ones trimmed.
 const MAX_FOUND_HISTORY = 500;
 
-// Fed to tryExample below (the "Try an example" link) — verified directly
-// to produce real, varied output (dictionary pairings plus AI synonyms/
-// invented names) rather than a picked-for-looks string that might not
-// actually demonstrate the product. Deliberately a single plain word: the
-// keyword field only ever pairs one dictionary/AI word onto this literal
-// string (see sanitizeKeyword below and parseKeyword in lib/candidates.ts,
-// which strips anything past 15-20 characters and non-letters) — it was
-// never a "describe your idea" field, so the example has to be honest
+// Fed to tryExample below (the example-keyword chips) — "glow" was
+// verified directly to produce real, varied output (dictionary pairings
+// plus AI synonyms/invented names) rather than a picked-for-looks string
+// that might not actually demonstrate the product; the rest are plain
+// dictionary words chosen to span different business categories (food,
+// creative services, tech) so a first-time visitor is more likely to see
+// one land near their own idea than with a single fixed example. Each is
+// deliberately a single plain word, same reasoning as before: the keyword
+// field only ever pairs one dictionary/AI word onto this literal string
+// (see sanitizeKeyword below and parseKeyword in lib/candidates.ts, which
+// strips anything past 15 characters and non-alphanumerics) — it was
+// never a "describe your idea" field, so the examples have to be honest
 // about that rather than modeling a longer pitch a first-time visitor
 // might reasonably try typing themselves.
-const EXAMPLE_KEYWORD = "glow";
+const EXAMPLE_KEYWORDS = ["glow", "coffee", "studio", "nova"];
 
 // crypto.randomUUID() only exists in secure contexts (HTTPS, or
 // localhost) — this app is also used over plain HTTP on a LAN (e.g.
@@ -749,18 +753,18 @@ export default function Home() {
     useAltSpellings,
   ]);
 
-  // "Try an example" — fills the input and runs a real search in one
+  // Example-keyword chips — fill the input and run a real search in one
   // click, with zero typing, so a first-time visitor sees actual output
   // (names, live domain/Instagram availability, and a brandability score
   // once auto-check resolves) before deciding whether to try their own
-  // idea. setKeywordInput keeps the input box visibly in sync with what
-  // actually ran; start(EXAMPLE_KEYWORD) is what makes the run itself use
-  // it immediately rather than the pre-click (likely empty) keywordInput
-  // — see start's own comment on overrideKeyword for why passing it
-  // directly is necessary here.
-  const tryExample = useCallback(() => {
-    setKeywordInput(EXAMPLE_KEYWORD);
-    start(EXAMPLE_KEYWORD);
+  // idea. setKeywordInput keeps the input box visibly in sync with
+  // whichever example was clicked; start(keyword) is what makes the run
+  // itself use it immediately rather than the pre-click (likely empty)
+  // keywordInput — see start's own comment on overrideKeyword for why
+  // passing it directly is necessary here.
+  const tryExample = useCallback((keyword: string) => {
+    setKeywordInput(keyword);
+    start(keyword);
   }, [start]);
 
   const stop = useCallback(() => {
@@ -894,6 +898,7 @@ export default function Home() {
             // that argument.
             onStart={() => start()}
             onStop={stop}
+            exampleKeywords={EXAMPLE_KEYWORDS}
             onTryExample={tryExample}
           />
 

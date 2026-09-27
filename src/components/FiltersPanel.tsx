@@ -165,6 +165,7 @@ export function FiltersPanel({
   primaryLabel,
   onStart,
   onStop,
+  exampleKeywords,
   onTryExample,
 }: {
   showAdvanced: boolean;
@@ -195,7 +196,8 @@ export function FiltersPanel({
   primaryLabel: string;
   onStart: () => void;
   onStop: () => void;
-  onTryExample: () => void;
+  exampleKeywords: string[];
+  onTryExample: (keyword: string) => void;
 }) {
   const activeGateCount = Object.values(gates).filter(Boolean).length;
 
@@ -266,17 +268,26 @@ export function FiltersPanel({
       {/* Lets a first-time visitor see real output (names, live
           availability, an AI score once auto-check resolves) with zero
           typing, before deciding whether their own idea is worth trying.
-          Hidden mid-search rather than left as a dead click — there's
-          nothing useful for it to do while a run is already going. */}
+          Several examples spanning different categories (see
+          EXAMPLE_KEYWORDS in page.tsx), not just one fixed word — a
+          visitor naming a coffee shop is more likely to click "coffee"
+          than an arbitrary "glow", and seeing several at once also signals
+          the tool works for more than one kind of business. Hidden
+          mid-search rather than left as a dead click — there's nothing
+          useful for these to do while a run is already going. */}
       {!isRunning && (
-        <div className="-mt-2 text-center">
-          <button
-            type="button"
-            onClick={onTryExample}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
-          >
-            Try an example
-          </button>
+        <div className="-mt-2 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-muted">
+          <span>Try:</span>
+          {exampleKeywords.map((word) => (
+            <button
+              key={word}
+              type="button"
+              onClick={() => onTryExample(word)}
+              className={`rounded-full px-2 py-1 underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
+            >
+              {word}
+            </button>
+          ))}
         </div>
       )}
 
