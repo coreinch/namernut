@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FOCUS_RING, PAGE_WIDTH } from "./constants";
 
 // Rendered only while a search is running — the primary "start" action now
-// lives in the search pill at the top of the page (see FiltersPanel), but a
+// lives in the search pill at the top of the page (see SearchBar), but a
 // live run still gets a Stop control docked here, reachable without
 // scrolling back up no matter how far down a long result list or log the
 // page has scrolled.

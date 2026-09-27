@@ -140,7 +140,7 @@ export default function Home() {
       )
         // A non-2xx response (e.g. STATS_RATE_LIMIT hit) is a plain
         // {error: "..."} JSON body, not a DictionaryStats shape — passing
-        // it straight to setStats crashed FiltersPanel's
+        // it straight to setStats crashed SettingsPanel's
         // formatNumber(stats.totalCombinations) on the resulting
         // `undefined`. Match the res.ok guard already used by the
         // discover/brandability fetches below.

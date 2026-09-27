@@ -17,7 +17,7 @@ export const TITLE = "Namernut – AI Business Name Generator + Availability Che
 // whether to click into it at all).
 //
 // Split into HOOK (the pain point) and MECHANISM (how it's solved) so the
-// hero in FiltersPanel.tsx can give the hook more visual weight than the
+// hero in SearchBar.tsx can give the hook more visual weight than the
 // mechanism — a plain-text visitor reading top to bottom hits the pain
 // point first and largest, then the explanation, then the keyword prompt.
 // DESCRIPTION stays the single combined sentence for every other consumer
