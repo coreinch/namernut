@@ -74,4 +74,12 @@ describe("Header", () => {
     fireEvent.keyDown(screen.getByRole("tab", { name: /^favorites/i }), { key: "ArrowRight" });
     expect(screen.getByRole("tab", { name: /^archive/i }).getAttribute("aria-selected")).toBe("true");
   });
+
+  it("a key other than the arrows leaves selection and focus untouched", () => {
+    render(<ControlledHeader initialTab="current" />);
+    const currentTab = screen.getByRole("tab", { name: /^current/i });
+    fireEvent.keyDown(currentTab, { key: "Enter" });
+    expect(currentTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tab", { name: /^favorites/i }).getAttribute("aria-selected")).toBe("false");
+  });
 });

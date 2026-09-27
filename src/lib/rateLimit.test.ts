@@ -38,6 +38,26 @@ describe("checkRateLimit", () => {
       vi.useRealTimers();
     }
   });
+
+  it("sweeps expired buckets once the map grows past 5000 entries, without touching live ones", () => {
+    const id = Math.random();
+    const freshKey = `sweep-fresh-${id}`;
+    // Inserted before the flood below so the internal sweep (once triggered)
+    // walks past both an unexpired and many expired entries in the same pass.
+    checkRateLimit(freshKey, 1, 60_000);
+    // windowMs of -1000 makes resetAt land in the past immediately — each of
+    // these buckets is already expired the instant it's created. Comfortably
+    // over the 5000-entry threshold that makes checkRateLimit call sweep(now)
+    // internally.
+    for (let i = 0; i < 5100; i++) {
+      checkRateLimit(`sweep-expired-${id}-${i}`, 1, -1000);
+    }
+    // freshKey's bucket must have survived every sweep pass above — limit is
+    // 1, so this is only blocked if the original count is still there. If
+    // sweep had wrongly deleted a live entry, this would incorrectly report
+    // ok: true (a fresh bucket, reset to count 1).
+    expect(checkRateLimit(freshKey, 1, 60_000).ok).toBe(false);
+  });
 });
 
 describe("getClientIp", () => {
@@ -53,6 +73,13 @@ describe("getClientIp", () => {
       headers: { "x-forwarded-for": "2.2.2.2, 3.3.3.3" },
     });
     expect(getClientIp(request)).toBe("2.2.2.2");
+  });
+
+  it("falls back to \"unknown\" when x-forwarded-for's first entry is empty", () => {
+    const request = new Request("http://localhost", {
+      headers: { "x-forwarded-for": ", 3.3.3.3" },
+    });
+    expect(getClientIp(request)).toBe("unknown");
   });
 
   it("returns \"unknown\" when neither header is present", () => {
