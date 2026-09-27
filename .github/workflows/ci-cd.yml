@@ -76,9 +76,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ steps.repo.outputs.name }}
+          # {{branch}} resolves to an empty string on pull_request-triggered
+          # runs (it's only populated for push-to-branch events), which
+          # produced an invalid tag like "-0bb9835" and failed the build
+          # step outright. Fall back to the PR's head ref in that case —
+          # metadata-action sanitizes it (e.g. slashes in a Dependabot
+          # branch name) into a valid tag component automatically.
           tags: |
             type=ref,event=branch
-            type=sha,format=short,prefix={{branch}}-
+            type=sha,format=short,prefix=${{ github.event_name == 'pull_request' && github.head_ref || '{{branch}}' }}-
 
       - name: Build and push image
         uses: docker/build-push-action@v6
