@@ -14,25 +14,16 @@
  * it can change without notice, so anything inconclusive resolves to
  * "unknown" rather than failing the whole search.
  */
-import { SOCIAL_CHECK_USER_AGENT, type SocialStatus } from "@/lib/socialStatus";
-
-// Matches rdap.ts's FETCH_TIMEOUT_MS — without this, a hung request here
-// would keep discovery.ts's checkSocialOne waiting indefinitely rather than
-// the retry/backoff path it's built for.
-const FETCH_TIMEOUT_MS = 10000;
+import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited, type SocialStatus } from "@/lib/socialStatus";
 
 export async function checkTiktokUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
-  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const res = await fetch(`https://www.tiktok.com/@${encodeURIComponent(username)}`, {
-    headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" },
-    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  });
+  const res = await fetchWithTimeout(
+    `https://www.tiktok.com/@${encodeURIComponent(username)}`,
+    { headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" } },
+    signal
+  );
 
-  if (res.status === 429) {
-    const err = new Error("tiktok_rate_limited");
-    err.name = "RateLimitError";
-    throw err;
-  }
+  if (res.status === 429) throwRateLimited("tiktok_rate_limited");
   if (res.status !== 200) return "unknown";
 
   const html = await res.text();

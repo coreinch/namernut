@@ -11,19 +11,14 @@
  * as Instagram — see checkGithubOne in discovery.ts) stays well under that
  * in normal use.
  */
-import { SOCIAL_CHECK_USER_AGENT, type SocialStatus } from "@/lib/socialStatus";
-
-// Matches rdap.ts's FETCH_TIMEOUT_MS — without this, a hung request here
-// would keep discovery.ts's checkSocialOne waiting indefinitely rather than
-// the retry/backoff path it's built for.
-const FETCH_TIMEOUT_MS = 10000;
+import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited, type SocialStatus } from "@/lib/socialStatus";
 
 export async function checkGithubUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
-  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const res = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`, {
-    headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "application/vnd.github+json" },
-    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  });
+  const res = await fetchWithTimeout(
+    `https://api.github.com/users/${encodeURIComponent(username)}`,
+    { headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "application/vnd.github+json" } },
+    signal
+  );
 
   if (res.status === 404) return "available";
   if (res.status === 200) return "taken";
@@ -36,9 +31,7 @@ export async function checkGithubUsername(username: string, signal?: AbortSignal
   // faster) — but the same backoff-then-give-up handling in discovery.ts's
   // generalized checker is a reasonable response to either.
   if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
-    const err = new Error("github_rate_limited");
-    err.name = "RateLimitError";
-    throw err;
+    throwRateLimited("github_rate_limited");
   }
   return "unknown";
 }

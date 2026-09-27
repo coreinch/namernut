@@ -26,14 +26,9 @@
  * behavior detection, which anonymous requests (just an inconclusive login
  * page) don't risk. Falls back to the unauthenticated path when unset.
  */
-import { SOCIAL_CHECK_USER_AGENT } from "@/lib/socialStatus";
+import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
 
 export type InstagramStatus = "available" | "taken" | "unknown";
-
-// Matches rdap.ts's FETCH_TIMEOUT_MS — without this, a hung request here
-// would keep discovery.ts's checkSocialOne waiting indefinitely rather than
-// the retry/backoff path it's built for.
-const FETCH_TIMEOUT_MS = 10000;
 
 export async function checkInstagramUsername(
   username: string,
@@ -44,17 +39,9 @@ export async function checkInstagramUsername(
     headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;
   }
 
-  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-  const res = await fetch(`https://www.instagram.com/${encodeURIComponent(username)}/`, {
-    headers,
-    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  });
+  const res = await fetchWithTimeout(`https://www.instagram.com/${encodeURIComponent(username)}/`, { headers }, signal);
 
-  if (res.status === 429) {
-    const err = new Error("rate_limited");
-    err.name = "RateLimitError";
-    throw err;
-  }
+  if (res.status === 429) throwRateLimited("rate_limited");
 
   // fetch() follows redirects by default — res.url is the final URL, not
   // the one requested. Instagram now sends every unauthenticated profile
