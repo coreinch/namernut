@@ -32,15 +32,27 @@ interface PersistedState {
 // doesn't pull discovery.ts's runtime code — or its dictionary-data
 // dependency — into the client bundle; it's erased at compile time. Every
 // gate defaults to on (true) — the same behavior the app had before these
-// were exposed — so a fresh install, or a persisted state from before this
-// existed, comes back unchanged.
+// were exposed — EXCEPT the three DEFERRED_PLATFORMS handle gates
+// (requireGithub/requireYoutube/requireTwitter), which default to off
+// (false): those are the platforms actually confirmed (or, for
+// YouTube/Twitter, suspected) to hit a real rate limit in practice — see
+// DEFERRED_PLATFORMS in discovery.ts for the specifics of each — so
+// requiring them out of the box means most searches hit that limit before
+// producing any results. Instagram/TikTok/npm stay on by default despite
+// two of them being undocumented scraping too, since neither has actually
+// shown a rate-limit problem (Instagram's only real failure mode is its
+// login wall, sidestepped entirely once INSTAGRAM_SESSION_ID is
+// configured). This must stay in sync with parseGates's defaults in
+// discovery.ts, which the server falls back to for a request with no gate
+// params at all. A fresh install gets these defaults; a persisted state
+// from before this change keeps whatever it already had saved.
 const DEFAULT_GATES: DiscoveryGates = {
   requireInstagram: true,
-  requireGithub: true,
+  requireGithub: false,
   requireTiktok: true,
   requireNpm: true,
-  requireYoutube: true,
-  requireTwitter: true,
+  requireYoutube: false,
+  requireTwitter: false,
   filterPronounceable: true,
   filterTypos: true,
   filterNiceness: true,

@@ -960,35 +960,58 @@ describe("runDiscovery", () => {
   });
 });
 
+// parseGates's actual default when no query params are present at all —
+// distinct from ALL_GATES_ON above. The three DEFERRED_PLATFORMS handle
+// gates (requireGithub/requireYoutube/requireTwitter) default off: those
+// are the platforms actually confirmed (or suspected) to hit a real rate
+// limit in practice (see DEFERRED_PLATFORMS in discovery.ts), so requiring
+// them out of the box would rate-limit most searches before they produce
+// any results. requireInstagram/requireTiktok/requireNpm keep the original
+// on-by-default behavior, same as every quality filter, since none of the
+// three has actually shown a rate-limit problem.
+const DEFAULT_QUERY_GATES: DiscoveryGates = {
+  ...ALL_GATES_ON,
+  requireGithub: false,
+  requireYoutube: false,
+  requireTwitter: false,
+};
+
 describe("parseGates", () => {
-  it("defaults every gate on for an empty/missing query string", () => {
-    expect(parseGates(new URLSearchParams(""))).toEqual(ALL_GATES_ON);
+  it("defaults every gate on for an empty/missing query string, except the three deferred-platform gates", () => {
+    expect(parseGates(new URLSearchParams(""))).toEqual(DEFAULT_QUERY_GATES);
   });
 
-  it("turns a gate off only when its param is exactly the string 'false'", () => {
-    expect(parseGates(new URLSearchParams("requireInstagram=false"))).toEqual({
-      ...ALL_GATES_ON,
+  it("turns an on-by-default gate off only when its param is exactly the string 'false'", () => {
+    expect(
+      parseGates(new URLSearchParams("requireInstagram=false&requireTiktok=false&requireNpm=false"))
+    ).toEqual({
+      ...DEFAULT_QUERY_GATES,
       requireInstagram: false,
-    });
-    expect(parseGates(new URLSearchParams("requireGithub=false&requireTiktok=false"))).toEqual({
-      ...ALL_GATES_ON,
-      requireGithub: false,
       requireTiktok: false,
-    });
-    expect(parseGates(new URLSearchParams("requireNpm=false&requireYoutube=false&requireTwitter=false"))).toEqual({
-      ...ALL_GATES_ON,
       requireNpm: false,
-      requireYoutube: false,
-      requireTwitter: false,
     });
     expect(parseGates(new URLSearchParams("filterPronounceable=false&filterTypos=false"))).toEqual({
-      ...ALL_GATES_ON,
+      ...DEFAULT_QUERY_GATES,
       filterPronounceable: false,
       filterTypos: false,
     });
   });
 
-  it("fails safe (on) for a malformed value rather than silently disabling the gate", () => {
-    expect(parseGates(new URLSearchParams("filterNiceness=nope"))).toEqual(ALL_GATES_ON);
+  it("turns an off-by-default deferred-platform gate on only when its param is exactly the string 'true'", () => {
+    expect(parseGates(new URLSearchParams("requireGithub=true"))).toEqual({
+      ...DEFAULT_QUERY_GATES,
+      requireGithub: true,
+    });
+    expect(parseGates(new URLSearchParams("requireYoutube=true&requireTwitter=true"))).toEqual({
+      ...DEFAULT_QUERY_GATES,
+      requireYoutube: true,
+      requireTwitter: true,
+    });
+    // Anything other than the literal string "true" fails safe (stays off).
+    expect(parseGates(new URLSearchParams("requireGithub=1"))).toEqual(DEFAULT_QUERY_GATES);
+  });
+
+  it("fails safe (on) for a malformed value on an on-by-default gate rather than silently disabling it", () => {
+    expect(parseGates(new URLSearchParams("filterNiceness=nope"))).toEqual(DEFAULT_QUERY_GATES);
   });
 });

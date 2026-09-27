@@ -81,24 +81,30 @@ export type DiscoveryEvent =
 
 /**
  * Which of runDiscovery's candidate-rejection gates are actually active —
- * user-configurable (see the "Filters" section in page.tsx), each
- * defaulting to true (on) so the out-of-the-box behavior is unchanged from
- * before these were exposed. Turning a gate off doesn't relax it — it
- * removes that check entirely, so more candidates (including lower-quality
- * ones) reach a real domain/social check.
+ * user-configurable (see the "Filters" section in page.tsx). Every gate
+ * defaults to true (on) so the out-of-the-box behavior is unchanged from
+ * before these were exposed, EXCEPT the three DEFERRED_PLATFORMS gates
+ * (requireGithub/requireYoutube/requireTwitter), which default to false
+ * (off) — see DEFERRED_PLATFORMS below for why those three specifically
+ * (not "every social platform," and not "every non-documented-API
+ * platform" — GitHub is a real documented API, and Instagram/TikTok are
+ * undocumented scraping that stayed on-by-default anyway). Turning a gate
+ * off doesn't relax it — it removes that check entirely, so more
+ * candidates (including lower-quality ones) reach a real domain/social
+ * check.
  */
 export interface DiscoveryGates {
-  /** A result also requires an available Instagram username for the name — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** A result also requires an available Instagram username for the name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireInstagram: boolean;
-  /** Same requirement, for GitHub — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** Same requirement, for GitHub — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
   requireGithub: boolean;
-  /** Same requirement, for TikTok — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** Same requirement, for TikTok — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireTiktok: boolean;
-  /** Same requirement, for an npm package name — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** Same requirement, for an npm package name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
   requireNpm: boolean;
-  /** Same requirement, for a YouTube channel handle — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** Same requirement, for a YouTube channel handle — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
   requireYoutube: boolean;
-  /** Same requirement, for an X (Twitter) handle — see SOCIAL_PLATFORMS/gateDisabled below. */
+  /** Same requirement, for an X (Twitter) handle — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
   requireTwitter: boolean;
   /** Reject candidates isPronounceable() flags as unpronounceable. */
   filterPronounceable: boolean;
@@ -108,19 +114,28 @@ export interface DiscoveryGates {
   filterNiceness: boolean;
 }
 
-/** Parses the nine gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
+/**
+ * Parses the nine gate toggles from request query params. Every gate
+ * except the three DEFERRED_PLATFORMS ones defaults to on (true) if
+ * absent/malformed, reproducing the pre-gates behavior; only the literal
+ * string "false" turns one of those off. requireGithub/requireYoutube/
+ * requireTwitter default to off (false) instead — see the DiscoveryGates
+ * doc comment above — so only the literal string "true" turns one of
+ * those on.
+ */
 export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
-  const on = (key: string) => searchParams.get(key) !== "false";
+  const onByDefault = (key: string) => searchParams.get(key) !== "false";
+  const offByDefault = (key: string) => searchParams.get(key) === "true";
   return {
-    requireInstagram: on("requireInstagram"),
-    requireGithub: on("requireGithub"),
-    requireTiktok: on("requireTiktok"),
-    requireNpm: on("requireNpm"),
-    requireYoutube: on("requireYoutube"),
-    requireTwitter: on("requireTwitter"),
-    filterPronounceable: on("filterPronounceable"),
-    filterTypos: on("filterTypos"),
-    filterNiceness: on("filterNiceness"),
+    requireInstagram: onByDefault("requireInstagram"),
+    requireGithub: offByDefault("requireGithub"),
+    requireTiktok: onByDefault("requireTiktok"),
+    requireNpm: onByDefault("requireNpm"),
+    requireYoutube: offByDefault("requireYoutube"),
+    requireTwitter: offByDefault("requireTwitter"),
+    filterPronounceable: onByDefault("filterPronounceable"),
+    filterTypos: onByDefault("filterTypos"),
+    filterNiceness: onByDefault("filterNiceness"),
   };
 }
 
@@ -199,8 +214,19 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
  * below. Each platform's own lib module (instagram.ts, github.ts,
  * tiktok.ts) knows nothing about the others; this is the one place that
  * treats them as an interchangeable list, which is what lets the worker
- * loop check all three with one generic path instead of three copies of
- * the same concurrency-sensitive logic.
+ * loop check all of them with one generic path (checkSocialOne/
+ * checkPlatformGroup) instead of a separate copy of the same
+ * concurrency-sensitive logic per platform. Split below into two groups —
+ * EAGER_PLATFORMS and DEFERRED_PLATFORMS — rather than one flat list,
+ * since they're checked in two separate phases (see the pendingAvailable
+ * loop in worker()). The split is by which platforms have actually been
+ * observed hitting a real rate limit in practice, not by "documented API
+ * vs. scraping" or "dev tool vs. social platform" — see the two groups'
+ * own doc comments below for specifics (e.g. Instagram is fine once
+ * INSTAGRAM_SESSION_ID is configured, and TikTok hasn't shown a problem
+ * either, so both stayed eager despite being scraping-based; GitHub, a
+ * real documented API, moved to deferred anyway because its rate limit is
+ * the one that's actually been hit).
  */
 interface SocialPlatform {
   key: "instagram" | "github" | "tiktok" | "npm" | "youtube" | "twitter";
@@ -226,11 +252,36 @@ interface SocialPlatform {
    */
   blockedErrorName?: string;
 }
-const SOCIAL_PLATFORMS: SocialPlatform[] = [
-  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
-  { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
-  { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
+// Every platform here (like every one below) throws RateLimitError on a
+// 429, but none of these three have actually been observed hitting it in
+// practice: npm's public registry limit isn't documented, Instagram's
+// only real out-of-the-box failure mode is its login wall (a structural
+// block, not a rate limit — see LoginWallError above — and a non-issue at
+// all once INSTAGRAM_SESSION_ID is configured), and TikTok's scraping has
+// held up fine too. Cheap enough to run eagerly alongside the domain
+// checks and on by default.
+const EAGER_PLATFORMS: SocialPlatform[] = [
   { key: "npm", label: "npm", gate: "requireNpm", check: checkNpmPackageName },
+  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
+  { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
+];
+
+// Checked only once every EAGER_PLATFORMS requirement has already passed
+// (see the pendingAvailable loop below), so a candidate that would be
+// filtered out anyway never burns one of these requests, and they default
+// off (see parseGates/DEFAULT_GATES) rather than requiring the user to
+// hit a rate limit before discovering they should turn one off. GitHub is
+// the one platform here confirmed to actually hit its limit in practice:
+// unlike every other platform, its 403 + X-RateLimit-Remaining:0 response
+// documents a hard, tight cap (60 unauthenticated requests/hour per IP —
+// confirmed directly 2026-09-25, see github.ts), and was the platform
+// whose exhausted-rate-limit case this app's SOCIAL_BLOCKED_STREAK_THRESHOLD
+// breaker was originally written to handle. YouTube and X handle 429
+// defensively but haven't shown an equivalent real-world problem yet —
+// grouped here anyway since (unlike npm/Instagram/TikTok above) neither
+// has been specifically confirmed fine either.
+const DEFERRED_PLATFORMS: SocialPlatform[] = [
+  { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
   { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
   { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
 ];
@@ -315,8 +366,9 @@ async function checkSocialOne(
  * collecting up to `targetCount` results before finishing (or until the
  * caller aborts). A result requires an available domain *and* the handle
  * being available on every social platform currently required (see
- * SOCIAL_PLATFORMS and gates.requireInstagram/requireGithub/requireTiktok)
- * for the same name — a domain match where any one of those is taken (or
+ * EAGER_PLATFORMS/DEFERRED_PLATFORMS and
+ * gates.requireInstagram/requireGithub/requireTiktok) for the same name —
+ * a domain match where any one of those is taken (or
  * inconclusive) doesn't count toward the target and is reported as
  * "filtered" instead of "found", so the search keeps going rather than
  * surfacing it. If a given platform's checking turns out to be
@@ -410,8 +462,8 @@ export async function runDiscovery(
   // streak trips, it's no longer checked at all for the rest of this search
   // (no point spending requests on a mechanism confirmed blocked) and stops
   // gating results — the other still-required platforms (if any) keep
-  // being enforced. Keyed by SocialPlatform.key, one entry per platform in
-  // SOCIAL_PLATFORMS.
+  // being enforced. Keyed by SocialPlatform.key, one entry per platform
+  // across EAGER_PLATFORMS and DEFERRED_PLATFORMS combined.
   const blockedStreaks: Record<string, number> = { instagram: 0, github: 0, tiktok: 0, npm: 0, youtube: 0, twitter: 0 };
   // Starting "disabled" when a platform's gate is turned off reuses the
   // exact same fallback path the blocked-streak breaker below drops into
@@ -467,6 +519,53 @@ export async function runDiscovery(
     return null; // every tier exhausted
   }
 
+  // Awaits every still-required platform in `platforms` for `name`,
+  // folding each result into `social` and applying the same
+  // blocked-streak bookkeeping (see SOCIAL_BLOCKED_STREAK_THRESHOLD)
+  // regardless of which group (EAGER_PLATFORMS/DEFERRED_PLATFORMS) is
+  // passed in — factored out so the two-phase check below (eager
+  // platforms, then deferred platforms only once those pass) doesn't
+  // duplicate this bookkeeping.
+  async function checkPlatformGroup(
+    platforms: SocialPlatform[],
+    name: string,
+    social: Record<string, SocialStatus>,
+    socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>>
+  ): Promise<"ok" | "aborted"> {
+    const active = platforms.filter((p) => !gateDisabled[p.key]);
+    const results = await Promise.all(
+      active.map(async (platform) => {
+        if (!socialForName[platform.key]) {
+          socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
+        }
+        return { platform, result: await socialForName[platform.key]! };
+      })
+    );
+    if (results.some((r) => r.result === "aborted")) return "aborted";
+
+    for (const { platform, result } of results) {
+      if (result === "blocked") {
+        blockedStreaks[platform.key]++;
+        // Guarded on !gateDisabled[platform.key] too: several workers can
+        // have a check for this platform in flight when its streak first
+        // trips, and each one's in-flight request can still resolve
+        // "blocked" afterward — without this, each of those would re-trip
+        // the (already-tripped) breaker and emit a duplicate event.
+        if (!gateDisabled[platform.key] && blockedStreaks[platform.key] >= SOCIAL_BLOCKED_STREAK_THRESHOLD) {
+          gateDisabled[platform.key] = true;
+          onEvent({
+            type: "error",
+            message: `${platform.label} checking appears to be blocked — no longer requiring it for the rest of this search.`,
+          });
+        }
+      } else {
+        blockedStreaks[platform.key] = 0;
+        social[platform.key] = result as SocialStatus;
+      }
+    }
+    return "ok";
+  }
+
   async function worker() {
     for (;;) {
       const candidate = claimCandidate();
@@ -506,15 +605,19 @@ export async function runDiscovery(
       const socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>> = {};
 
       // TLDs whose domain came back available, in the order found. Kicking
-      // off (but not yet awaiting) this name's social checks the moment the
-      // *first* one is found — see below — lets them run in the background
-      // while the loop moves straight on to the next TLD's domain check,
-      // instead of paying the full social-check latency before that next
+      // off (but not yet awaiting) this name's EAGER_PLATFORMS checks the
+      // moment the *first* one is found — see below — lets them run in the
+      // background while the loop moves straight on to the next TLD's
+      // domain check, instead of paying their latency before that next
       // domain check can even start. They're only actually awaited once
       // every TLD has been checked, by which point they're often already
-      // resolved. This overlaps domain and social checking without
-      // increasing social request volume: a candidate whose domain is
-      // unavailable on every TLD still never triggers a social check.
+      // resolved. This overlaps domain and eager-platform checking without
+      // increasing eager-platform request volume: a candidate whose domain
+      // is unavailable on every TLD still never triggers one. Unlike
+      // EAGER_PLATFORMS, DEFERRED_PLATFORMS checks are never started
+      // here — see DEFERRED_PLATFORMS above for why they wait until
+      // EAGER_PLATFORMS has already passed, in the pendingAvailable loop
+      // below.
       const pendingAvailable: { domain: string }[] = [];
 
       for (const tld of tlds) {
@@ -530,7 +633,11 @@ export async function runDiscovery(
         checkedCount++;
 
         if (status === "available") {
-          for (const platform of SOCIAL_PLATFORMS) {
+          // Only EAGER_PLATFORMS are kicked off eagerly here — see
+          // DEFERRED_PLATFORMS above for why its checks wait until the
+          // pendingAvailable loop below instead of starting in the
+          // background this early.
+          for (const platform of EAGER_PLATFORMS) {
             if (!gateDisabled[platform.key] && !socialForName[platform.key]) {
               socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
             }
@@ -571,62 +678,50 @@ export async function runDiscovery(
           twitter: "unknown",
         };
 
-        // Every still-required platform's checkSocialOne call was already
-        // started above (as soon as this name's first available TLD was
-        // found) rather than here — awaiting them now just picks up
-        // results that have often already arrived while later TLDs in this
-        // candidate were still being domain-checked.
-        const activePlatforms = SOCIAL_PLATFORMS.filter((p) => !gateDisabled[p.key]);
-        const results = await Promise.all(
-          activePlatforms.map(async (platform) => {
-            if (!socialForName[platform.key]) {
-              socialForName[platform.key] = checkSocialOne(platform, name, signal, onEvent);
-            }
-            return { platform, result: await socialForName[platform.key]! };
-          })
-        );
-        if (results.some((r) => r.result === "aborted")) return;
+        // Every still-required EAGER_PLATFORMS check was already started
+        // above (as soon as this name's first available TLD was found)
+        // rather than here — awaiting it now just picks up results that
+        // have often already arrived while later TLDs in this candidate
+        // were still being domain-checked.
+        const eagerOutcome = await checkPlatformGroup(EAGER_PLATFORMS, name, social, socialForName);
+        if (eagerOutcome === "aborted") return;
 
-        for (const { platform, result } of results) {
-          if (result === "blocked") {
-            blockedStreaks[platform.key]++;
-            // Guarded on !gateDisabled[platform.key] too: several
-            // workers can have a check for this platform in flight when
-            // its streak first trips, and each one's in-flight request
-            // can still resolve "blocked" afterward — without this,
-            // each of those would re-trip the (already-tripped) breaker
-            // and emit a duplicate event.
-            if (!gateDisabled[platform.key] && blockedStreaks[platform.key] >= SOCIAL_BLOCKED_STREAK_THRESHOLD) {
-              gateDisabled[platform.key] = true;
-              onEvent({
-                type: "error",
-                message: `${platform.label} checking appears to be blocked — no longer requiring it for the rest of this search.`,
-              });
-            }
-          } else {
-            blockedStreaks[platform.key] = 0;
-            social[platform.key] = result as SocialStatus;
-          }
-        }
-
-        // Only a domain match plus every *currently* required platform's
-        // handle being available counts as a result — "taken" and
-        // "unknown" (an inconclusive check, or a platform confirmed
-        // blocked for this whole search) both fail to qualify, since
-        // "unknown" is not the same as confirmed available. Evaluated
-        // against gateDisabled's state *after* the loop above, so a
-        // platform whose breaker just tripped on this very candidate is
-        // already exempted for it too — same as it always was for
-        // Instagram alone.
-        const anyRequiredUnavailable = SOCIAL_PLATFORMS.some(
+        // Only a domain match plus every *currently* required eager
+        // platform's handle being available qualifies for a
+        // DEFERRED_PLATFORMS check at all — "taken"/"unknown" here
+        // means this candidate is already disqualified, so there's no
+        // point spending a request against a rate-limited, off-by-default
+        // deferred platform for a name that can't be a result anyway.
+        const anyEagerUnavailable = EAGER_PLATFORMS.some(
           (p) => !gateDisabled[p.key] && social[p.key] !== "available"
         );
-        if (anyRequiredUnavailable) {
+        if (anyEagerUnavailable) {
           onEvent({ type: "filtered", name: domain, checkedCount });
           continue;
         }
 
-        // Re-check once more: the social checks above can take a while,
+        // Re-check once more before spending a deferred-platform request:
+        // the eager-platform checks above can take a while, and another
+        // worker may have filled the last slot during them (same
+        // overshoot race as above, closed the same way).
+        if (foundCount >= targetCount) continue;
+
+        // Reached only once every EAGER_PLATFORMS requirement already
+        // passed — see DEFERRED_PLATFORMS above for why these run
+        // last, unlike EAGER_PLATFORMS these were never started eagerly, so
+        // this is the first await for any of them.
+        const deferredOutcome = await checkPlatformGroup(DEFERRED_PLATFORMS, name, social, socialForName);
+        if (deferredOutcome === "aborted") return;
+
+        const anyDeferredUnavailable = DEFERRED_PLATFORMS.some(
+          (p) => !gateDisabled[p.key] && social[p.key] !== "available"
+        );
+        if (anyDeferredUnavailable) {
+          onEvent({ type: "filtered", name: domain, checkedCount });
+          continue;
+        }
+
+        // Re-check once more: the deferred checks above can take a while,
         // and another worker may have filled the last slot during them
         // (same overshoot race as above, closed the same way).
         if (foundCount >= targetCount) continue;
