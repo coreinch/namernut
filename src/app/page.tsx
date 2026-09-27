@@ -10,7 +10,7 @@ import {
   type Lang,
   type Tld,
 } from "@/lib/searchConfig";
-import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
+import { CONTENT_WIDTH, FOCUS_RING, PAGE_WIDTH } from "@/components/constants";
 import { Header, tabButtonId, tabPanelId, type ResultsTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SearchBar } from "@/components/SearchBar";
@@ -349,7 +349,7 @@ export default function Home() {
             <SearchBar mode="hero" {...searchBarProps} />
           </div>
         ) : (
-          <div className="mx-auto flex w-full flex-col gap-6 lg:grid lg:max-w-5xl lg:grid-cols-[300px_1fr] lg:items-start lg:gap-8">
+          <div className={`mx-auto flex w-full flex-col gap-6 lg:grid lg:grid-cols-[300px_1fr] lg:items-start lg:gap-8 ${PAGE_WIDTH}`}>
             {/* Desktop-only persistent rail: SettingsPanel is otherwise
                 reached through SettingsDrawer (below), opened from
                 SearchBar's "Customize" button — see its own comment on why

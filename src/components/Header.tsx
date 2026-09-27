@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { CONTENT_WIDTH, FOCUS_RING } from "./constants";
+import { CONTENT_WIDTH, FOCUS_RING, PAGE_WIDTH } from "./constants";
 
 export type ResultsTab = "current" | "favorites" | "archive";
 
@@ -68,8 +68,19 @@ export function Header({
           on a narrow phone width, "namernut" + the status badge + all three
           tab buttons (with counts) don't fit on one line; wrapping the tab
           group onto its own line keeps every control fully visible instead
-          of clipping or forcing horizontal page scroll. */}
-      <div className={`mx-auto flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 ${CONTENT_WIDTH}`}>
+          of clipping or forcing horizontal page scroll.
+
+          Width matches whichever layout page.tsx is rendering below: the
+          narrow hero column pre-first-search (CONTENT_WIDTH, showTabs
+          false) or the wider rail+content layout once there's something to
+          show tabs for (PAGE_WIDTH) — without this the header reads as
+          narrower than the body under it on desktop once that wider layout
+          kicks in. */}
+      <div
+        className={`mx-auto flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2 ${
+          showTabs ? PAGE_WIDTH : CONTENT_WIDTH
+        }`}
+      >
         <div className="flex items-center gap-2.5">
           <span className="font-display text-lg font-bold tracking-tight">namernut</span>
         </div>

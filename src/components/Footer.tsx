@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { CONTENT_WIDTH, FOCUS_RING } from "./constants";
+import { FOCUS_RING, PAGE_WIDTH } from "./constants";
 
 // Rendered only while a search is running — the primary "start" action now
 // lives in the search pill at the top of the page (see FiltersPanel), but a
@@ -34,7 +34,10 @@ export function Footer({
   if (!isRunning) return null;
   return (
     <footer className="shrink-0 border-t border-black/10 bg-background/85 px-4 pt-2.5 pb-[max(env(safe-area-inset-bottom),0.625rem)] backdrop-blur-md dark:border-white/10">
-      <div className={`mx-auto flex w-full items-center justify-between gap-3 ${CONTENT_WIDTH}`}>
+      {/* isRunning implies a search has started, i.e. never the first-visit
+          hero stage — PAGE_WIDTH (not CONTENT_WIDTH) always matches that
+          wider rail+content layout, same reasoning as Header's. */}
+      <div className={`mx-auto flex w-full items-center justify-between gap-3 ${PAGE_WIDTH}`}>
         <span aria-hidden="true" className="min-w-0 truncate text-xs tabular-nums text-muted">
           {statusText}
         </span>
