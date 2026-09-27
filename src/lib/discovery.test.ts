@@ -5,6 +5,9 @@ vi.mock("./whois", () => ({ checkDomainWhois: vi.fn() }));
 vi.mock("./instagram", () => ({ checkInstagramUsername: vi.fn() }));
 vi.mock("./github", () => ({ checkGithubUsername: vi.fn() }));
 vi.mock("./tiktok", () => ({ checkTiktokUsername: vi.fn() }));
+vi.mock("./npm", () => ({ checkNpmPackageName: vi.fn() }));
+vi.mock("./youtube", () => ({ checkYoutubeHandle: vi.fn() }));
+vi.mock("./twitter", () => ({ checkTwitterHandle: vi.fn() }));
 // The real niceness index is built from the actual candidate pool passed
 // in — these tests use tiny 2-3 word fixtures, far too little data for
 // real bigram statistics, so almost every combined candidate would fail
@@ -18,6 +21,9 @@ import { checkDomainWhois } from "./whois";
 import { checkInstagramUsername } from "./instagram";
 import { checkGithubUsername } from "./github";
 import { checkTiktokUsername } from "./tiktok";
+import { checkNpmPackageName } from "./npm";
+import { checkYoutubeHandle } from "./youtube";
+import { checkTwitterHandle } from "./twitter";
 import { buildNicenessIndex } from "./niceness";
 import { parseGates, runDiscovery, type DiscoveryEvent, type DiscoveryGates } from "./discovery";
 import { isPronounceable } from "./pronounceable";
@@ -29,6 +35,9 @@ const ALL_GATES_ON: DiscoveryGates = {
   requireInstagram: true,
   requireGithub: true,
   requireTiktok: true,
+  requireNpm: true,
+  requireYoutube: true,
+  requireTwitter: true,
   filterPronounceable: true,
   filterTypos: true,
   filterNiceness: true,
@@ -45,6 +54,9 @@ describe("runDiscovery", () => {
     vi.mocked(checkInstagramUsername).mockResolvedValue("available");
     vi.mocked(checkGithubUsername).mockResolvedValue("available");
     vi.mocked(checkTiktokUsername).mockResolvedValue("available");
+    vi.mocked(checkNpmPackageName).mockResolvedValue("available");
+    vi.mocked(checkYoutubeHandle).mockResolvedValue("available");
+    vi.mocked(checkTwitterHandle).mockResolvedValue("available");
     vi.mocked(buildNicenessIndex).mockReturnValue({ score: () => 1 });
   });
 
@@ -207,6 +219,9 @@ describe("runDiscovery", () => {
         expect(f.instagram).toBe("available");
         expect(f.github).toBe("available");
         expect(f.tiktok).toBe("available");
+        expect(f.npm).toBe("available");
+        expect(f.youtube).toBe("available");
+        expect(f.twitter).toBe("available");
       }
     }
   });
@@ -414,6 +429,9 @@ describe("runDiscovery", () => {
   it.each([
     { label: "GitHub", gate: "requireGithub" as const, fn: checkGithubUsername },
     { label: "TikTok", gate: "requireTiktok" as const, fn: checkTiktokUsername },
+    { label: "npm", gate: "requireNpm" as const, fn: checkNpmPackageName },
+    { label: "YouTube", gate: "requireYoutube" as const, fn: checkYoutubeHandle },
+    { label: "X", gate: "requireTwitter" as const, fn: checkTwitterHandle },
   ])(
     "filters out (rather than counts) a domain match whose $label handle is taken, checked once per name not per TLD",
     async ({ fn }) => {
@@ -441,6 +459,9 @@ describe("runDiscovery", () => {
   it.each([
     { label: "GitHub", gate: "requireGithub" as const, fn: checkGithubUsername },
     { label: "TikTok", gate: "requireTiktok" as const, fn: checkTiktokUsername },
+    { label: "npm", gate: "requireNpm" as const, fn: checkNpmPackageName },
+    { label: "YouTube", gate: "requireYoutube" as const, fn: checkYoutubeHandle },
+    { label: "X", gate: "requireTwitter" as const, fn: checkTwitterHandle },
   ])("does not require (or even check) $label availability when its gate is off", async ({ gate, fn }) => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
@@ -910,6 +931,12 @@ describe("parseGates", () => {
       ...ALL_GATES_ON,
       requireGithub: false,
       requireTiktok: false,
+    });
+    expect(parseGates(new URLSearchParams("requireNpm=false&requireYoutube=false&requireTwitter=false"))).toEqual({
+      ...ALL_GATES_ON,
+      requireNpm: false,
+      requireYoutube: false,
+      requireTwitter: false,
     });
     expect(parseGates(new URLSearchParams("filterPronounceable=false&filterTypos=false"))).toEqual({
       ...ALL_GATES_ON,

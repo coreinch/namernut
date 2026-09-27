@@ -356,21 +356,33 @@ export function FiltersPanel({
         <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
           <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Extensions</span>
           <div className="flex flex-wrap gap-2">
-            {visibleTlds.map((tld) => (
-              <button
-                key={tld}
-                type="button"
-                onClick={() => onToggleTld(tld)}
-                aria-pressed={enabledTlds[tld]}
-                className={`min-h-9 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
-                  enabledTlds[tld]
-                    ? "border-accent-2/40 bg-accent-2/10 font-medium text-accent-2"
-                    : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
-                }`}
-              >
-                .{tld}
-              </button>
-            ))}
+            {visibleTlds.map((tld) => {
+              // toggleTld silently refuses to turn off the last remaining
+              // selected TLD (at least one must stay selected) — without
+              // this, that click looked identical to any other but did
+              // nothing, with no way to tell why.
+              const isOnlyOne = enabledTlds[tld] && selectedTlds.length <= 1;
+              return (
+                <button
+                  key={tld}
+                  type="button"
+                  onClick={() => onToggleTld(tld)}
+                  disabled={isOnlyOne}
+                  aria-pressed={enabledTlds[tld]}
+                  aria-label={isOnlyOne ? `.${tld} — at least one extension must stay selected` : undefined}
+                  title={isOnlyOne ? "At least one extension must stay selected" : undefined}
+                  className={`min-h-9 rounded-full border px-3.5 text-xs transition-all ${FOCUS_RING} ${
+                    isOnlyOne
+                      ? "cursor-not-allowed border-accent-2/40 bg-accent-2/10 font-medium text-accent-2 opacity-60"
+                      : enabledTlds[tld]
+                        ? "border-accent-2/40 bg-accent-2/10 font-medium text-accent-2 active:scale-95"
+                        : "border-black/15 font-normal text-black/55 hover:bg-black/5 active:scale-95 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
+                  }`}
+                >
+                  .{tld}
+                </button>
+              );
+            })}
             {TLDS.length > PRIMARY_TLD_COUNT && (
               <button
                 type="button"
@@ -381,7 +393,9 @@ export function FiltersPanel({
               </button>
             )}
           </div>
-          {selectedTlds.length === 0 && <p className="text-xs text-muted">Select at least one extension.</p>}
+          {selectedTlds.length <= 1 && (
+            <p className="text-xs text-muted">At least one extension must stay selected.</p>
+          )}
         </div>
 
         <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
@@ -400,6 +414,21 @@ export function FiltersPanel({
             label="Require TikTok handle"
             checked={gates.requireTiktok}
             onChange={(v) => onGatesChange((g) => ({ ...g, requireTiktok: v }))}
+          />
+          <GateToggle
+            label="Require npm package name"
+            checked={gates.requireNpm}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireNpm: v }))}
+          />
+          <GateToggle
+            label="Require YouTube handle"
+            checked={gates.requireYoutube}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireYoutube: v }))}
+          />
+          <GateToggle
+            label="Require X (Twitter) handle"
+            checked={gates.requireTwitter}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireTwitter: v }))}
           />
           <GateToggle
             label="Pronounceable only"

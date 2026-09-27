@@ -10,6 +10,9 @@ import { checkDomainWhois } from "@/lib/whois";
 import { checkInstagramUsername } from "@/lib/instagram";
 import { checkGithubUsername } from "@/lib/github";
 import { checkTiktokUsername } from "@/lib/tiktok";
+import { checkNpmPackageName } from "@/lib/npm";
+import { checkYoutubeHandle } from "@/lib/youtube";
+import { checkTwitterHandle } from "@/lib/twitter";
 import type { SocialStatus } from "@/lib/socialStatus";
 
 export type DiscoveryEvent =
@@ -58,7 +61,7 @@ export type DiscoveryEvent =
       parts: [string, string];
       checkedCount: number;
       foundCount: number;
-      /** All three are always present regardless of which gates were on —
+      /** All six are always present regardless of which gates were on —
        * "unknown" for any platform that wasn't required (see
        * DiscoveryGates) rather than the field being absent, so the client
        * never has to distinguish "not checked" from "checked, but
@@ -66,6 +69,9 @@ export type DiscoveryEvent =
       instagram: SocialStatus;
       github: SocialStatus;
       tiktok: SocialStatus;
+      npm: SocialStatus;
+      youtube: SocialStatus;
+      twitter: SocialStatus;
       /** Which generation mechanism produced this candidate — see CandidateSource — carried through so the UI can tell a dictionary pairing apart from an AI synonym/invented name/alt-spelling without re-parsing `meaning`. */
       source: CandidateSource;
     }
@@ -88,6 +94,12 @@ export interface DiscoveryGates {
   requireGithub: boolean;
   /** Same requirement, for TikTok — see SOCIAL_PLATFORMS/gateDisabled below. */
   requireTiktok: boolean;
+  /** Same requirement, for an npm package name — see SOCIAL_PLATFORMS/gateDisabled below. */
+  requireNpm: boolean;
+  /** Same requirement, for a YouTube channel handle — see SOCIAL_PLATFORMS/gateDisabled below. */
+  requireYoutube: boolean;
+  /** Same requirement, for an X (Twitter) handle — see SOCIAL_PLATFORMS/gateDisabled below. */
+  requireTwitter: boolean;
   /** Reject candidates isPronounceable() flags as unpronounceable. */
   filterPronounceable: boolean;
   /** Reject candidates that read as a likely typo of a common word — see typocheck.ts. Only ever applies with no keyword (see worker() below). */
@@ -96,13 +108,16 @@ export interface DiscoveryGates {
   filterNiceness: boolean;
 }
 
-/** Parses the six gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
+/** Parses the nine gate toggles from request query params, each defaulting to on (true) — i.e. absent/malformed input reproduces the pre-gates behavior. Only the literal string "false" turns a gate off, so a typo'd value fails safe (on) rather than silently disabling a check. */
 export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
   const on = (key: string) => searchParams.get(key) !== "false";
   return {
     requireInstagram: on("requireInstagram"),
     requireGithub: on("requireGithub"),
     requireTiktok: on("requireTiktok"),
+    requireNpm: on("requireNpm"),
+    requireYoutube: on("requireYoutube"),
+    requireTwitter: on("requireTwitter"),
     filterPronounceable: on("filterPronounceable"),
     filterTypos: on("filterTypos"),
     filterNiceness: on("filterNiceness"),
@@ -188,11 +203,14 @@ async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent:
  * the same concurrency-sensitive logic.
  */
 interface SocialPlatform {
-  key: "instagram" | "github" | "tiktok";
+  key: "instagram" | "github" | "tiktok" | "npm" | "youtube" | "twitter";
   /** Used in user-facing log/error messages — see checkSocialOne and the
    * "structurally blocked" breaker below. */
   label: string;
-  gate: keyof Pick<DiscoveryGates, "requireInstagram" | "requireGithub" | "requireTiktok">;
+  gate: keyof Pick<
+    DiscoveryGates,
+    "requireInstagram" | "requireGithub" | "requireTiktok" | "requireNpm" | "requireYoutube" | "requireTwitter"
+  >;
   check: (name: string, signal?: AbortSignal) => Promise<SocialStatus>;
   /** The Error.name a check throws for "structurally blocked, not just
    * rate-limited" (retrying the identical request won't help — only
@@ -201,7 +219,10 @@ interface SocialPlatform {
    * hits a real, documented API that has no login-wall-style redirect to
    * detect, and tiktok.ts's scraping hasn't shown one either (its own
    * failure modes so far are 429 and generic non-200s, both already
-   * covered by the same retry/backoff every platform gets below).
+   * covered by the same retry/backoff every platform gets below). Same for
+   * npm.ts (a real documented API, like github.ts) and youtube.ts/twitter.ts
+   * (status-code-only scraping that also hasn't shown a distinct
+   * login-wall-style signal in testing).
    */
   blockedErrorName?: string;
 }
@@ -209,6 +230,9 @@ const SOCIAL_PLATFORMS: SocialPlatform[] = [
   { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
   { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
   { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
+  { key: "npm", label: "npm", gate: "requireNpm", check: checkNpmPackageName },
+  { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
+  { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
 ];
 
 // How many consecutive "blocked" results (see SocialPlatform.blockedErrorName
@@ -381,7 +405,7 @@ export async function runDiscovery(
   // gating results — the other still-required platforms (if any) keep
   // being enforced. Keyed by SocialPlatform.key, one entry per platform in
   // SOCIAL_PLATFORMS.
-  const blockedStreaks: Record<string, number> = { instagram: 0, github: 0, tiktok: 0 };
+  const blockedStreaks: Record<string, number> = { instagram: 0, github: 0, tiktok: 0, npm: 0, youtube: 0, twitter: 0 };
   // Starting "disabled" when a platform's gate is turned off reuses the
   // exact same fallback path the blocked-streak breaker below drops into
   // once it trips at runtime — a domain match counts on its own for that
@@ -391,6 +415,9 @@ export async function runDiscovery(
     instagram: !gates.requireInstagram,
     github: !gates.requireGithub,
     tiktok: !gates.requireTiktok,
+    npm: !gates.requireNpm,
+    youtube: !gates.requireYoutube,
+    twitter: !gates.requireTwitter,
   };
   // Word concatenation has no separator, so two different underlying word
   // pairs can occasionally produce the identical candidate string (e.g. a
@@ -528,7 +555,14 @@ export async function runDiscovery(
         // carries all three (see its own doc comment), so a disabled
         // platform reports the same "unknown" a genuinely inconclusive
         // check would.
-        const social: Record<string, SocialStatus> = { instagram: "unknown", github: "unknown", tiktok: "unknown" };
+        const social: Record<string, SocialStatus> = {
+          instagram: "unknown",
+          github: "unknown",
+          tiktok: "unknown",
+          npm: "unknown",
+          youtube: "unknown",
+          twitter: "unknown",
+        };
 
         // Every still-required platform's checkSocialOne call was already
         // started above (as soon as this name's first available TLD was
@@ -600,6 +634,9 @@ export async function runDiscovery(
           instagram: social.instagram,
           github: social.github,
           tiktok: social.tiktok,
+          npm: social.npm,
+          youtube: social.youtube,
+          twitter: social.twitter,
           source,
         });
       }

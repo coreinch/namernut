@@ -11,6 +11,9 @@ const NO_GATES: DiscoveryGates = {
   requireInstagram: false,
   requireGithub: false,
   requireTiktok: false,
+  requireNpm: false,
+  requireYoutube: false,
+  requireTwitter: false,
   filterPronounceable: false,
   filterTypos: false,
   filterNiceness: false,
@@ -151,10 +154,17 @@ describe("FiltersPanel", () => {
     expect(props.onToggleTld).toHaveBeenCalledWith("net");
   });
 
-  it("shows a warning when no TLD is selected", () => {
+  it("shows a warning when at most one TLD is selected", () => {
     const props = baseProps();
     render(<FiltersPanel {...props} showAdvanced selectedTlds={[]} />);
-    expect(screen.getByText("Select at least one extension.")).toBeTruthy();
+    expect(screen.getByText("At least one extension must stay selected.")).toBeTruthy();
+  });
+
+  it("disables the sole selected TLD chip so it can't be deselected", () => {
+    const props = baseProps();
+    render(<FiltersPanel {...props} showAdvanced />);
+    const chip = screen.getByRole("button", { name: /\.com/ }) as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
   });
 
   it("changing the max-length slider calls onMaxLengthChange with a number", () => {
@@ -182,6 +192,23 @@ describe("FiltersPanel", () => {
     expect(props.onGatesChange).toHaveBeenCalledTimes(1);
     const updater = props.onGatesChange.mock.calls[0][0];
     expect(updater(NO_GATES)).toEqual({ ...NO_GATES, requireInstagram: true });
+  });
+
+  it("renders GateToggles for npm/YouTube/X and forwards merged updates via onGatesChange", () => {
+    const props = baseProps();
+    render(<FiltersPanel {...props} showAdvanced />);
+    const cases: [string, keyof DiscoveryGates][] = [
+      ["Require npm package name", "requireNpm"],
+      ["Require YouTube handle", "requireYoutube"],
+      ["Require X (Twitter) handle", "requireTwitter"],
+    ];
+    for (const [label, key] of cases) {
+      props.onGatesChange.mockClear();
+      screen.getByRole("switch", { name: label }).click();
+      expect(props.onGatesChange).toHaveBeenCalledTimes(1);
+      const updater = props.onGatesChange.mock.calls[0][0];
+      expect(updater(NO_GATES)).toEqual({ ...NO_GATES, [key]: true });
+    }
   });
 
   it("clicking 'Try an example' calls onTryExample", () => {

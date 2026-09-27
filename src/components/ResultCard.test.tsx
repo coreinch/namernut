@@ -94,7 +94,14 @@ describe("ResultCard", () => {
   it("only renders a social badge for a platform whose status is exactly 'taken'", () => {
     render(
       <ResultCard
-        entry={makeEntry({ instagram: "taken", github: "available", tiktok: "unknown" })}
+        entry={makeEntry({
+          instagram: "taken",
+          github: "available",
+          tiktok: "unknown",
+          npm: "taken",
+          youtube: "available",
+          twitter: "unknown",
+        })}
         favorited={false}
         brandability={idleBrandability}
         onSearch={() => {}}
@@ -106,6 +113,9 @@ describe("ResultCard", () => {
     expect(screen.getByText("IG taken")).toBeTruthy();
     expect(screen.queryByText("GH taken")).toBeNull();
     expect(screen.queryByText("TT taken")).toBeNull();
+    expect(screen.getByText("npm taken")).toBeTruthy();
+    expect(screen.queryByText("YT taken")).toBeNull();
+    expect(screen.queryByText("X taken")).toBeNull();
   });
 
   describe("BrandabilityBadge", () => {

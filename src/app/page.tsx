@@ -49,6 +49,9 @@ const DEFAULT_GATES: DiscoveryGates = {
   requireInstagram: true,
   requireGithub: true,
   requireTiktok: true,
+  requireNpm: true,
+  requireYoutube: true,
+  requireTwitter: true,
   filterPronounceable: true,
   filterTypos: true,
   filterNiceness: true,
@@ -568,6 +571,7 @@ export default function Home() {
       const res = await fetch(
         `/api/discover?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(effectiveKeywordParam)}&tlds=${encodeURIComponent(tldsParam)}&count=${DEFAULT_RESULT_COUNT}` +
           `&requireInstagram=${gates.requireInstagram}&requireGithub=${gates.requireGithub}&requireTiktok=${gates.requireTiktok}` +
+          `&requireNpm=${gates.requireNpm}&requireYoutube=${gates.requireYoutube}&requireTwitter=${gates.requireTwitter}` +
           `&filterPronounceable=${gates.filterPronounceable}` +
           `&filterTypos=${gates.filterTypos}&filterNiceness=${gates.filterNiceness}` +
           `&aiSynonyms=${useAiSynonyms}&aiInvented=${useAiInvented}&altSpellings=${useAltSpellings}`,
@@ -672,6 +676,9 @@ export default function Home() {
                       instagram: event.instagram,
                       github: event.github,
                       tiktok: event.tiktok,
+                      npm: event.npm,
+                      youtube: event.youtube,
+                      twitter: event.twitter,
                       source: event.source,
                       ...(cachedScore
                         ? {

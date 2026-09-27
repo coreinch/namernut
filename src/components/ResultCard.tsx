@@ -70,6 +70,9 @@ export function ResultCard({
           <SocialBadge status={entry.instagram} label="IG" platformName="Instagram" />
           <SocialBadge status={entry.github} label="GH" platformName="GitHub" />
           <SocialBadge status={entry.tiktok} label="TT" platformName="TikTok" />
+          <SocialBadge status={entry.npm} label="npm" platformName="npm" />
+          <SocialBadge status={entry.youtube} label="YT" platformName="YouTube" />
+          <SocialBadge status={entry.twitter} label="X" platformName="X" />
         </div>
 
         {/* flex-wrap here too (not shrink-0-and-rigid) — on a narrow phone

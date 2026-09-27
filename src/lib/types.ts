@@ -48,6 +48,9 @@ export interface FoundEntry {
   instagram?: SocialStatus;
   github?: SocialStatus;
   tiktok?: SocialStatus;
+  npm?: SocialStatus;
+  youtube?: SocialStatus;
+  twitter?: SocialStatus;
   // Populated on demand via checkBrandabilityFor (the "Brandability" button
   // in BrandabilityBadge) — absent until checked, or if the check
   // failed. 0 = as unrankable as "Google" itself; 100 = a long random
