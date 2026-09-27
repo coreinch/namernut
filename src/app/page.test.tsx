@@ -340,4 +340,27 @@ describe("Home — live search", () => {
     expect(screen.getByLabelText(/77% brandable/i)).toBeTruthy();
     expect(brandabilityCalls).toBe(0);
   });
+
+  it("shows only the error banner, not the 'no matches found' hint, when a search fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/api/discover")) {
+          return Promise.resolve({
+            ok: false,
+            status: 429,
+            json: () => Promise.resolve({ error: "Too many searches — try again in a bit." }),
+          });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.getByRole("alert").textContent).toBe("Too many searches — try again in a bit.");
+    expect(screen.queryByText(/No matches found/)).toBeNull();
+  });
 });

@@ -953,7 +953,7 @@ export default function Home() {
                     ' — these skip the "Pronounceable only" filter below.'}
                 </p>
               )}
-              {currentRunResults.length === 0 && !isRunning ? (
+              {currentRunResults.length === 0 && !isRunning && runStatus !== "error" ? (
                 <p className="py-8 text-center text-sm text-muted">
                   {runStatus === "idle"
                     ? "Type a keyword above and hit Generate to see results here."
