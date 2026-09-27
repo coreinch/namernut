@@ -1,3 +1,4 @@
+import { useId } from "react";
 import type { DiscoveryGates } from "@/lib/discovery";
 import {
   MAX_COMBINED_LENGTH,
@@ -74,6 +75,15 @@ export function SettingsPanel({
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
 }) {
+  // page.tsx mounts this component twice at once — the desktop rail and
+  // the mobile SettingsDrawer both render a SettingsPanel simultaneously,
+  // with only CSS display toggling which one is actually visible — so a
+  // hardcoded id here would collide, resolving <label htmlFor> against
+  // whichever copy happens to be first in DOM order (confirmed live: the
+  // hidden desktop copy) regardless of which one a screen reader or a
+  // clicked label is actually looking at. useId() keeps the two instances'
+  // ids distinct.
+  const regionSelectId = useId();
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
@@ -228,11 +238,11 @@ export function SettingsPanel({
         </div>
 
         <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
-          <label htmlFor="brandability-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
+          <label htmlFor={regionSelectId} className="text-[11px] font-medium uppercase tracking-wide text-muted">
             Brandability check region
           </label>
           <select
-            id="brandability-region"
+            id={regionSelectId}
             value={region}
             onChange={(e) => onRegionChange(e.target.value as RegionOption)}
             // The native dropdown popup ignores the page's dark theme and

@@ -142,6 +142,25 @@ describe("SettingsPanel", () => {
     expect(props.onRegionChange).toHaveBeenCalledWith("gb");
   });
 
+  it("keeps the region select's id unique when two SettingsPanels are mounted at once", () => {
+    // page.tsx genuinely does this: the desktop rail and the mobile
+    // SettingsDrawer both mount a SettingsPanel simultaneously, with only
+    // CSS display toggling which is visible — a hardcoded id here would
+    // collide, and <label htmlFor> would resolve to whichever instance
+    // happens to be first in DOM order regardless of which is actually
+    // visible/relevant.
+    const { container } = render(
+      <>
+        <SettingsPanel {...baseProps()} />
+        <SettingsPanel {...baseProps()} />
+      </>
+    );
+    const selects = container.querySelectorAll("select");
+    expect(selects).toHaveLength(2);
+    expect(selects[0].id).not.toBe(selects[1].id);
+    expect(selects[0].id).not.toBe("");
+  });
+
   it("renders a GateToggle for each quality gate and forwards a merged update via onGatesChange", () => {
     const props = baseProps();
     render(<SettingsPanel {...props} />);
