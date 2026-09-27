@@ -235,6 +235,15 @@ export default function Home() {
   // functional setFoundHistory updater can't be used for that check, since
   // React doesn't guarantee it runs before this handler returns.
   const foundDomainsRef = useRef<Set<string>>(new Set());
+  // Mirrors, by bare name (not full domain), every brandability score ever
+  // received — brandability is a property of the name, not the TLD (see
+  // checkBrandabilityFor's own applyScore, which already fans a score out
+  // to every entry sharing a bare name). Lets the "found" handler give a
+  // newly-added entry an already-known score directly instead of firing
+  // another metered check when the same name resurfaces under a different
+  // TLD, or in a later run, after the original check has already resolved
+  // (checkingBrandabilityNames only covers the still-in-flight case).
+  const scoredNamesRef = useRef<Map<string, { brandabilityScore: number; brandabilitySummary?: string }>>(new Map());
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -342,7 +351,15 @@ export default function Home() {
         // foundDomainsRef tracks every domain ever found, not just the
         // trimmed/visible slice — a domain scrolled out of the cap was
         // still already brandability-checked, so it shouldn't be rechecked.
-        for (const entry of deduped) foundDomainsRef.current.add(entry.domain);
+        for (const entry of deduped) {
+          foundDomainsRef.current.add(entry.domain);
+          if (entry.brandabilityScore !== undefined) {
+            scoredNamesRef.current.set(entry.domain.split(".")[0], {
+              brandabilityScore: entry.brandabilityScore,
+              brandabilitySummary: entry.brandabilitySummary,
+            });
+          }
+        }
       }
       if (parsed.favorites) setFavorites(parsed.favorites.map(migrateLegacyEntry));
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
@@ -483,6 +500,10 @@ export default function Home() {
             : entry;
         setFoundHistory((prev) => prev.map(applyScore));
         setFavorites((prev) => prev.map(applyScore));
+        // See scoredNamesRef's declaration — lets a later "found" event for
+        // this same name (a different TLD, or a later run) reuse this score
+        // instead of firing another metered check.
+        scoredNamesRef.current.set(name, { brandabilityScore, brandabilitySummary: summary });
       } catch (err) {
         setBrandabilityErrors((prev) => ({
           ...prev,
@@ -611,6 +632,11 @@ export default function Home() {
               // updater runs before this handler returns, so it can't be
               // used to gate the checkBrandabilityFor call below.
               const isNewFind = !foundDomainsRef.current.has(event.domain);
+              const bareName = event.domain.split(".")[0];
+              // See scoredNamesRef's declaration — a name already scored
+              // under a different TLD (or in an earlier run) shares that
+              // score here too, rather than paying for another check.
+              const cachedScore = scoredNamesRef.current.get(bareName);
               if (isNewFind) {
                 foundDomainsRef.current.add(event.domain);
                 setFoundHistory((prev) => {
@@ -631,6 +657,12 @@ export default function Home() {
                       github: event.github,
                       tiktok: event.tiktok,
                       source: event.source,
+                      ...(cachedScore
+                        ? {
+                            brandabilityScore: cachedScore.brandabilityScore,
+                            brandabilitySummary: cachedScore.brandabilitySummary,
+                          }
+                        : {}),
                     },
                     ...prev,
                   ];
@@ -642,12 +674,14 @@ export default function Home() {
               }
               resolveLog(event.domain, "available");
               // autoCheck is always true now — see its declaration above.
-              // Skipped on a rediscovery: the existing FoundEntry already
-              // carries a brandability score (or is already being checked)
-              // from when it was first found, so re-checking would just
-              // burn another metered Serper/Kilocode call and the
-              // brandability rate limit for an identical result.
-              if (autoCheck && isNewFind) checkBrandabilityFor(event.domain.split(".")[0], event.parts);
+              // Skipped when this exact domain was already found
+              // (isNewFind false) or its bare name already has a resolved
+              // score (cachedScore) — either would just burn another
+              // metered Serper/Kilocode call and the brandability rate
+              // limit for a result we already have. A check still in
+              // flight for this name is handled by checkBrandabilityFor's
+              // own checkingBrandabilityNames guard, not here.
+              if (autoCheck && isNewFind && !cachedScore) checkBrandabilityFor(bareName, event.parts);
               break;
             }
             case "complete":

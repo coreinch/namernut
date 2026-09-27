@@ -289,4 +289,55 @@ describe("Home — live search", () => {
     await waitFor(() => expect(brandabilityCalls).toBeGreaterThan(0));
     expect(brandabilityCalls).toBe(1);
   });
+
+  it("reuses an already-known brandability score for the same name found under a new TLD, without a fresh check", async () => {
+    // glowfox.com was found (and scored) in an earlier run and is already
+    // persisted — glowfox.io, a different domain but the same bare name,
+    // is then rediscovered live in a new run.
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        foundHistory: [
+          {
+            id: "old",
+            domain: "glowfox.com",
+            meaning: "glow + fox",
+            checkedCount: 1,
+            runId: "old-run",
+            brandabilityScore: 77,
+            brandabilitySummary: "already scored",
+          },
+        ],
+      })
+    );
+
+    let brandabilityCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/api/discover")) {
+          return Promise.resolve(
+            sseResponse([
+              { type: "found", domain: "glowfox.io", meaning: "glow + fox", checkedCount: 1, foundCount: 1 },
+              { type: "complete", checkedCount: 1, foundCount: 1 },
+            ])
+          );
+        }
+        if (url.includes("/api/brandability")) {
+          brandabilityCalls++;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ brandabilityScore: 50, summary: "" }) });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^current, 1 results$/i })).toBeTruthy());
+    // Carries the score copied from glowfox.com's earlier check, not a
+    // fresh (mocked) score of 50 — proves it was reused, not re-fetched.
+    expect(screen.getByLabelText(/77% brandable/i)).toBeTruthy();
+    expect(brandabilityCalls).toBe(0);
+  });
 });
