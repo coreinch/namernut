@@ -56,4 +56,39 @@ describe("GateToggle", () => {
     const el = screen.getByRole("switch", { name: "AI-invented names" }) as HTMLButtonElement;
     expect(el.disabled).toBe(false);
   });
+
+  it("shows a hint on an otherwise-interactive control, both as visible text and via aria-label", () => {
+    render(
+      <GateToggle
+        label="Require GitHub username"
+        checked={false}
+        onChange={() => {}}
+        hint="Off by default — may rate-limit a whole search."
+      />
+    );
+    expect(screen.getByText("Off by default — may rate-limit a whole search.")).toBeTruthy();
+    const el = screen.getByRole("switch", {
+      name: "Require GitHub username — Off by default — may rate-limit a whole search.",
+    }) as HTMLButtonElement;
+    expect(el.disabled).toBe(false);
+  });
+
+  it("ignores hint while disabled, deferring to disabledReason instead", () => {
+    const onChange = vi.fn();
+    render(
+      <GateToggle
+        label="AI synonyms"
+        checked={false}
+        onChange={onChange}
+        disabled
+        disabledReason="type a keyword above to enable"
+        hint="this should not show"
+      />
+    );
+    expect(screen.queryByText("this should not show")).toBeNull();
+    const el = screen.getByRole("switch", {
+      name: "AI synonyms — type a keyword above to enable",
+    }) as HTMLButtonElement;
+    expect(el.disabled).toBe(true);
+  });
 });

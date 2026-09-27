@@ -188,6 +188,7 @@ export function SettingsPanel({
             label="Require GitHub username"
             checked={gates.requireGithub}
             onChange={(v) => onGatesChange((g) => ({ ...g, requireGithub: v }))}
+            hint="Off by default — GitHub allows only 60 unauthenticated requests/hour per IP, so this can rate-limit a whole search."
           />
           <GateToggle
             label="Require TikTok handle"
