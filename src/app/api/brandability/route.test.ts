@@ -51,6 +51,34 @@ describe("GET /api/brandability", () => {
     expect(body.error).toMatch(/KILOCODE_API_KEY/);
   });
 
+  it("maps a missing Serper API key to 503", async () => {
+    const err = new Error("no key");
+    err.name = "SerperApiKeyMissingError";
+    checkBrandability.mockRejectedValue(err);
+    const res = await GET(req("name=glowhut"));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toMatch(/SERPER_API_KEY/);
+  });
+
+  it("maps a missing Serpent API key to 503", async () => {
+    const err = new Error("no key");
+    err.name = "SerpentApiKeyMissingError";
+    checkBrandability.mockRejectedValue(err);
+    const res = await GET(req("name=glowhut"));
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error).toMatch(/SERPENT_API_KEY/);
+  });
+
+  it("maps an unrecognized error to 500 with its message", async () => {
+    checkBrandability.mockRejectedValue(new Error("something unexpected broke"));
+    const res = await GET(req("name=glowhut"));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("something unexpected broke");
+  });
+
   it("maps insufficient Serpent credits to 402 with the original message", async () => {
     const err = new Error("out of credits");
     err.name = "SerpentInsufficientCreditsError";
@@ -86,5 +114,17 @@ describe("GET /api/brandability", () => {
     const body = await res.json();
     expect(body).toEqual({ score: 72, summary: "solid" });
     expect(checkBrandability).toHaveBeenCalledWith("glowhut", ["glow", "hut"], expect.anything(), expect.any(String));
+  });
+
+  it("returns 400 when name sanitizes down to nothing (e.g. all punctuation)", async () => {
+    const res = await GET(req("name=!!!"));
+    expect(res.status).toBe(400);
+    expect(checkBrandability).not.toHaveBeenCalled();
+  });
+
+  it("passes through a region query param that's in the allowed REGIONS list", async () => {
+    checkBrandability.mockResolvedValue({ score: 50, summary: "ok" });
+    await GET(req("name=glowhut&region=gb"));
+    expect(checkBrandability).toHaveBeenCalledWith("glowhut", undefined, expect.anything(), "gb");
   });
 });

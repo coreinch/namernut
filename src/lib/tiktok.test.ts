@@ -53,4 +53,28 @@ describe("checkTiktokUsername", () => {
     // (which contains "aXb", not "a.b") would incorrectly match.
     await expect(checkTiktokUsername("a.b")).resolves.toBe("available");
   });
+
+  // Round 9 added AbortSignal.any([signal, timeoutSignal]) so a caller's
+  // own abort still cancels the request alongside the fetch timeout — every
+  // test above only exercises the no-signal-passed branch (timeoutSignal
+  // alone), which is not what discovery.ts actually calls this with.
+  it("composes a caller-supplied AbortSignal with the fetch timeout, and still resolves normally", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(200, "Couldn't find this account"));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    await expect(checkTiktokUsername("someuser", controller.signal)).resolves.toBe("available");
+    const passedSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(passedSignal).toBeInstanceOf(AbortSignal);
+    expect(passedSignal.aborted).toBe(false);
+  });
+
+  it("the composed signal passed to fetch reflects the caller's own signal aborting", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(200, "Couldn't find this account"));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    controller.abort();
+    await checkTiktokUsername("someuser", controller.signal);
+    const passedSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(passedSignal.aborted).toBe(true);
+  });
 });

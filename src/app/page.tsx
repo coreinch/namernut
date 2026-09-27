@@ -802,7 +802,10 @@ export default function Home() {
           />
 
           {errorMessage && (
-            <p className="animate-fade-in-up rounded-2xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400">
+            <p
+              role="alert"
+              className="animate-fade-in-up rounded-2xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400"
+            >
               {errorMessage}
             </p>
           )}

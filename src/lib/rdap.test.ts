@@ -70,4 +70,29 @@ describe("checkDomain", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+
+  // Round 9 added AbortSignal.any([signal, timeoutSignal]) so a caller's
+  // own abort (e.g. the browser tab closing mid-search) still cancels the
+  // request alongside the fetch timeout — every other test above only
+  // exercises the no-signal-passed branch (timeoutSignal alone), which is
+  // not what discovery.ts actually calls this with in production.
+  it("composes a caller-supplied AbortSignal with the fetch timeout, and still resolves normally", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(404));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    await expect(checkDomain("somefreename", "com", controller.signal)).resolves.toBe("available");
+    const passedSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(passedSignal).toBeInstanceOf(AbortSignal);
+    expect(passedSignal.aborted).toBe(false);
+  });
+
+  it("the composed signal passed to fetch reflects the caller's own signal aborting", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(mockResponse(404));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    controller.abort();
+    await checkDomain("somefreename", "com", controller.signal);
+    const passedSignal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(passedSignal.aborted).toBe(true);
+  });
 });
