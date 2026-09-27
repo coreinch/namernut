@@ -62,10 +62,14 @@ export default defineConfig({
       // rather than only the hydration path. page.tsx went from 44.75% to
       // 71.91% stmts; measured ~89.0/81.8/82.6/92.1 overall with that in
       // place, set a bit below so small, incidental drift doesn't fail CI.
-      // FiltersPanel.tsx (59.37% stmts) and ResultsGrid.tsx (66.66% stmts)
-      // are now the biggest remaining per-file gaps — advanced-filters-panel
-      // controls and archive-filter/pending-count branches, respectively —
-      // and are reasonable candidates for a future round.
+      // FiltersPanel.tsx was later split into SearchBar.tsx and
+      // SettingsPanel.tsx (see "Redesign search UI with progressive
+      // disclosure and responsive layouts"). SettingsPanel.tsx's own gap
+      // (was 57.69% stmts) has since been closed to 100/90/96.15/100 —
+      // ResultsGrid.tsx (66.66% stmts, the untested onSearch/
+      // onToggleFavorite/onRegister callback wiring) is now the biggest
+      // remaining per-file gap and a reasonable candidate for a future
+      // round.
       thresholds: {
         statements: 87,
         branches: 79,

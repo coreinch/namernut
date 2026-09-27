@@ -152,13 +152,22 @@ describe("SettingsPanel", () => {
     expect(updater(NO_GATES)).toEqual({ ...NO_GATES, requireInstagram: true });
   });
 
-  it("renders GateToggles for npm/YouTube/X and forwards merged updates via onGatesChange", () => {
+  it("renders GateToggles for npm/YouTube/X/GitHub/TikTok and the quality filters, forwarding merged updates via onGatesChange", () => {
     const props = baseProps();
     render(<SettingsPanel {...props} />);
-    const cases: [string, keyof DiscoveryGates][] = [
+    // GitHub's toggle carries a non-disabled `hint` (see GateToggle.tsx),
+    // which GateToggle folds into the accessible name as "label — hint" —
+    // matched with a regex here rather than the exact string every other
+    // case uses.
+    const cases: [string | RegExp, keyof DiscoveryGates][] = [
       ["Require npm package name", "requireNpm"],
       ["Require YouTube handle", "requireYoutube"],
       ["Require X (Twitter) handle", "requireTwitter"],
+      [/^Require GitHub username/, "requireGithub"],
+      ["Require TikTok handle", "requireTiktok"],
+      ["Pronounceable only", "filterPronounceable"],
+      ["Skip typo-like names", "filterTypos"],
+      ["Skip awkward names", "filterNiceness"],
     ];
     for (const [label, key] of cases) {
       props.onGatesChange.mockClear();
@@ -167,5 +176,11 @@ describe("SettingsPanel", () => {
       const updater = props.onGatesChange.mock.calls[0][0];
       expect(updater(NO_GATES)).toEqual({ ...NO_GATES, [key]: true });
     }
+  });
+
+  it("shows the formatted combination count when stats are provided", () => {
+    const props = baseProps();
+    render(<SettingsPanel {...props} stats={{ english: 5000, combinedUnique: 1234567, totalCombinations: 1234567 }} />);
+    expect(screen.getByText("1,234,567")).toBeTruthy();
   });
 });

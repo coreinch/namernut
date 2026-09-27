@@ -150,8 +150,14 @@ describe("Home — localStorage hydration", () => {
   // cost of rewriting it on every single find — would grow without bound.
   // 500 real ResultCards is enough DOM work under v8 coverage instrumentation
   // (see test:coverage) to occasionally miss vitest's default 5000ms
-  // per-test timeout, especially with 32 other test files' workers
-  // contending for CPU — hence the explicit longer timeout below.
+  // per-test timeout, especially with 40 other test files' workers
+  // contending for CPU — hence the explicit longer timeout below. Bumped
+  // from 15000 to 30000 (matching the equivalent live-search 500-cap test
+  // below) after this one started failing consistently at ~15.6-15.8s
+  // under a full `npm run test:coverage` run (reproduced twice in a row,
+  // 2026-09-27) — it still finishes in ~3.8s in isolation, so this is the
+  // same documented CPU-contention effect, just no longer covered by the
+  // old budget now that there are more worker files contending for CPU.
   it(
     "caps persisted foundHistory at 500 entries, keeping the newest",
     () => {
@@ -174,7 +180,7 @@ describe("Home — localStorage hydration", () => {
       expect(screen.queryByText("label 500")).toBeNull();
       expect(screen.getByRole("tab", { name: /^archive, 500 results$/i })).toBeTruthy();
     },
-    15000
+    30000
   );
 });
 
