@@ -1,8 +1,12 @@
 import { ImageResponse } from "next/og";
-import { DESCRIPTION } from "@/lib/copy";
+import { DESCRIPTION, TITLE } from "@/lib/copy";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
+// Populates og:image:alt / twitter:image:alt — without it, screen readers
+// and link-preview surfaces that read alt text have nothing to fall back
+// on for this image.
+export const alt = TITLE;
 
 export default function OpengraphImage() {
   return new ImageResponse(

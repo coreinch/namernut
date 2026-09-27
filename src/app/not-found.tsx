@@ -4,7 +4,7 @@ import { FOCUS_RING } from "@/components/constants";
 export default function NotFound() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
-      <p className="text-lg font-semibold">Page not found.</p>
+      <h1 className="text-lg font-semibold">Page not found.</h1>
       <p className="max-w-sm text-sm text-muted">
         That link doesn&apos;t match anything here — try generating a name from the homepage instead.
       </p>
