@@ -344,6 +344,158 @@ describe("Home — live search", () => {
     expect(brandabilityCalls).toBe(0);
   });
 
+  // Unlike sseResponse above (a fixed list, exhausted then `done: true`),
+  // this lets a test push one SSE event at a time and await its effect on
+  // the DOM before pushing the next — needed for asserting a *transient*
+  // state (e.g. "Getting AI ideas…") that a fixed-list stream would blow
+  // straight through before any assertion could observe it. Aborting the
+  // signal (see the Stop test below) rejects any read() still pending,
+  // matching a real fetch's ReadableStream reader.
+  function controlledSseStream(signal?: AbortSignal) {
+    const encoder = new TextEncoder();
+    let pendingResolve: ((chunk: { value?: Uint8Array; done: boolean }) => void) | null = null;
+    let pendingReject: ((err: unknown) => void) | null = null;
+    const queued: Array<{ value?: Uint8Array; done: boolean }> = [];
+    signal?.addEventListener("abort", () => {
+      if (pendingReject) {
+        pendingReject(new DOMException("Aborted", "AbortError"));
+        pendingResolve = null;
+        pendingReject = null;
+      }
+    });
+    return {
+      body: {
+        getReader: () => ({
+          read: () =>
+            new Promise<{ value?: Uint8Array; done: boolean }>((resolve, reject) => {
+              if (queued.length > 0) {
+                resolve(queued.shift()!);
+                return;
+              }
+              pendingResolve = resolve;
+              pendingReject = reject;
+            }),
+        }),
+      },
+      push(event: object) {
+        const chunk = { value: encoder.encode(`data: ${JSON.stringify(event)}\n\n`), done: false };
+        if (pendingResolve) {
+          pendingResolve(chunk);
+          pendingResolve = null;
+          pendingReject = null;
+        } else {
+          queued.push(chunk);
+        }
+      },
+    };
+  }
+
+  it("shows 'Getting AI ideas…' only during the preparing phase, clearing once the first real event arrives", async () => {
+    let stream: ReturnType<typeof controlledSseStream>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, opts?: { signal?: AbortSignal }) => {
+        if (url.includes("/api/discover")) {
+          stream = controlledSseStream(opts?.signal);
+          return Promise.resolve({ ok: true, body: stream.body });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    stream!.push({ type: "preparing" });
+    await waitFor(() =>
+      expect(screen.getByText("Getting AI ideas before this search starts checking domains…")).toBeTruthy()
+    );
+
+    stream!.push({ type: "found", domain: "glowfox.com", meaning: "glow + fox", checkedCount: 1, foundCount: 1 });
+    // Any real event (not just one that itself displays something) closes
+    // the wait — see useDiscoveryRun's `setGettingIdeas(event.type ===
+    // "preparing")` line, evaluated on every event, not just recognized ones.
+    await waitFor(() =>
+      expect(screen.queryByText("Getting AI ideas before this search starts checking domains…")).toBeNull()
+    );
+    expect(screen.getByText("glow + fox")).toBeTruthy();
+  });
+
+  it("renders AI synonym, AI-invented, and alt-spelling word lists from their respective SSE events", async () => {
+    stubFetchWithDiscoverEvents([
+      { type: "synonyms", words: ["lumen", "glow"] },
+      { type: "invented", words: ["zylora", "fenbrix"] },
+      { type: "altSpellings", words: ["lyft", "phonik"] },
+      { type: "found", domain: "glowfox.com", meaning: "glow + fox", checkedCount: 1, foundCount: 1 },
+      { type: "complete", checkedCount: 1, foundCount: 1 },
+    ]);
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(screen.getByText(/AI synonyms: lumen, glow/)).toBeTruthy());
+    expect(screen.getByText(/AI-invented names: zylora, fenbrix/)).toBeTruthy();
+    expect(screen.getByText(/alt spellings: lyft, phonik/)).toBeTruthy();
+  });
+
+  it("shows a mid-stream 'error' SSE event as the alert banner without ending the run", async () => {
+    stubFetchWithDiscoverEvents([
+      {
+        type: "error",
+        message: "GitHub checking appears to be blocked — no longer requiring it for the rest of this search.",
+      },
+      { type: "checking", name: "glowfox.com", checkedCount: 1 },
+    ]);
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "GitHub checking appears to be blocked — no longer requiring it for the rest of this search."
+      )
+    );
+    // A dropped-platform notice (useDiscoveryRun's "error" case only sets
+    // errorMessage) doesn't end the search, unlike a fetch-level failure
+    // (the existing "shows only the error banner…" test below, which throws
+    // and lands in the catch block that sets runStatus to "error"). Two
+    // distinct "Stop" controls stay mounted while running (SearchBar's own
+    // submit button relabels itself, plus Footer's — see SearchBar.tsx),
+    // and both staying present proves isRunning is still true.
+    expect(screen.getAllByRole("button", { name: "Stop" }).length).toBe(2);
+  });
+
+  it("stops a live run when Stop is clicked, tearing down the running UI", async () => {
+    let stream: ReturnType<typeof controlledSseStream>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, opts?: { signal?: AbortSignal }) => {
+        if (url.includes("/api/discover")) {
+          stream = controlledSseStream(opts?.signal);
+          return Promise.resolve({ ok: true, body: stream.body });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    stream!.push({ type: "checking", name: "glowfox.com", checkedCount: 1 });
+
+    // Two distinct "Stop" controls render while running — SearchBar's own
+    // submit button relabels itself, plus Footer's (see SearchBar.tsx) —
+    // either one calls the same stop().
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Stop" }).length).toBe(2));
+    fireEvent.click(screen.getAllByRole("button", { name: "Stop" })[0]);
+
+    // Stop aborts the fetch (rejecting the still-pending read() above) and
+    // sets runStatus to "stopped" — the Footer (isRunning-only) and
+    // SearchBar's relabel back to "Search again" both follow, rather than
+    // the stream continuing to drive the UI in the background.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Search again" })).toBeTruthy();
+  });
+
   it("shows only the error banner, not the 'no matches found' hint, when a search fails", async () => {
     vi.stubGlobal(
       "fetch",

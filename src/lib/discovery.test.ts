@@ -354,6 +354,75 @@ describe("runDiscovery", () => {
     }
   });
 
+  it.each([
+    { label: "npm", mock: checkNpmPackageName, errorName: "npm_rate_limited", gate: "requireNpm", foundKey: "npm" },
+    {
+      label: "TikTok",
+      mock: checkTiktokUsername,
+      errorName: "tiktok_rate_limited",
+      gate: "requireTiktok",
+      foundKey: "tiktok",
+    },
+    {
+      label: "YouTube",
+      mock: checkYoutubeHandle,
+      errorName: "youtube_rate_limited",
+      gate: "requireYoutube",
+      foundKey: "youtube",
+    },
+    {
+      label: "X",
+      mock: checkTwitterHandle,
+      errorName: "twitter_rate_limited",
+      gate: "requireTwitter",
+      foundKey: "twitter",
+    },
+  ] as const)(
+    "stops requiring $label availability once its rate limit persists past the retry cap, same as GitHub",
+    async ({ label, mock, errorName, foundKey }) => {
+      // Same breaker, same code path (checkSocialOne), different platform —
+      // this locks in that the GitHub-specific test above isn't the only
+      // one of EAGER_PLATFORMS actually covered by
+      // SOCIAL_BLOCKED_STREAK_THRESHOLD. All five throw the identical
+      // RateLimitError shape on a 429 (see EAGER_PLATFORMS in discovery.ts),
+      // so exhausting retries here should trip the same breaker GitHub's
+      // test exercises, not fail every remaining candidate forever.
+      vi.useFakeTimers();
+      try {
+        const pool: WordEntry[] = [
+          { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+          { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+          { word: "fox", langs: ["english"], definition: "", common: false, noun: true },
+        ];
+        vi.mocked(checkDomain).mockResolvedValue("available");
+        vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+        const rateLimitError = new Error(errorName);
+        rateLimitError.name = "RateLimitError";
+        vi.mocked(mock).mockRejectedValue(rateLimitError);
+
+        const events: DiscoveryEvent[] = [];
+        const controller = new AbortController();
+        const promise = runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+        await vi.runAllTimersAsync();
+        await promise;
+
+        const found = events.filter((e) => e.type === "found");
+        expect(found.length).toBe(3);
+        for (const f of found) {
+          if (f.type === "found") expect(f[foundKey]).toBe("unknown");
+        }
+
+        expect(
+          events.some(
+            (e) => e.type === "error" && e.message.toLowerCase().includes(`${label.toLowerCase()} checking appears to be blocked`)
+          )
+        ).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    }
+  );
+
   it("retries a rate-limited social check after backing off, and the candidate still resolves", async () => {
     // Distinct from the LoginWallError breaker above: a rate limit is
     // transient (retry the same request after a delay), not structural
@@ -877,10 +946,15 @@ describe("runDiscovery", () => {
     vi.mocked(checkDomain).mockResolvedValue("available");
     vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
 
-    // Sanity check: "lyft"+"cat" genuinely fails isPronounceable — this
+    // Sanity check: "lft"+"cat" genuinely fails isPronounceable — this
     // test only proves something if the exemption is actually doing work.
-    expect(isPronounceable("lyftcat")).toBe(false);
-    expect(isPronounceable("catlyft")).toBe(false);
+    // (Not "lyft": isPronounceable treats a "y" flanked by two consonants
+    // as a vowel — see isVowelAt in pronounceable.ts — which shortens
+    // "lyft"'s effective consonant run enough that "lyftcat"/"catlyft"
+    // pass the gate on their own, defeating the point of this sanity
+    // check. "lft" has no such semivowel to rescue it.)
+    expect(isPronounceable("lftcat")).toBe(false);
+    expect(isPronounceable("catlft")).toBe(false);
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
@@ -890,7 +964,7 @@ describe("runDiscovery", () => {
       ["com"],
       // A single-word pool only has 2 possible candidates per tier
       // (keyword+word, word+keyword) — asking for all 4 across both tiers
-      // (the literal "lift" tier and the alt-spelling "lyft" tier) forces
+      // (the literal "lift" tier and the alt-spelling "lft" tier) forces
       // both to be fully drained, so the alt-spelling ones are guaranteed
       // to show up if (and only if) the exemption actually let them through.
       4,
@@ -900,12 +974,12 @@ describe("runDiscovery", () => {
       ALL_GATES_ON, // filterPronounceable: true
       [],
       [],
-      ["lyft"]
+      ["lft"]
     );
 
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     expect(new Set(foundDomains)).toEqual(
-      new Set(["lyftcat.com", "catlyft.com", "liftcat.com", "catlift.com"])
+      new Set(["lftcat.com", "catlft.com", "liftcat.com", "catlift.com"])
     );
   });
 
