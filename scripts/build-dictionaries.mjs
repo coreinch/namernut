@@ -260,6 +260,30 @@ const SAFETY_DENYLIST = new Set([
   // behavior" reads as milder than this tier's bar, closer to already-kept
   // words like "petty" than to "vulgar").
   "abuse", "pain", "lie", "waste",
+  // a follow-up sweep of common negative-quality/slang adjectives prompted
+  // by the same live-archive review, each checked against its own selected
+  // gloss the same way as above:
+  // - "cringe": "some event or object that causes embarrassment and
+  //   shame" — same tier as "awful"/"boring"/"stupid" above.
+  // - "nasty": "offensive or even (of persons) malicious" — same tier as
+  //   "vulgar"/"foul"-adjacent entries.
+  // - "filthy": "disgustingly dirty; filled or smeared with offensive
+  //   matter" — unlike "dirty" (kept: dominant everyday use is mundane,
+  //   "dirty dishes", the same reasoning "boil" was kept on), "filthy" has
+  //   no comparably strong neutral everyday sense to offset this gloss.
+  // - "messy": "dirty and disorderly" — same tier as the already-excluded
+  //   "sloppy".
+  // - "bleak": "offering little or no hope" — same tier as "lonely"/
+  //   "hopeless"-adjacent entries.
+  // - "sad": "experiencing or showing sorrow or unhappiness" — same tier
+  //   as "lonely" above.
+  // Checked and kept: "gross" (selected sense is the financial "before any
+  // deductions", not the slang "disgusting" sense), "mean" (selected sense
+  // is the statistics "average" sense, not "unkind"), "dirty" (see above),
+  // "toxic"/"shady"/"basic"/"extra"/"thirsty"/"ghost"/"catfish" (each
+  // selected sense is the literal/technical one, not the negative slang
+  // reading a reader might otherwise assume).
+  "cringe", "nasty", "filthy", "messy", "bleak", "sad",
 ]);
 
 // WordNet's index.adj follows an older grammatical scheme that files
