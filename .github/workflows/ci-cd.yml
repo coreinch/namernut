@@ -87,7 +87,7 @@ jobs:
             type=sha,format=short,prefix=${{ github.event_name == 'pull_request' && github.head_ref || '{{branch}}' }}-
 
       - name: Build and push image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           # Build always runs, even on a PR — a Dockerfile break should
