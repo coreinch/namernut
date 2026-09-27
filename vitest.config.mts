@@ -26,6 +26,14 @@ export default defineConfig({
     // Reproduced directly: a coverage run failed with "Test timed out in
     // 5000ms" attributed to the hook, not the test body.
     hookTimeout: 20000,
+    // Same root cause as hookTimeout above: with all ~35 test files spawned
+    // as isolated worker processes at once, CPU contention during that
+    // startup burst can blow past the default 5000ms *test* timeout too —
+    // reproduced directly: a plain `npm run test` (no coverage instrumentation
+    // involved) failed `getSelectedPool`'s single-language filter test, a
+    // synchronous Array.filter over an already-built pool that finishes in
+    // well under 5ms in isolation, with "Test timed out in 5000ms".
+    testTimeout: 20000,
     coverage: {
       provider: "v8",
       // Deliberately not `all: true` — only files actually exercised by a
