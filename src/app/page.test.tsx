@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Home from "./page";
 
 const STORAGE_KEY = "namernut:state:v1";
@@ -138,4 +138,119 @@ describe("Home — localStorage hydration", () => {
     openArchiveTab();
     expect(screen.getByText(/past searches will collect here/i)).toBeTruthy();
   });
+
+  // MAX_FOUND_HISTORY (page.tsx) caps foundHistory at 500 entries — both here
+  // (persisted history that already exceeds the cap, e.g. saved before the
+  // cap existed) and on every live "found" event during a run (see the
+  // "Home — live search" describe block below). Without this trim, a
+  // long-lived browser profile's persisted state — and the JSON.stringify
+  // cost of rewriting it on every single find — would grow without bound.
+  // 500 real ResultCards is enough DOM work under v8 coverage instrumentation
+  // (see test:coverage) to occasionally miss vitest's default 5000ms
+  // per-test timeout, especially with 32 other test files' workers
+  // contending for CPU — hence the explicit longer timeout below.
+  it(
+    "caps persisted foundHistory at 500 entries, keeping the newest",
+    () => {
+      const entries = Array.from({ length: 501 }, (_, i) => ({
+        id: `id-${i}`,
+        domain: `entry${i}.com`,
+        meaning: `label ${i}`,
+        checkedCount: 1,
+        runId: "old-run",
+      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ foundHistory: entries }));
+
+      render(<Home />);
+      openArchiveTab();
+
+      // Entries are newest-first, so index 0..499 (the first 500) survive
+      // the cap and index 500 (the 501st, oldest) is the one trimmed.
+      expect(screen.getByText("label 0")).toBeTruthy();
+      expect(screen.getByText("label 499")).toBeTruthy();
+      expect(screen.queryByText("label 500")).toBeNull();
+      expect(screen.getByRole("tab", { name: /^archive, 500 results$/i })).toBeTruthy();
+    },
+    15000
+  );
+});
+
+describe("Home — live search", () => {
+  // Builds a fake fetch Response whose body behaves like the real
+  // ReadableStream page.tsx's start() reads from (see its `for (;;) { const
+  // { value, done } = await reader.read(); ... }` loop) — one SSE "data: "
+  // line per event, without needing a real ReadableStream/TextEncoder round
+  // trip through an actual network stack.
+  function sseResponse(events: object[]) {
+    const encoder = new TextEncoder();
+    const chunks = events.map((e) => encoder.encode(`data: ${JSON.stringify(e)}\n\n`));
+    let i = 0;
+    return {
+      ok: true,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (i < chunks.length) return { value: chunks[i++], done: false };
+            return { value: undefined, done: true };
+          },
+        }),
+      },
+    };
+  }
+
+  function stubFetchWithDiscoverEvents(events: object[]) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/api/discover")) return Promise.resolve(sseResponse(events));
+        if (url.includes("/api/brandability")) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ brandabilityScore: 50, summary: "" }),
+          });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+  }
+
+  it("renders a result card once a live 'found' event arrives", async () => {
+    stubFetchWithDiscoverEvents([
+      { type: "found", domain: "glowfox.com", meaning: "glow + fox", checkedCount: 1, foundCount: 1 },
+      { type: "complete", checkedCount: 1, foundCount: 1 },
+    ]);
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(screen.getByText("glow + fox")).toBeTruthy());
+  });
+
+  // 501 "found" events each trigger a setFoundHistory re-sort plus a
+  // (mocked) brandability fetch and its own follow-up setFoundHistory — on
+  // top of 500 rendered ResultCards, that's meaningfully more work than the
+  // other tests here, hence the generous timeouts on both the test itself
+  // and the waitFor poll.
+  it(
+    "caps the live-appended foundHistory at MAX_FOUND_HISTORY (500) during a single run",
+    async () => {
+      const events = Array.from({ length: 501 }, (_, i) => ({
+        type: "found" as const,
+        domain: `livefind${i}.com`,
+        meaning: `live label ${i}`,
+        checkedCount: i + 1,
+        foundCount: i + 1,
+      }));
+      stubFetchWithDiscoverEvents([...events, { type: "complete", checkedCount: 501, foundCount: 501 }]);
+
+      render(<Home />);
+      fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+      await waitFor(
+        () => expect(screen.getByRole("tab", { name: /^current, 500 results$/i })).toBeTruthy(),
+        { timeout: 20000 }
+      );
+    },
+    30000
+  );
 });
