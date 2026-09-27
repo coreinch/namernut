@@ -1,6 +1,6 @@
 import { search, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
-import { getWordPool } from "@/lib/dictionary";
+import { getWordPool, type WordEntry } from "@/lib/dictionary";
 import { DEFAULT_REGION, REGION_OPTIONS, type ProviderOption, type RegionOption } from "@/lib/searchConfig";
 
 export type Region = RegionOption;
@@ -73,6 +73,25 @@ export interface BrandabilityResult {
   topResults: SearchResult[];
 }
 
+// getWordPool() itself is cached (see dictionary.ts), but every call here
+// used to rebuild a ~28k-entry Map from scratch regardless — real, repeated
+// CPU/allocation cost since checkBrandability runs this on every found
+// result automatically, not just on the on-demand button. Cached here too,
+// keyed on the pool array's identity so a genuinely different pool (as
+// real getWordPool() would only ever return after a process restart, but
+// as a test double stubbing getWordPool() might return per-call) still
+// rebuilds rather than serving a stale index.
+let cachedPoolRef: WordEntry[] | null = null;
+let cachedByWord: Map<string, WordEntry> | null = null;
+
+function getWordIndex(pool: WordEntry[]): Map<string, WordEntry> {
+  if (cachedPoolRef !== pool || !cachedByWord) {
+    cachedByWord = new Map(pool.map((e) => [e.word, e]));
+    cachedPoolRef = pool;
+  }
+  return cachedByWord;
+}
+
 /**
  * Splits a name into two real dictionary words if any split point makes
  * both halves whole words (e.g. "evenchad" -> ["even", "chad"]), mirroring
@@ -86,7 +105,7 @@ export interface BrandabilityResult {
  */
 export function splitIntoWords(name: string): [string, string] | null {
   const pool = getWordPool();
-  const byWord = new Map(pool.map((e) => [e.word, e]));
+  const byWord = getWordIndex(pool);
 
   let best: [string, string] | null = null;
   let bestCommonCount = -1;
@@ -238,7 +257,14 @@ export class KilocodeParseError extends Error {
 
 function parseLlmResponse(raw: string): { brandabilityScore: number; summary: string } | null {
   const scoreMatch = raw.match(/SCORE:\s*(\d{1,3})/i);
-  const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]+)/i);
+  // Stops at the first blank line (or end of string) rather than slurping
+  // to the end of raw greedily: despite the prompt's "nothing else"
+  // instruction, a free-tier auto-routed model (see kilo-auto/free in
+  // kilocode.ts) can still tack on unrequested trailing chatter after the
+  // summary (a disclaimer, an offer to help further, etc.), separated from
+  // the real answer by a blank line — a greedy match here would fold that
+  // straight into the summary text shown to the user.
+  const summaryMatch = raw.match(/SUMMARY:\s*([\s\S]+?)(?:\n\s*\n|$)/i);
   if (!scoreMatch || !summaryMatch) return null;
   const score = parseInt(scoreMatch[1], 10);
   if (!Number.isFinite(score) || score < 0 || score > 100) return null;

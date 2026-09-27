@@ -124,6 +124,14 @@ describe("checkBrandability", () => {
     expect(res.summary).toContain("major existing brand");
   });
 
+  it("drops trailing chatter the LLM appends after the summary, despite the prompt's 'nothing else' instruction", async () => {
+    completeChatMock.mockResolvedValue(
+      "SCORE: 60\nSUMMARY: Clean — no real collisions found.\n\nLet me know if you'd like more detail!"
+    );
+    const res = await checkBrandability("fluidfew");
+    expect(res.summary).toBe("Clean — no real collisions found.");
+  });
+
   it("instructs the LLM to detect Google's silent query-override from the results themselves, noting region-dependence", async () => {
     await checkBrandability("sadpitch");
     const prompt = completeChatMock.mock.calls[0][0];
