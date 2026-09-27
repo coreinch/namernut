@@ -10,9 +10,9 @@ import type { CandidateSource } from "@/lib/candidates";
 
 // "filtered": the domain itself was available, but one of its required
 // social handles wasn't (or that check was inconclusive) — see
-// SocialStatus/the requireInstagram/requireGithub/requireTiktok gates,
-// which require all three (whichever are currently on) to count as a
-// result.
+// SocialStatus/the requireInstagram/requireGithub/requireTiktok/requireNpm/
+// requireYoutube/requireTwitter gates, which require all six (whichever are
+// currently on) to count as a result.
 export type LogStatus = "checking" | "taken" | "unknown" | "available" | "filtered";
 
 export interface LogEntry {
