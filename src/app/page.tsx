@@ -80,7 +80,6 @@ export default function Home() {
 
   const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   // Mobile/`<lg` only (see SettingsDrawer) — on `lg:` screens SettingsPanel
   // renders inline as a permanent rail instead, so this stays false there
   // regardless of what triggered a stray `true` (e.g. a resize while open).
@@ -289,8 +288,8 @@ export default function Home() {
   // its own comment on why this can't be computed before hasHydrated
   // settles). Drives which of the two page layouts below renders: a
   // full-screen hero with nothing but the keyword field for a first-time
-  // visitor (no tab bar, no style chips, no advanced filters, no results
-  // section to be empty at all), versus the compact search bar + tabs +
+  // visitor (no tab bar, no settings panel, no results section to be empty
+  // at all), versus the compact search bar + tabs +
   // results layout everyone else gets, including a returning visitor whose
   // *current* run happens to be empty (e.g. right after reload, before
   // they've searched again this session) — that's a real "Current" tab
@@ -300,8 +299,6 @@ export default function Home() {
   // mobile SettingsDrawer) so the two can never drift out of sync with each
   // other's props.
   const settingsPanelProps = {
-    showAdvanced,
-    onToggleShowAdvanced: () => setShowAdvanced((v) => !v),
     stats,
     keywordParam,
     useAiSynonyms,
@@ -413,10 +410,10 @@ export default function Home() {
                   {gates.filterPronounceable &&
                     // Only worth saying while the gate is actually on —
                     // with it off there's nothing being skipped to call
-                    // out. Surfaced here (not just in the collapsed
-                    // Advanced filters panel) since this is the live,
-                    // no-need-to-expand-anything view of what a run is
-                    // actually doing.
+                    // out. Surfaced here too (not just in the settings
+                    // panel itself) since this is the live, no-need-to-
+                    // go-look-elsewhere view of what a run is actually
+                    // doing.
                     ' — these skip the "Pronounceable only" filter below.'}
                 </p>
               )}

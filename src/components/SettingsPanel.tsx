@@ -16,130 +16,22 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-US");
 }
 
-function BookIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-    </svg>
-  );
-}
-
-function SparkleIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 2l1.8 5.6L19.5 9l-5.7 1.4L12 16l-1.8-5.6L4.5 9l5.7-1.4L12 2z" />
-    </svg>
-  );
-}
-
-function DiceIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="3" width="18" height="18" rx="4" />
-      <circle cx="8" cy="8" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="16" cy="8" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="16" r="1.3" fill="currentColor" stroke="none" />
-      <circle cx="16" cy="16" r="1.3" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function SpellIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 20l4-10 4 10M6 16h4" />
-      <path d="M14 20l4-14M14 12h4" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      width="11"
-      height="11"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-transform ${open ? "rotate-180" : ""}`}
-      aria-hidden="true"
-    >
-      <path d="M6 9l6 6 6-6" />
-    </svg>
-  );
-}
-
-/** One always-on-or-toggleable pill describing a name-generation mechanism —
- * the merged replacement for three separate switches-with-paragraphs,
- * following the same "style chip" pattern comparable name generators (e.g.
- * Namelix) use for this exact kind of choice. `active` (not `disabled`)
- * renders the always-on "Dictionary" chip, which has no click handler at
- * all. */
-function StyleChip({
-  icon,
-  label,
-  active,
-  disabled,
-  disabledReason,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  disabled?: boolean;
-  /** Announced (via aria-label) and shown as a tooltip when disabled — a
-   * disabled control with no stated reason is a dead end for a
-   * screen-reader user, who can't see the dashed border sighted users use
-   * to infer "type a keyword first". */
-  disabledReason?: string;
-  onClick?: () => void;
-}) {
-  const inert = !onClick;
-  const Tag = inert ? "span" : "button";
-  return (
-    <Tag
-      type={inert ? undefined : "button"}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={inert ? undefined : active}
-      aria-label={disabled && disabledReason ? `${label} — ${disabledReason}` : inert ? `${label} (always on)` : undefined}
-      title={disabled ? disabledReason : undefined}
-      className={`flex min-h-9 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium transition-all ${
-        inert ? "" : "active:scale-95"
-      } ${FOCUS_RING} ${
-        disabled
-          ? "cursor-not-allowed border border-dashed border-black/15 text-black/35 dark:border-white/15 dark:text-white/35"
-          : active
-            ? "bg-accent-2 text-white"
-            : "border border-black/15 text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
-      }`}
-    >
-      {icon}
-      {label}
-    </Tag>
-  );
-}
-
 /**
- * Every control that shapes what gets searched: the "Style" chip row
- * (Dictionary always on; AI synonyms/AI-invented/Alt-spellings toggle
- * useAiSynonyms/useAiInvented/useAltSpellings) plus the collapsed "Advanced
- * filters" section (TLDs, quality gates, length/count sliders, brandability
- * check region) — everything that used to sit inline in the main page flow
- * (see FiltersPanel, now retired) now lives only here. Deliberately no
- * open/close chrome of its own: page.tsx renders this either inside
+ * Every control that shapes what gets searched: "Generation style" (four
+ * GateToggle switches — Dictionary always on and grayed out; AI synonyms/
+ * AI-invented/Alt-spellings toggle useAiSynonyms/useAiInvented/
+ * useAltSpellings) plus TLDs, quality gates, length/count sliders, and
+ * brandability check region — all always visible, no collapsed "Advanced
+ * filters" step in front of them (there used to be one; once this was
+ * reachable only via an explicit "Customize" action or a permanent desktop
+ * rail — see page.tsx — hiding filters a second time, behind their own
+ * toggle, just added a click for no benefit). Deliberately no open/close
+ * chrome of its own otherwise: page.tsx renders this either inside
  * SettingsDrawer (mobile/`<lg`, an explicit "Customize" action) or as an
  * always-visible desktop rail (`lg:` and up) — this component doesn't know
  * or care which.
  */
 export function SettingsPanel({
-  showAdvanced,
-  onToggleShowAdvanced,
   stats,
   keywordParam,
   useAiSynonyms,
@@ -161,8 +53,6 @@ export function SettingsPanel({
   region,
   onRegionChange,
 }: {
-  showAdvanced: boolean;
-  onToggleShowAdvanced: () => void;
   stats: DictionaryStats | null;
   keywordParam: string;
   useAiSynonyms: boolean;
@@ -184,52 +74,35 @@ export function SettingsPanel({
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
 }) {
-  const activeGateCount = Object.values(gates).filter(Boolean).length;
-
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
-        <StyleChip icon={<BookIcon />} label="Dictionary" active />
-        <StyleChip
-          icon={<SparkleIcon />}
+      <div className="flex flex-col gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Generation style</span>
+        <GateToggle
+          label="Dictionary pairing"
+          checked
+          disabled
+          disabledReason="always on"
+          onChange={() => {}}
+        />
+        <GateToggle
           label="AI synonyms"
-          active={useAiSynonyms}
+          checked={useAiSynonyms}
+          onChange={onUseAiSynonymsChange}
           disabled={!keywordParam}
           disabledReason="type a keyword above to enable"
-          onClick={() => onUseAiSynonymsChange(!useAiSynonyms)}
         />
-        <StyleChip
-          icon={<DiceIcon />}
-          label="AI-invented"
-          active={useAiInvented}
-          onClick={() => onUseAiInventedChange(!useAiInvented)}
-        />
-        <StyleChip
-          icon={<SpellIcon />}
+        <GateToggle label="AI-invented names" checked={useAiInvented} onChange={onUseAiInventedChange} />
+        <GateToggle
           label="Alt-spellings"
-          active={useAltSpellings}
+          checked={useAltSpellings}
+          onChange={onUseAltSpellingsChange}
           disabled={!keywordParam}
           disabledReason="type a keyword above to enable"
-          onClick={() => onUseAltSpellingsChange(!useAltSpellings)}
         />
       </div>
 
-      <button
-        type="button"
-        onClick={onToggleShowAdvanced}
-        aria-expanded={showAdvanced}
-        aria-controls="advanced-filters-panel"
-        className={`inline-flex items-center gap-1.5 self-start rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
-      >
-        Advanced filters ({activeGateCount} active)
-        <ChevronIcon open={showAdvanced} />
-      </button>
-
-      <section
-        id="advanced-filters-panel"
-        hidden={!showAdvanced}
-        className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none"
-      >
+      <div className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none">
         {keywordParam && (
           <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
         )}
@@ -388,7 +261,7 @@ export function SettingsPanel({
             region — the brandability check searches from this one.
           </p>
         </div>
-      </section>
+      </div>
     </div>
   );
 }

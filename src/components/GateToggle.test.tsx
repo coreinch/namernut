@@ -33,4 +33,27 @@ describe("GateToggle", () => {
     render(<GateToggle label="Require GitHub username" checked={false} onChange={() => {}} />);
     expect(screen.getByRole("switch", { name: "Require GitHub username" })).toBeTruthy();
   });
+
+  it("when disabled, is inert and exposes the reason via aria-label", () => {
+    const onChange = vi.fn();
+    render(
+      <GateToggle
+        label="Dictionary pairing"
+        checked={true}
+        onChange={onChange}
+        disabled
+        disabledReason="always on"
+      />
+    );
+    const el = screen.getByRole("switch", { name: "Dictionary pairing — always on" }) as HTMLButtonElement;
+    expect(el.disabled).toBe(true);
+    el.click();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("not disabled by default, even with no disabled prop passed", () => {
+    render(<GateToggle label="AI-invented names" checked={false} onChange={() => {}} />);
+    const el = screen.getByRole("switch", { name: "AI-invented names" }) as HTMLButtonElement;
+    expect(el.disabled).toBe(false);
+  });
 });
