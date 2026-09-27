@@ -42,9 +42,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `SERPER_API_KEY` | Yes (default provider) | Web search backing the brandability check ([serper.dev](https://serper.dev)) |
-| `SERPENT_API_KEY` | Only if `SEARCH_PROVIDER=serpent` | Alternative search provider |
-| `SEARCH_PROVIDER` | No | `serper` (default) or `serpent` |
+| `SERPER_API_KEY` | Yes (primary provider) | Web search backing the brandability check ([serper.dev](https://serper.dev)) |
+| `SERPENT_API_KEY` | Recommended | Automatic fallback search provider, used only if the primary fails — not a settable choice |
 | `KILOCODE_API_KEY` | Yes | LLM calls for AI synonyms/invented names/brandability summaries |
 | `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the free auto-router model |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |

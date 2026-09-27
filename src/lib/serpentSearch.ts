@@ -1,7 +1,8 @@
 /**
  * Thin wrapper around apiserpent.com's SERP API, restricted here to its
- * Google engine — an alternative to serperSearch.ts, selected via
- * SEARCH_PROVIDER (see searchProvider.ts). Verified directly against the
+ * Google engine — an alternative to serperSearch.ts, tried automatically as
+ * the fallback provider (see brandability.ts's searchWithFallback). Verified
+ * directly against the
  * live API (not just its docs) with a real key: GET /api/search returns
  * results.organic[] with title/url/snippet/position, matching the shape
  * documented at https://apiserpent.com/docs. No spelling-correction/"did
