@@ -253,4 +253,40 @@ describe("Home — live search", () => {
     },
     30000
   );
+
+  it("does not re-check brandability when a 'found' event rediscovers an already-found domain", async () => {
+    let brandabilityCalls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.includes("/api/discover")) {
+          // The same domain arrives twice in one run — discovery has no
+          // cross-run (or even same-run) exclusion, so this can happen for
+          // real; see the "found" handler's foundDomainsRef guard.
+          return Promise.resolve(
+            sseResponse([
+              { type: "found", domain: "glowfox.com", meaning: "glow + fox", checkedCount: 1, foundCount: 1 },
+              { type: "found", domain: "glowfox.com", meaning: "glow + fox", checkedCount: 2, foundCount: 1 },
+              { type: "complete", checkedCount: 2, foundCount: 1 },
+            ])
+          );
+        }
+        if (url.includes("/api/brandability")) {
+          brandabilityCalls++;
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ brandabilityScore: 50, summary: "" }) });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: /^current, 1 results$/i })).toBeTruthy());
+    // brandabilityCalls only increments asynchronously after the "found"
+    // handler fires — give it a tick to settle before asserting the count
+    // stayed at one rather than climbing to two.
+    await waitFor(() => expect(brandabilityCalls).toBeGreaterThan(0));
+    expect(brandabilityCalls).toBe(1);
+  });
 });

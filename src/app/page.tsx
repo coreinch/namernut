@@ -229,6 +229,12 @@ export default function Home() {
 
   const abortRef = useRef<AbortController | null>(null);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
+  // Mirrors every domain ever added to foundHistory (including ones since
+  // trimmed out by MAX_FOUND_HISTORY) so the "found" handler below can
+  // synchronously tell a genuinely new find from a rediscovery — a
+  // functional setFoundHistory updater can't be used for that check, since
+  // React doesn't guarantee it runs before this handler returns.
+  const foundDomainsRef = useRef<Set<string>>(new Set());
   const [hasHydrated, setHasHydrated] = useState(false);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -328,10 +334,15 @@ export default function Home() {
       }
       const parsed: Partial<PersistedState> = JSON.parse(raw ?? legacyRaw ?? "{}");
       if (parsed.foundHistory) {
+        const deduped = dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry));
         // .slice(0, MAX_FOUND_HISTORY) trims anyone whose persisted history
         // already exceeds the cap from before it existed (entries are
         // newest-first, so this keeps the most recent ones).
-        setFoundHistory(dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry)).slice(0, MAX_FOUND_HISTORY));
+        setFoundHistory(deduped.slice(0, MAX_FOUND_HISTORY));
+        // foundDomainsRef tracks every domain ever found, not just the
+        // trimmed/visible slice — a domain scrolled out of the cap was
+        // still already brandability-checked, so it shouldn't be rechecked.
+        for (const entry of deduped) foundDomainsRef.current.add(entry.domain);
       }
       if (parsed.favorites) setFavorites(parsed.favorites.map(migrateLegacyEntry));
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
@@ -591,45 +602,52 @@ export default function Home() {
               // target is reached (or stopped) — status stays "running".
               setCheckedCount(event.checkedCount);
               setCurrentRunFound(event.foundCount);
-              setFoundHistory((prev) => {
-                // Each search is independently reseeded with no exclusion
-                // of domains a previous run already found (see start()
-                // above), so re-running discovery (or clicking "Search
-                // again") can legitimately rediscover the same available
-                // domain — without this guard that added a second
-                // FoundEntry for it, showing as a duplicate card in
-                // Previous results. Keep the existing entry (it may
-                // already carry a brandability score from being checked
-                // earlier) rather than replacing it with an unscored one.
-                if (prev.some((e) => e.domain === event.domain)) return prev;
-                const next = [
-                  // A random id, not `${domain}-${Date.now()}`: with
-                  // several concurrent workers, two "found" events can
-                  // land in the same millisecond, and Date.now() alone
-                  // isn't fine-grained enough to keep them apart — that
-                  // previously produced duplicate React keys.
-                  {
-                    id: generateId(),
-                    domain: event.domain,
-                    meaning: event.meaning,
-                    parts: event.parts,
-                    checkedCount: event.checkedCount,
-                    runId,
-                    instagram: event.instagram,
-                    github: event.github,
-                    tiktok: event.tiktok,
-                    source: event.source,
-                  },
-                  ...prev,
-                ];
-                // See MAX_FOUND_HISTORY's declaration — bounds unbounded
-                // localStorage growth. Newest-first, so this drops the
-                // oldest entries once the cap is exceeded.
-                return next.length > MAX_FOUND_HISTORY ? next.slice(0, MAX_FOUND_HISTORY) : next;
-              });
+              // Each search is independently reseeded with no exclusion of
+              // domains a previous run already found (see start() above),
+              // so re-running discovery (or clicking "Search again") can
+              // legitimately rediscover the same available domain. Checked
+              // synchronously against foundDomainsRef rather than inside
+              // setFoundHistory's updater — React doesn't guarantee that
+              // updater runs before this handler returns, so it can't be
+              // used to gate the checkBrandabilityFor call below.
+              const isNewFind = !foundDomainsRef.current.has(event.domain);
+              if (isNewFind) {
+                foundDomainsRef.current.add(event.domain);
+                setFoundHistory((prev) => {
+                  const next = [
+                    // A random id, not `${domain}-${Date.now()}`: with
+                    // several concurrent workers, two "found" events can
+                    // land in the same millisecond, and Date.now() alone
+                    // isn't fine-grained enough to keep them apart — that
+                    // previously produced duplicate React keys.
+                    {
+                      id: generateId(),
+                      domain: event.domain,
+                      meaning: event.meaning,
+                      parts: event.parts,
+                      checkedCount: event.checkedCount,
+                      runId,
+                      instagram: event.instagram,
+                      github: event.github,
+                      tiktok: event.tiktok,
+                      source: event.source,
+                    },
+                    ...prev,
+                  ];
+                  // See MAX_FOUND_HISTORY's declaration — bounds unbounded
+                  // localStorage growth. Newest-first, so this drops the
+                  // oldest entries once the cap is exceeded.
+                  return next.length > MAX_FOUND_HISTORY ? next.slice(0, MAX_FOUND_HISTORY) : next;
+                });
+              }
               resolveLog(event.domain, "available");
               // autoCheck is always true now — see its declaration above.
-              if (autoCheck) checkBrandabilityFor(event.domain.split(".")[0], event.parts);
+              // Skipped on a rediscovery: the existing FoundEntry already
+              // carries a brandability score (or is already being checked)
+              // from when it was first found, so re-checking would just
+              // burn another metered Serper/Kilocode call and the
+              // brandability rate limit for an identical result.
+              if (autoCheck && isNewFind) checkBrandabilityFor(event.domain.split(".")[0], event.parts);
               break;
             }
             case "complete":
