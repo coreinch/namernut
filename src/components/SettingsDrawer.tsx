@@ -32,17 +32,24 @@ export function SettingsDrawer({
         onClose();
         return;
       }
-      // Focus trap: the backdrop button and everything in SettingsPanel's
-      // form controls are still real, tabbable DOM elements sitting behind
-      // this overlay in z-index only, not in tab order — without this, Tab
-      // from the last control (or Shift+Tab from the first) escapes the
-      // open dialog into the page underneath it, which a sighted mouse user
-      // never notices but leaves a keyboard/screen-reader user acting on
-      // controls they can't see.
+      // Focus trap: everything in SettingsPanel's form controls is still a
+      // real, tabbable DOM element sitting behind this overlay in z-index
+      // only, not in tab order — without this, Tab from the last control
+      // (or Shift+Tab from the first) escapes the open dialog into the page
+      // underneath it, which a sighted mouse user never notices but leaves
+      // a keyboard/screen-reader user acting on controls they can't see.
       if (e.key !== "Tab" || !containerRef.current) return;
-      const focusable = containerRef.current.querySelectorAll<HTMLElement>(
-        'button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      );
+      // The selector list is OR'd, so ":not([tabindex=\"-1\"])" on its own
+      // only excludes elements matched by THAT alternative — a plain
+      // `<button tabIndex={-1}>` (the backdrop below) still matches the
+      // bare "button" alternative regardless. Filtering by .tabIndex
+      // afterward, rather than trying to express the exclusion in the
+      // selector itself, is what actually keeps it out of this list.
+      const focusable = Array.from(
+        containerRef.current.querySelectorAll<HTMLElement>(
+          'button, a[href], input, select, textarea, [tabindex]'
+        )
+      ).filter((el) => el.tabIndex !== -1);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -67,9 +74,19 @@ export function SettingsDrawer({
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-50 flex items-end justify-center lg:hidden">
+      {/* Pointer/touch-only dismiss affordance — Escape (see the keydown
+          handler above) already covers keyboard dismissal, so this is
+          deliberately taken out of both the tab order and the
+          accessibility tree: tabIndex={-1} keeps it out of the focus trap's
+          own querySelector (see its ":not([tabindex=\"-1\"])" clause)
+          rather than needing its own visible focus style for something a
+          sighted keyboard user has no reason to tab onto, and aria-hidden
+          stops a screen reader from announcing "Close search options"
+          twice for what would otherwise look like two identical controls. */}
       <button
         type="button"
-        aria-label="Close search options"
+        tabIndex={-1}
+        aria-hidden="true"
         onClick={onClose}
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
       />

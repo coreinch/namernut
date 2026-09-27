@@ -27,12 +27,16 @@ describe("SettingsDrawer", () => {
 
   it("calls onClose when the backdrop is clicked", () => {
     const onClose = vi.fn();
-    render(
+    const { container } = render(
       <SettingsDrawer open onClose={onClose}>
         <p>panel content</p>
       </SettingsDrawer>
     );
-    fireEvent.click(screen.getAllByLabelText("Close search options")[0]);
+    // The backdrop is deliberately unlabeled and aria-hidden (a
+    // pointer/touch-only dismiss affordance — see its own comment in
+    // SettingsDrawer.tsx), so it can't be queried by role/label the way
+    // the real close button below is.
+    fireEvent.click(container.querySelector('button[aria-hidden="true"]')!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -43,8 +47,18 @@ describe("SettingsDrawer", () => {
         <p>panel content</p>
       </SettingsDrawer>
     );
-    fireEvent.click(screen.getAllByLabelText("Close search options")[1]);
+    fireEvent.click(screen.getByLabelText("Close search options"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the backdrop out of the tab order and the accessibility tree", () => {
+    const { container } = render(
+      <SettingsDrawer open onClose={vi.fn()}>
+        <p>panel content</p>
+      </SettingsDrawer>
+    );
+    const backdrop = container.querySelector('button[aria-hidden="true"]');
+    expect(backdrop?.getAttribute("tabindex")).toBe("-1");
   });
 
   it("calls onClose when Escape is pressed", () => {
@@ -64,7 +78,7 @@ describe("SettingsDrawer", () => {
         <p>panel content</p>
       </SettingsDrawer>
     );
-    expect(document.activeElement).toBe(screen.getAllByLabelText("Close search options")[1]);
+    expect(document.activeElement).toBe(screen.getByLabelText("Close search options"));
   });
 
   it("traps Tab focus: forward from the last focusable element wraps to the first", () => {
@@ -73,15 +87,12 @@ describe("SettingsDrawer", () => {
         <button type="button">a control</button>
       </SettingsDrawer>
     );
-    const [backdrop, closeButton] = screen.getAllByLabelText("Close search options");
+    const closeButton = screen.getByLabelText("Close search options");
     const control = screen.getByRole("button", { name: "a control" });
     (control as HTMLButtonElement).focus();
     expect(document.activeElement).toBe(control);
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(backdrop);
-    // Sanity check that closeButton (the actual last focusable element
-    // before this test's extra control) isn't what wrapping landed on.
-    expect(document.activeElement).not.toBe(closeButton);
+    expect(document.activeElement).toBe(closeButton);
   });
 
   it("traps Tab focus: Shift+Tab from the first focusable element wraps to the last", () => {
@@ -90,10 +101,10 @@ describe("SettingsDrawer", () => {
         <button type="button">a control</button>
       </SettingsDrawer>
     );
-    const [backdrop] = screen.getAllByLabelText("Close search options");
+    const closeButton = screen.getByLabelText("Close search options");
     const control = screen.getByRole("button", { name: "a control" });
-    (backdrop as HTMLButtonElement).focus();
-    expect(document.activeElement).toBe(backdrop);
+    (closeButton as HTMLButtonElement).focus();
+    expect(document.activeElement).toBe(closeButton);
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(control);
   });
