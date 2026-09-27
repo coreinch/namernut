@@ -10,20 +10,20 @@ describe("Error", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const error = Object.assign(new globalThis.Error("boom"), { digest: "abc123" });
 
-    render(<Error error={error} reset={() => {}} />);
+    render(<Error error={error} retry={() => {}} />);
 
     expect(consoleError).toHaveBeenCalledWith(error);
     consoleError.mockRestore();
   });
 
-  it("calls reset when the Try again button is clicked", () => {
+  it("calls retry when the Try again button is clicked", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const reset = vi.fn();
+    const retry = vi.fn();
     const error = Object.assign(new globalThis.Error("boom"), { digest: "abc123" });
 
-    render(<Error error={error} reset={reset} />);
+    render(<Error error={error} retry={retry} />);
     fireEvent.click(screen.getByRole("button", { name: /try again/i }));
 
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(retry).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,7 +7,7 @@ import { useEffect } from "react";
 // this separate boundary, which replaces the entire document (hence its own
 // <html>/<body>) since the layout that would normally provide them is what
 // failed.
-export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function GlobalError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -49,7 +49,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
           </p>
           <button
             type="button"
-            onClick={reset}
+            onClick={() => retry()}
             style={{
               minHeight: "3rem",
               padding: "0 1.5rem",

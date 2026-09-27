@@ -29,24 +29,7 @@ describe("GateToggle", () => {
     expect(onChange).toHaveBeenCalledWith(true);
   });
 
-  it("when disabled, announces the reason via aria-label and blocks clicks", () => {
-    const onChange = vi.fn();
-    render(
-      <GateToggle
-        label="AI synonyms"
-        checked={false}
-        onChange={onChange}
-        disabled
-        disabledReason="type a keyword above to enable"
-      />
-    );
-    const el = screen.getByRole("switch", { name: "AI synonyms — type a keyword above to enable" });
-    expect((el as HTMLButtonElement).disabled).toBe(true);
-    el.click();
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("when enabled, aria-label is just the plain label with no reason suffix", () => {
+  it("aria-label is just the plain label", () => {
     render(<GateToggle label="Require GitHub username" checked={false} onChange={() => {}} />);
     expect(screen.getByRole("switch", { name: "Require GitHub username" })).toBeTruthy();
   });

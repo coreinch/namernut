@@ -319,142 +319,141 @@ export function FiltersPanel({
         </button>
       </div>
 
-      {showAdvanced && (
-        <section
-          id="advanced-filters-panel"
-          className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none"
-        >
-          {keywordParam && (
-            <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
-          )}
+      <section
+        id="advanced-filters-panel"
+        hidden={!showAdvanced}
+        className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none"
+      >
+        {keywordParam && (
+          <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
+        )}
 
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-xs text-muted">
-              <span>Max combination length</span>
-              <span className="font-semibold tabular-nums text-foreground">{maxLength} characters</span>
-            </div>
-            <input
-              type="range"
-              min={MIN_COMBINED_LENGTH}
-              max={MAX_COMBINED_LENGTH}
-              step={1}
-              value={maxLength}
-              onChange={(e) => onMaxLengthChange(Number(e.target.value))}
-              aria-label="Maximum combined result length"
-              className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-accent dark:bg-white/10 ${FOCUS_RING}`}
-            />
-            {stats && (
-              <p className="text-xs text-muted">
-                <span className="font-semibold tabular-nums text-foreground">
-                  {formatNumber(stats.totalCombinations)}
-                </span>{" "}
-                possible combinations at this length
-              </p>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span>Max combination length</span>
+            <span className="font-semibold tabular-nums text-foreground">{maxLength} characters</span>
+          </div>
+          <input
+            type="range"
+            min={MIN_COMBINED_LENGTH}
+            max={MAX_COMBINED_LENGTH}
+            step={1}
+            value={maxLength}
+            onChange={(e) => onMaxLengthChange(Number(e.target.value))}
+            aria-label="Maximum combined result length"
+            className={`h-2 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-accent dark:bg-white/10 ${FOCUS_RING}`}
+          />
+          {stats && (
+            <p className="text-xs text-muted">
+              <span className="font-semibold tabular-nums text-foreground">
+                {formatNumber(stats.totalCombinations)}
+              </span>{" "}
+              possible combinations at this length
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Extensions</span>
+          <div className="flex flex-wrap gap-2">
+            {visibleTlds.map((tld) => (
+              <button
+                key={tld}
+                type="button"
+                onClick={() => onToggleTld(tld)}
+                aria-pressed={enabledTlds[tld]}
+                className={`min-h-9 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
+                  enabledTlds[tld]
+                    ? "border-accent-2/40 bg-accent-2/10 font-medium text-accent-2"
+                    : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
+                }`}
+              >
+                .{tld}
+              </button>
+            ))}
+            {TLDS.length > PRIMARY_TLD_COUNT && (
+              <button
+                type="button"
+                onClick={onToggleShowMoreTlds}
+                className={`min-h-9 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-muted transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10 ${FOCUS_RING}`}
+              >
+                {effectiveShowMoreTlds ? "Less ▲" : "More ▾"}
+              </button>
             )}
           </div>
+          {selectedTlds.length === 0 && <p className="text-xs text-muted">Select at least one extension.</p>}
+        </div>
 
-          <div className="flex flex-col gap-2 border-t border-black/10 pt-3 dark:border-white/10">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Extensions</span>
-            <div className="flex flex-wrap gap-2">
-              {visibleTlds.map((tld) => (
-                <button
-                  key={tld}
-                  type="button"
-                  onClick={() => onToggleTld(tld)}
-                  aria-pressed={enabledTlds[tld]}
-                  className={`min-h-9 rounded-full border px-3.5 text-xs transition-all active:scale-95 ${FOCUS_RING} ${
-                    enabledTlds[tld]
-                      ? "border-accent-2/40 bg-accent-2/10 font-medium text-accent-2"
-                      : "border-black/15 font-normal text-black/55 hover:bg-black/5 dark:border-white/15 dark:text-white/55 dark:hover:bg-white/10"
-                  }`}
-                >
-                  .{tld}
-                </button>
-              ))}
-              {TLDS.length > PRIMARY_TLD_COUNT && (
-                <button
-                  type="button"
-                  onClick={onToggleShowMoreTlds}
-                  className={`min-h-9 rounded-full border border-dashed border-black/20 px-3.5 text-xs text-muted transition-all active:scale-95 hover:bg-black/5 dark:border-white/20 dark:hover:bg-white/10 ${FOCUS_RING}`}
-                >
-                  {effectiveShowMoreTlds ? "Less ▲" : "More ▾"}
-                </button>
-              )}
-            </div>
-            {selectedTlds.length === 0 && <p className="text-xs text-muted">Select at least one extension.</p>}
-          </div>
+        <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Quality gates</span>
+          <GateToggle
+            label="Require Instagram handle"
+            checked={gates.requireInstagram}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireInstagram: v }))}
+          />
+          <GateToggle
+            label="Require GitHub username"
+            checked={gates.requireGithub}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireGithub: v }))}
+          />
+          <GateToggle
+            label="Require TikTok handle"
+            checked={gates.requireTiktok}
+            onChange={(v) => onGatesChange((g) => ({ ...g, requireTiktok: v }))}
+          />
+          <GateToggle
+            label="Pronounceable only"
+            checked={gates.filterPronounceable}
+            onChange={(v) => onGatesChange((g) => ({ ...g, filterPronounceable: v }))}
+          />
+          <GateToggle
+            label="Skip typo-like names"
+            checked={gates.filterTypos}
+            onChange={(v) => onGatesChange((g) => ({ ...g, filterTypos: v }))}
+          />
+          <GateToggle
+            label="Skip awkward names"
+            checked={gates.filterNiceness}
+            onChange={(v) => onGatesChange((g) => ({ ...g, filterNiceness: v }))}
+          />
+        </div>
 
-          <div className="flex flex-col gap-1 border-t border-black/10 pt-3 dark:border-white/10">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-muted">Quality gates</span>
-            <GateToggle
-              label="Require Instagram handle"
-              checked={gates.requireInstagram}
-              onChange={(v) => onGatesChange((g) => ({ ...g, requireInstagram: v }))}
-            />
-            <GateToggle
-              label="Require GitHub username"
-              checked={gates.requireGithub}
-              onChange={(v) => onGatesChange((g) => ({ ...g, requireGithub: v }))}
-            />
-            <GateToggle
-              label="Require TikTok handle"
-              checked={gates.requireTiktok}
-              onChange={(v) => onGatesChange((g) => ({ ...g, requireTiktok: v }))}
-            />
-            <GateToggle
-              label="Pronounceable only"
-              checked={gates.filterPronounceable}
-              onChange={(v) => onGatesChange((g) => ({ ...g, filterPronounceable: v }))}
-            />
-            <GateToggle
-              label="Skip typo-like names"
-              checked={gates.filterTypos}
-              onChange={(v) => onGatesChange((g) => ({ ...g, filterTypos: v }))}
-            />
-            <GateToggle
-              label="Skip awkward names"
-              checked={gates.filterNiceness}
-              onChange={(v) => onGatesChange((g) => ({ ...g, filterNiceness: v }))}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
-            <label htmlFor="brandability-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Brandability check region
-            </label>
-            <select
-              id="brandability-region"
-              value={region}
-              onChange={(e) => onRegionChange(e.target.value as RegionOption)}
-              // The native dropdown popup ignores the page's dark theme and
-              // always renders with its own (usually light) chrome. Forcing
-              // light color-scheme keeps that popup predictable, but Chrome
-              // still lets each <option>'s inherited `color` (text-foreground
-              // below, near-white in dark mode — see --foreground in
-              // globals.css) carry into the popup's own always-light
-              // background, reading as near-invisible white-on-white. Each
-              // <option> gets an explicit, theme-independent dark color
-              // below to break that inheritance — one of the few style
-              // properties Chromium actually respects inside the native
-              // listbox — while text-foreground here still governs the
-              // select's own closed-box appearance, which does follow the
-              // page theme correctly.
-              style={{ colorScheme: "light" }}
-              className={`min-h-9 w-full rounded-lg border border-black/15 bg-transparent px-3 text-sm text-foreground dark:border-white/15 ${FOCUS_RING}`}
-            >
-              {REGION_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="text-black">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted">
-              Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
-              region — the brandability check searches from this one.
-            </p>
-          </div>
-        </section>
-      )}
+        <div className="flex flex-col gap-1.5 border-t border-black/10 pt-3 dark:border-white/10">
+          <label htmlFor="brandability-region" className="text-[11px] font-medium uppercase tracking-wide text-muted">
+            Brandability check region
+          </label>
+          <select
+            id="brandability-region"
+            value={region}
+            onChange={(e) => onRegionChange(e.target.value as RegionOption)}
+            // The native dropdown popup ignores the page's dark theme and
+            // always renders with its own (usually light) chrome. Forcing
+            // light color-scheme keeps that popup predictable, but Chrome
+            // still lets each <option>'s inherited `color` (text-foreground
+            // below, near-white in dark mode — see --foreground in
+            // globals.css) carry into the popup's own always-light
+            // background, reading as near-invisible white-on-white. Each
+            // <option> gets an explicit, theme-independent dark color
+            // below to break that inheritance — one of the few style
+            // properties Chromium actually respects inside the native
+            // listbox — while text-foreground here still governs the
+            // select's own closed-box appearance, which does follow the
+            // page theme correctly.
+            style={{ colorScheme: "light" }}
+            className={`min-h-9 w-full rounded-full border border-black/15 bg-transparent px-3 text-sm text-foreground dark:border-white/15 ${FOCUS_RING}`}
+          >
+            {REGION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value} className="text-black">
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted">
+            Google&rsquo;s results (including whether it silently reinterprets a name as something else) vary by
+            region — the brandability check searches from this one.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

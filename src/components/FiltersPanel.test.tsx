@@ -113,11 +113,14 @@ describe("FiltersPanel", () => {
     expect(screen.getByText("Dictionary")).toBeTruthy();
   });
 
-  it("does not render the advanced filters section until showAdvanced is true", () => {
+  it("hides the advanced filters section until showAdvanced is true, keeping it in the DOM for aria-controls", () => {
     const props = baseProps();
     const { rerender } = render(<FiltersPanel {...props} showAdvanced={false} />);
-    expect(screen.queryByText("Extensions")).toBeNull();
+    const section = document.getElementById("advanced-filters-panel");
+    expect(section).not.toBeNull();
+    expect((section as HTMLElement).hidden).toBe(true);
     rerender(<FiltersPanel {...props} showAdvanced />);
+    expect((section as HTMLElement).hidden).toBe(false);
     expect(screen.getByText("Extensions")).toBeTruthy();
   });
 
