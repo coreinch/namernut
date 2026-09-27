@@ -228,6 +228,14 @@ export default function Home() {
   const [activeRunId, setActiveRunId] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
+  // Only the user-triggered Stop button (below) called abortRef.current's
+  // abort() otherwise — an unmount mid-search (React Strict Mode's dev-only
+  // double-invoke today; a future route change away from "/" tomorrow)
+  // left the /api/discover stream fetch running and its setState calls
+  // firing against an unmounted component instead.
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   // Mirrors every domain ever added to foundHistory (including ones since
   // trimmed out by MAX_FOUND_HISTORY) so the "found" handler below can
