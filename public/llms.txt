@@ -8,7 +8,8 @@
 > how "brandable" each available name is using an AI web-search-backed
 > collision check — how likely the name is to already be crowded by an
 > existing company, product, or well-known use. It also checks the name's
-> availability live as an Instagram, GitHub, and TikTok handle.
+> availability live as an Instagram, GitHub, TikTok, npm, YouTube, and X
+> (Twitter) handle.
 
 ## What it does
 
@@ -17,7 +18,7 @@
   deterministic alternate spellings.
 - Checks each candidate's availability live across selectable TLDs
   (.com, .io, .ai, .co, and others) and, optionally, as an Instagram,
-  GitHub, and/or TikTok handle.
+  GitHub, TikTok, npm, YouTube, and/or X (Twitter) handle.
 - Filters candidates by pronounceability, length, typo-likelihood, and a
   "niceness" (no unintended meaning) check.
 - Scores each available name's "brandability" from 0-100: how much existing
