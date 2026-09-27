@@ -311,6 +311,49 @@ describe("runDiscovery", () => {
     ).toBe(true);
   });
 
+  it("stops requiring GitHub availability once its rate limit persists past the retry cap, rather than producing zero results forever", async () => {
+    // GitHub's real limit is hourly (see github.ts) — a few seconds of
+    // backoff can't outlast that, so a rate limit that never clears within
+    // this retry cap needs the same breaker as a structural block (the test
+    // above), not an "unknown" that fails every remaining candidate with no
+    // recovery. Fake timers stand in for the real RATE_LIMIT_BACKOFF_MS waits.
+    vi.useFakeTimers();
+    try {
+      const pool: WordEntry[] = [
+        { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+        { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+        { word: "fox", langs: ["english"], definition: "", common: false, noun: true },
+      ];
+      vi.mocked(checkDomain).mockResolvedValue("available");
+      vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+      const rateLimitError = new Error("github_rate_limited");
+      rateLimitError.name = "RateLimitError";
+      vi.mocked(checkGithubUsername).mockRejectedValue(rateLimitError);
+
+      const events: DiscoveryEvent[] = [];
+      const controller = new AbortController();
+      const promise = runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+      await vi.runAllTimersAsync();
+      await promise;
+
+      // Without the breaker this would filter every match forever and never
+      // reach the target — instead, after a handful of exhausted-retry
+      // checks, results start counting again on domain availability alone.
+      const found = events.filter((e) => e.type === "found");
+      expect(found.length).toBe(3);
+      for (const f of found) {
+        if (f.type === "found") expect(f.github).toBe("unknown");
+      }
+
+      // Told the user what happened, not just silently changed behavior.
+      expect(
+        events.some((e) => e.type === "error" && e.message.toLowerCase().includes("github checking appears to be blocked"))
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retries a rate-limited social check after backing off, and the candidate still resolves", async () => {
     // Distinct from the LoginWallError breaker above: a rate limit is
     // transient (retry the same request after a delay), not structural

@@ -276,8 +276,15 @@ async function checkSocialOne(
         onEvent({ type: "error", message: `${platform.label} rate limited, backing off...` });
         attempt++;
         if (attempt >= MAX_TRANSIENT_RETRIES) {
-          status = "unknown";
-          break;
+          // Some of these limits are hourly (see github.ts's 60/hour
+          // unauthenticated cap) — a few seconds of backoff can't outlast
+          // that, and falling through to "unknown" would fail every
+          // remaining candidate for the rest of this search with no way
+          // to recover, unlike the SOCIAL_BLOCKED_STREAK_THRESHOLD breaker
+          // below, which only counts the "blocked" return value. Returning
+          // "blocked" here (once retries are exhausted, not on the first
+          // hit) lets a sustained rate limit trip that same breaker instead.
+          return "blocked" as const;
         }
         await delay(RATE_LIMIT_BACKOFF_MS, signal);
         continue;
