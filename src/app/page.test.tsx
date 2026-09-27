@@ -135,8 +135,11 @@ describe("Home — localStorage hydration", () => {
   it("ignores an unparsable persisted value instead of crashing", () => {
     localStorage.setItem(STORAGE_KEY, "{not valid json");
     expect(() => render(<Home />)).not.toThrow();
-    openArchiveTab();
-    expect(screen.getByText(/past searches will collect here/i)).toBeTruthy();
+    // Nothing usable was restored, so this renders exactly like a genuine
+    // first visit (see isFirstVisit in page.tsx) — no tab bar, no crash,
+    // just the hero.
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.getByRole("button", { name: "Generate" })).toBeTruthy();
   });
 
   // MAX_FOUND_HISTORY (page.tsx) caps foundHistory at 500 entries — both here

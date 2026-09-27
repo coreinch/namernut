@@ -1,5 +1,4 @@
 import type { DiscoveryGates } from "@/lib/discovery";
-import { HOOK, MECHANISM } from "@/lib/copy";
 import {
   MAX_COMBINED_LENGTH,
   MIN_COMBINED_LENGTH,
@@ -75,7 +74,12 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
-/** One always-on-or-toggleable pill describing a name-generation mechanism — the merged replacement for three separate switches-with-paragraphs, following the same "style chip" pattern comparable name generators (e.g. Namelix) use for this exact kind of choice. `active` (not `disabled`) renders the always-on "Dictionary" chip, which has no click handler at all. */
+/** One always-on-or-toggleable pill describing a name-generation mechanism —
+ * the merged replacement for three separate switches-with-paragraphs,
+ * following the same "style chip" pattern comparable name generators (e.g.
+ * Namelix) use for this exact kind of choice. `active` (not `disabled`)
+ * renders the always-on "Dictionary" chip, which has no click handler at
+ * all. */
 function StyleChip({
   icon,
   label,
@@ -122,26 +126,21 @@ function StyleChip({
 }
 
 /**
- * The search hero + advanced filters. Every toggle that widens which
- * candidate names get searched now lives in one "Style" chip row —
- * "Dictionary" is always on and unclickable (dictionary pairing on the
- * literal word always runs either way), while "AI synonyms"/"AI-invented"/
- * "Alt-spellings" toggle useAiSynonyms/useAiInvented/useAltSpellings.
- * Everything that only narrows the search (TLDs, quality gates, length/
- * count sliders, brandability check region) sits behind the collapsed "Advanced filters"
- * link — narrowing controls are opt-in to look at, generation controls are
- * always visible, matching the Namecheap Beast Mode split between
- * "Transform" and "Filtering" controls. Takes every value it renders and
- * every setter it calls as props rather than owning any state itself —
- * page.tsx remains the single source of truth (and the thing that persists
- * it all).
+ * Every control that shapes what gets searched: the "Style" chip row
+ * (Dictionary always on; AI synonyms/AI-invented/Alt-spellings toggle
+ * useAiSynonyms/useAiInvented/useAltSpellings) plus the collapsed "Advanced
+ * filters" section (TLDs, quality gates, length/count sliders, brandability
+ * check region) — everything that used to sit inline in the main page flow
+ * (see FiltersPanel, now retired) now lives only here. Deliberately no
+ * open/close chrome of its own: page.tsx renders this either inside
+ * SettingsDrawer (mobile/`<lg`, an explicit "Customize" action) or as an
+ * always-visible desktop rail (`lg:` and up) — this component doesn't know
+ * or care which.
  */
-export function FiltersPanel({
+export function SettingsPanel({
   showAdvanced,
   onToggleShowAdvanced,
   stats,
-  keywordInput,
-  onKeywordInputChange,
   keywordParam,
   useAiSynonyms,
   onUseAiSynonymsChange,
@@ -161,18 +160,10 @@ export function FiltersPanel({
   onGatesChange,
   region,
   onRegionChange,
-  isRunning,
-  primaryLabel,
-  onStart,
-  onStop,
-  exampleKeywords,
-  onTryExample,
 }: {
   showAdvanced: boolean;
   onToggleShowAdvanced: () => void;
   stats: DictionaryStats | null;
-  keywordInput: string;
-  onKeywordInputChange: (value: string) => void;
   keywordParam: string;
   useAiSynonyms: boolean;
   onUseAiSynonymsChange: (value: boolean) => void;
@@ -192,106 +183,12 @@ export function FiltersPanel({
   onGatesChange: (updater: (gates: DiscoveryGates) => DiscoveryGates) => void;
   region: RegionOption;
   onRegionChange: (value: RegionOption) => void;
-  isRunning: boolean;
-  primaryLabel: string;
-  onStart: () => void;
-  onStop: () => void;
-  exampleKeywords: string[];
-  onTryExample: (keyword: string) => void;
 }) {
   const activeGateCount = Object.values(gates).filter(Boolean).length;
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Swapped emphasis (2026-09-26): the value prop used to render as
-          a small muted <p> below a big "What's your keyword?" h1 — the h1
-          was the one thing every first-time visitor actually looked at,
-          and it said nothing about what the tool does. Rendering HOOK and
-          MECHANISM (lib/copy.ts) at two different weights, rather than
-          the full DESCRIPTION sentence as one same-weight block, gives a
-          skimming visitor an actual hierarchy: the pain point lands
-          first, the explanation of how second and smaller. HOOK +
-          MECHANISM concatenate back into the same DESCRIPTION used for
-          <meta>, the OG image, and the PWA manifest, so this — the one
-          spot a real visitor reads it — can't quietly drift from what
-          everywhere else claims.
-
-          Copy explains, but the keyword input + Generate button is the
-          actual product — sized down the headline (was the single
-          biggest thing on the page) and sized up the input/button pill
-          below so the generate action, not a sentence, is the visual
-          center of the hero. */}
-      <h1 className="text-center font-display text-xl font-semibold leading-tight sm:text-2xl">
-        {HOOK}
-      </h1>
-      <p className="text-center text-sm text-muted">{MECHANISM}</p>
-      <p className="mt-2 text-center text-xs font-medium uppercase tracking-wide text-muted">
-        What&rsquo;s your keyword?
-      </p>
-
-      <div className="flex items-center gap-2 rounded-full bg-card p-2 shadow-[0_4px_20px_rgba(27,21,51,0.12)] dark:shadow-none">
-        <input
-          type="text"
-          inputMode="text"
-          aria-label="Keyword to include (optional)"
-          value={keywordInput}
-          onChange={(e) => onKeywordInputChange(e.target.value)}
-          // An example, not just a label — "Keyword (optional)" told a
-          // visitor a field existed without telling them what belongs in
-          // it. Still short on purpose (see the mobile-width comment this
-          // replaced): this pill also holds the Generate/Stop button, so
-          // there's only ~150-200px for the placeholder on a narrow phone.
-          // A real word/short phrase, not a full sentence — this field
-          // pairs one dictionary or AI-suggested word onto exactly what's
-          // typed here (see sanitizeKeyword below and parseKeyword in
-          // lib/candidates.ts), so an example implying it interprets a
-          // whole pitch would set the wrong expectation.
-          placeholder="e.g. glow, coffee"
-          // Matches the 15-char cap sanitizeKeyword/parseKeyword actually
-          // enforce (page.tsx, lib/candidates.ts) — was 20, which let a user
-          // type 5 characters that would then be silently dropped on search
-          // with no indication anything was truncated.
-          maxLength={15}
-          className={`min-h-12 min-w-0 flex-1 rounded-full bg-transparent px-4 text-base outline-none placeholder:text-black/40 dark:placeholder:text-white/40 sm:min-h-14 sm:text-lg ${FOCUS_RING}`}
-        />
-        <button
-          type="button"
-          onClick={isRunning ? onStop : onStart}
-          className={`min-h-12 shrink-0 whitespace-nowrap rounded-full px-6 text-base font-semibold text-white transition-all active:scale-95 sm:min-h-14 sm:px-8 sm:text-lg ${
-            isRunning ? "bg-black/70 hover:bg-black/80 dark:bg-white/25 dark:hover:bg-white/35" : "bg-accent hover:opacity-90"
-          } ${FOCUS_RING}`}
-        >
-          {isRunning ? "Stop" : primaryLabel}
-        </button>
-      </div>
-
-      {/* Lets a first-time visitor see real output (names, live
-          availability, an AI score once auto-check resolves) with zero
-          typing, before deciding whether their own idea is worth trying.
-          Several examples spanning different categories (see
-          EXAMPLE_KEYWORDS in page.tsx), not just one fixed word — a
-          visitor naming a coffee shop is more likely to click "coffee"
-          than an arbitrary "glow", and seeing several at once also signals
-          the tool works for more than one kind of business. Hidden
-          mid-search rather than left as a dead click — there's nothing
-          useful for these to do while a run is already going. */}
-      {!isRunning && (
-        <div className="-mt-2 flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 text-center text-xs text-muted">
-          <span>Try:</span>
-          {exampleKeywords.map((word) => (
-            <button
-              key={word}
-              type="button"
-              onClick={() => onTryExample(word)}
-              className={`rounded-full px-2 py-1 underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
-            >
-              {word}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap gap-2">
         <StyleChip icon={<BookIcon />} label="Dictionary" active />
         <StyleChip
           icon={<SparkleIcon />}
@@ -317,18 +214,16 @@ export function FiltersPanel({
         />
       </div>
 
-      <div className="text-center">
-        <button
-          type="button"
-          onClick={onToggleShowAdvanced}
-          aria-expanded={showAdvanced}
-          aria-controls="advanced-filters-panel"
-          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
-        >
-          Advanced filters ({activeGateCount} active)
-          <ChevronIcon open={showAdvanced} />
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onToggleShowAdvanced}
+        aria-expanded={showAdvanced}
+        aria-controls="advanced-filters-panel"
+        className={`inline-flex items-center gap-1.5 self-start rounded-full px-2 py-1 text-xs text-muted underline decoration-black/25 underline-offset-4 transition-colors hover:text-foreground dark:decoration-white/25 ${FOCUS_RING}`}
+      >
+        Advanced filters ({activeGateCount} active)
+        <ChevronIcon open={showAdvanced} />
+      </button>
 
       <section
         id="advanced-filters-panel"

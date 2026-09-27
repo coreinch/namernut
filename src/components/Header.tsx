@@ -31,10 +31,17 @@ export function Header({
   activeTab,
   onTabChange,
   counts,
+  showTabs,
 }: {
   activeTab: ResultsTab;
   onTabChange: (tab: ResultsTab) => void;
   counts: Record<ResultsTab, number>;
+  /** False on a visitor's very first look at the page (see page.tsx's
+   * `isFirstVisit`) — Current/Favorites/Archive all read 0/0/0 at that
+   * point, so the tab bar itself is meaningless chrome rather than
+   * navigation, and is left out entirely instead of rendering three dead
+   * tabs. */
+  showTabs: boolean;
 }) {
   // Roving tabindex + arrow-key navigation — the WAI-ARIA tabs pattern:
   // only the selected tab is a Tab stop (tabIndex 0), the other two are
@@ -66,6 +73,7 @@ export function Header({
         <div className="flex items-center gap-2.5">
           <span className="font-display text-lg font-bold tracking-tight">namernut</span>
         </div>
+        {showTabs && (
         <div
           role="tablist"
           aria-label="Results"
@@ -109,6 +117,7 @@ export function Header({
             </button>
           ))}
         </div>
+        )}
       </div>
     </header>
   );

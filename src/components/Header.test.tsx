@@ -11,13 +11,14 @@ afterEach(cleanup);
 // arrow-key navigation tests below exercise the same round trip a real user
 // interaction goes through (Header calls onTabChange, the new activeTab
 // prop flows back in, tabIndex/aria-selected update accordingly).
-function ControlledHeader({ initialTab = "current" as ResultsTab }) {
+function ControlledHeader({ initialTab = "current" as ResultsTab, showTabs = true }) {
   const [activeTab, setActiveTab] = useState<ResultsTab>(initialTab);
   return (
     <Header
       activeTab={activeTab}
       onTabChange={setActiveTab}
       counts={{ current: 2, favorites: 0, archive: 5 }}
+      showTabs={showTabs}
     />
   );
 }
@@ -81,5 +82,17 @@ describe("Header", () => {
     fireEvent.keyDown(currentTab, { key: "Enter" });
     expect(currentTab.getAttribute("aria-selected")).toBe("true");
     expect(screen.getByRole("tab", { name: /^favorites/i }).getAttribute("aria-selected")).toBe("false");
+  });
+
+  it("renders only the wordmark, no tab bar at all, when showTabs is false", () => {
+    render(<ControlledHeader showTabs={false} />);
+    expect(screen.getByText("namernut")).toBeTruthy();
+    expect(screen.queryByRole("tablist")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
+  });
+
+  it("renders the tab bar when showTabs is true", () => {
+    render(<ControlledHeader showTabs />);
+    expect(screen.getByRole("tablist")).toBeTruthy();
   });
 });
