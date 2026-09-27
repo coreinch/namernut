@@ -13,23 +13,29 @@ import {
 import { CONTENT_WIDTH, FOCUS_RING } from "@/components/constants";
 import { Header, tabButtonId, tabPanelId, type ResultsTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
-import { FiltersPanel } from "@/components/FiltersPanel";
+import { SearchBar } from "@/components/SearchBar";
+import { SettingsPanel } from "@/components/SettingsPanel";
+import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { ResultsGrid } from "@/components/ResultsGrid";
 import { LiveLogSection } from "@/components/LiveLogSection";
 import { usePersistedAppState } from "@/hooks/usePersistedAppState";
 import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 
-// Fed to tryExample below (the "Try an example" link) — verified directly
-// to produce real, varied output (dictionary pairings plus AI synonyms/
-// invented names) rather than a picked-for-looks string that might not
-// actually demonstrate the product. Deliberately a single plain word: the
-// keyword field only ever pairs one dictionary/AI word onto this literal
-// string (see sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword
-// in lib/candidates.ts, which strips anything past 15-20 characters and
-// non-letters) — it was never a "describe your idea" field, so the example
-// has to be honest about that rather than modeling a longer pitch a
-// first-time visitor might reasonably try typing themselves.
-const EXAMPLE_KEYWORD = "glow";
+// Fed to tryExample below (the example-keyword chips) — "glow" was
+// verified directly to produce real, varied output (dictionary pairings
+// plus AI synonyms/invented names) rather than a picked-for-looks string
+// that might not actually demonstrate the product; the rest are plain
+// dictionary words chosen to span different business categories (food,
+// creative services, tech) so a first-time visitor is more likely to see
+// one land near their own idea than with a single fixed example. Each is
+// deliberately a single plain word, same reasoning as before: the keyword
+// field only ever pairs one dictionary/AI word onto this literal string
+// (see sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword in
+// lib/candidates.ts, which strips anything past 15 characters and
+// non-alphanumerics) — it was never a "describe your idea" field, so the
+// examples have to be honest about that rather than modeling a longer
+// pitch a first-time visitor might reasonably try typing themselves.
+const EXAMPLE_KEYWORDS = ["glow", "coffee", "studio", "nova"];
 
 function formatNumber(n: number) {
   return n.toLocaleString("en-US");
@@ -75,6 +81,10 @@ export default function Home() {
   const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // Mobile/`<lg` only (see SettingsDrawer) — on `lg:` screens SettingsPanel
+  // renders inline as a permanent rail instead, so this stays false there
+  // regardless of what triggered a stray `true` (e.g. a resize while open).
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Which of the three result sections is on screen — replaces the old
   // always-stacked current run / top ranked / favorites / previous results
   // sections with one switch (see Header's tab control). Not persisted:
@@ -180,18 +190,18 @@ export default function Home() {
     setFavorites,
   });
 
-  // "Try an example" — fills the input and runs a real search in one
+  // Example-keyword chips — fill the input and run a real search in one
   // click, with zero typing, so a first-time visitor sees actual output
   // (names, live domain/Instagram availability, and a brandability score
   // once auto-check resolves) before deciding whether to try their own
-  // idea. setKeywordInput keeps the input box visibly in sync with what
-  // actually ran; start(EXAMPLE_KEYWORD) is what makes the run itself use
-  // it immediately rather than the pre-click (likely empty) keywordInput
-  // — see start's own comment on overrideKeyword for why passing it
-  // directly is necessary here.
-  const tryExample = useCallback(() => {
-    setKeywordInput(EXAMPLE_KEYWORD);
-    start(EXAMPLE_KEYWORD);
+  // idea. setKeywordInput keeps the input box visibly in sync with
+  // whichever example was clicked; start(keyword) is what makes the run
+  // itself use it immediately rather than the pre-click (likely empty)
+  // keywordInput — see start's own comment on overrideKeyword for why
+  // passing it directly is necessary here.
+  const tryExample = useCallback((keyword: string) => {
+    setKeywordInput(keyword);
+    start(keyword);
   }, [start, setKeywordInput]);
 
   const searchDomain = useCallback((entry: FoundEntry) => {
@@ -273,60 +283,97 @@ export default function Home() {
     favorites: favorites.length,
     archive: archiveResults.length,
   };
+  // True only on a genuinely first-ever look at the page: nothing has run
+  // this session (runStatus) and nothing survived from a previous one
+  // (foundHistory/favorites, restored by the hydration effect above — see
+  // its own comment on why this can't be computed before hasHydrated
+  // settles). Drives which of the two page layouts below renders: a
+  // full-screen hero with nothing but the keyword field for a first-time
+  // visitor (no tab bar, no style chips, no advanced filters, no results
+  // section to be empty at all), versus the compact search bar + tabs +
+  // results layout everyone else gets, including a returning visitor whose
+  // *current* run happens to be empty (e.g. right after reload, before
+  // they've searched again this session) — that's a real "Current" tab
+  // state, not the first-visit case, so it still gets the full layout.
+  const isFirstVisit = runStatus === "idle" && foundHistory.length === 0 && favorites.length === 0;
+  // Shared by both places SettingsPanel renders (the desktop rail and the
+  // mobile SettingsDrawer) so the two can never drift out of sync with each
+  // other's props.
+  const settingsPanelProps = {
+    showAdvanced,
+    onToggleShowAdvanced: () => setShowAdvanced((v) => !v),
+    stats,
+    keywordParam,
+    useAiSynonyms,
+    onUseAiSynonymsChange: setUseAiSynonyms,
+    useAiInvented,
+    onUseAiInventedChange: setUseAiInvented,
+    useAltSpellings,
+    onUseAltSpellingsChange: setUseAltSpellings,
+    maxLength,
+    onMaxLengthChange: setMaxLength,
+    selectedTlds,
+    visibleTlds,
+    enabledTlds,
+    onToggleTld: toggleTld,
+    effectiveShowMoreTlds,
+    onToggleShowMoreTlds: () => setShowMoreTlds((v) => !v),
+    gates,
+    onGatesChange: setGates,
+    region,
+    onRegionChange: setRegion,
+  };
+  const searchBarProps = {
+    keywordInput,
+    onKeywordInputChange: setKeywordInput,
+    isRunning,
+    primaryLabel,
+    // Wrapped, not passed directly: start() takes an optional
+    // overrideKeyword (see tryExample above), and a DOM onClick would
+    // otherwise pass its SyntheticEvent through as that argument.
+    onStart: () => start(),
+    onStop: stop,
+    exampleKeywords: EXAMPLE_KEYWORDS,
+    onTryExample: tryExample,
+  };
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-      <Header activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} />
+      <Header activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} showTabs={!isFirstVisit} />
 
       <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6">
-        <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH}`}>
-          <FiltersPanel
-            showAdvanced={showAdvanced}
-            onToggleShowAdvanced={() => setShowAdvanced((v) => !v)}
-            stats={stats}
-            keywordInput={keywordInput}
-            onKeywordInputChange={setKeywordInput}
-            keywordParam={keywordParam}
-            useAiSynonyms={useAiSynonyms}
-            onUseAiSynonymsChange={setUseAiSynonyms}
-            useAiInvented={useAiInvented}
-            onUseAiInventedChange={setUseAiInvented}
-            useAltSpellings={useAltSpellings}
-            onUseAltSpellingsChange={setUseAltSpellings}
-            maxLength={maxLength}
-            onMaxLengthChange={setMaxLength}
-            selectedTlds={selectedTlds}
-            visibleTlds={visibleTlds}
-            enabledTlds={enabledTlds}
-            onToggleTld={toggleTld}
-            effectiveShowMoreTlds={effectiveShowMoreTlds}
-            onToggleShowMoreTlds={() => setShowMoreTlds((v) => !v)}
-            gates={gates}
-            onGatesChange={setGates}
-            region={region}
-            onRegionChange={setRegion}
-            isRunning={isRunning}
-            primaryLabel={primaryLabel}
-            // Wrapped, not passed directly: start() now takes an optional
-            // overrideKeyword (see tryExample above), and FiltersPanel's
-            // Generate button wires this straight to a DOM onClick, which
-            // would otherwise pass the click's SyntheticEvent through as
-            // that argument.
-            onStart={() => start()}
-            onStop={stop}
-            onTryExample={tryExample}
-          />
+        {isFirstVisit ? (
+          // The entire first-ever screen: hero copy + keyword field +
+          // example chips, vertically centered, nothing else — see
+          // isFirstVisit's own comment above for why every other section
+          // (tabs, style chips, advanced filters, results, log) is left out
+          // rather than rendered empty.
+          <div className={`mx-auto flex h-full w-full flex-col justify-center gap-5 ${CONTENT_WIDTH}`}>
+            <SearchBar mode="hero" {...searchBarProps} />
+          </div>
+        ) : (
+          <div className="mx-auto flex w-full flex-col gap-6 lg:grid lg:max-w-5xl lg:grid-cols-[300px_1fr] lg:items-start lg:gap-8">
+            {/* Desktop-only persistent rail: SettingsPanel is otherwise
+                reached through SettingsDrawer (below), opened from
+                SearchBar's "Customize" button — see its own comment on why
+                both exist rather than one adapting to fit. */}
+            <aside className="hidden lg:sticky lg:top-4 lg:block">
+              <SettingsPanel {...settingsPanelProps} />
+            </aside>
 
-          {errorMessage && (
-            <p
-              role="alert"
-              className="animate-fade-in-up rounded-2xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400"
-            >
-              {errorMessage}
-            </p>
-          )}
+            <div className={`mx-auto flex w-full flex-col gap-5 ${CONTENT_WIDTH} lg:mx-0`}>
+              <SearchBar mode="compact" {...searchBarProps} onOpenSettings={() => setSettingsOpen(true)} />
 
-          {activeTab === "current" && (
+              {errorMessage && (
+                <p
+                  role="alert"
+                  className="animate-fade-in-up rounded-2xl bg-red-500/10 px-3.5 py-3 text-sm text-red-700 dark:text-red-400"
+                >
+                  {errorMessage}
+                </p>
+              )}
+
+              {activeTab === "current" && (
             <section
               role="tabpanel"
               id={tabPanelId("current")}
@@ -471,9 +518,15 @@ export default function Home() {
                 </>
               )}
             </section>
-          )}
-        </div>
+              )}
+            </div>
+          </div>
+        )}
       </main>
+
+      <SettingsDrawer open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+        <SettingsPanel {...settingsPanelProps} />
+      </SettingsDrawer>
 
       <Footer isRunning={isRunning} statusText={statusText} onStop={stop} />
     </div>
