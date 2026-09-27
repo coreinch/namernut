@@ -57,7 +57,7 @@ interface KilocodeResponse {
 // upstream succeed.
 const REQUEST_TIMEOUT_MS = 30000;
 
-export async function completeChat(prompt: string, signal?: AbortSignal): Promise<string> {
+export async function completeChat(prompt: string, signal?: AbortSignal, temperature: number = 0.2): Promise<string> {
   const apiKey = process.env.KILOCODE_API_KEY;
   if (!apiKey) throw new KilocodeApiKeyMissingError();
   const model = process.env.KILOCODE_MODEL || DEFAULT_MODEL;
@@ -72,7 +72,7 @@ export async function completeChat(prompt: string, signal?: AbortSignal): Promis
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.2,
+      temperature,
     }),
     signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
   });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
+const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal, temperature?: number) => Promise<string>>();
 
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
@@ -40,7 +40,7 @@ describe("suggestInventedNames", () => {
     expect(result).toEqual(["zuvio", "fovixia", "devosix", "nexbara"]);
   });
 
-  it("dedupes and drops words outside the 3-20 character range", async () => {
+  it("dedupes and drops words outside the 4-10 character range", async () => {
     vi.stubEnv("KILOCODE_API_KEY", "test-key");
     completeChatMock.mockResolvedValue("ab\nzuvio\nzuvio\nabcdefghijklmnopqrstuvwxyz");
     const result = await suggestInventedNames("fast");

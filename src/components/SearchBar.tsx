@@ -63,7 +63,13 @@ export function SearchBar({
         </>
       )}
 
-      <div className="flex items-center gap-2 rounded-full bg-card p-2 shadow-[0_4px_20px_rgba(27,21,51,0.12)] dark:shadow-none">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!isRunning) onStart();
+        }}
+        className="flex items-center gap-2 rounded-full bg-card p-2 shadow-[0_4px_20px_rgba(27,21,51,0.12)] dark:shadow-none"
+      >
         <input
           type="text"
           inputMode="text"
@@ -89,9 +95,14 @@ export function SearchBar({
             <SlidersIcon />
           </button>
         )}
+        {/* Submit (not a plain click handler) while idle, so pressing Enter
+            in the keyword field above also starts a search — the same
+            submit-on-Enter behavior every other text-input search box has.
+            While running this reverts to a plain button: Enter shouldn't
+            stop an in-progress search. */}
         <button
-          type="button"
-          onClick={isRunning ? onStop : onStart}
+          type={isRunning ? "button" : "submit"}
+          onClick={isRunning ? onStop : undefined}
           className={`min-h-12 shrink-0 whitespace-nowrap rounded-full px-6 text-base font-semibold text-white transition-all active:scale-95 ${
             mode === "hero" ? "sm:min-h-14 sm:px-8 sm:text-lg" : ""
           } ${
@@ -100,7 +111,7 @@ export function SearchBar({
         >
           {isRunning ? "Stop" : primaryLabel}
         </button>
-      </div>
+      </form>
 
       {/* Example chips are a hero-only, zero-typing on-ramp for a first-time
           visitor — see EXAMPLE_KEYWORDS in page.tsx. Once past the first

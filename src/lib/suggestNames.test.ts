@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
+const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal, temperature?: number) => Promise<string>>();
 
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),

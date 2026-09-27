@@ -47,11 +47,16 @@ INVENTED:
 <words>`;
 
   try {
-    const raw = await completeChat(prompt, signal);
+    // A single completeChat call can only carry one temperature for both
+    // sections, so this splits the difference between the low-temperature
+    // literalness synonyms want and the higher temperature invented names
+    // want (see suggestInventedNames) — still notably higher than the 0.2
+    // default, since the invented half is the one that visibly suffered.
+    const raw = await completeChat(prompt, signal, 0.7);
     const synonymsSection = raw.match(/SYNONYMS:([\s\S]*?)(?:INVENTED:|$)/i)?.[1];
     const inventedSection = raw.match(/INVENTED:([\s\S]*)/i)?.[1];
     const synonyms = parseWords(synonymsSection, 2, 15, keyword.toLowerCase()).slice(0, MAX_SYNONYMS);
-    const invented = parseWords(inventedSection, 3, 20).slice(0, BATCH_SIZE);
+    const invented = parseWords(inventedSection, 4, 10).slice(0, BATCH_SIZE);
     return { synonyms, invented };
   } catch (err) {
     console.error(`suggestSynonymsAndInvented: Kilo Gateway call failed for "${keyword}"`, err);

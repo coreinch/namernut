@@ -120,6 +120,13 @@ export async function GET(request: Request) {
         ]);
       }
 
+      // The LLM is asked to "invent" made-up words, but nothing stops it
+      // from producing (or coincidentally landing on) a real English word —
+      // drop any that are, so a name never gets mislabeled with the
+      // "AI-invented" badge when it's actually plain dictionary English.
+      const dictionaryWords = new Set(pool.map((w) => w.word));
+      inventedNames = inventedNames.filter((word) => !dictionaryWords.has(word));
+
       if (abortController.signal.aborted) {
         if (heartbeat) clearInterval(heartbeat);
         try {

@@ -36,11 +36,14 @@ export async function suggestInventedNames(keyword: string | undefined, signal?:
 Respond with exactly one lowercase word per line, nothing else — no numbering, no punctuation, no explanation.`;
 
   try {
-    const raw = await completeChat(prompt, signal);
+    // Higher than completeChat's 0.2 default (right for a judgment call like
+    // brandability scoring, wrong here): this is open-ended brainstorming,
+    // where a low temperature made a 40-word batch come out same-y/repetitive.
+    const raw = await completeChat(prompt, signal, 0.9);
     const words = raw
       .split("\n")
       .map((line) => line.trim().toLowerCase().replace(/[^a-z]/g, ""))
-      .filter((word) => word.length >= 3 && word.length <= 20);
+      .filter((word) => word.length >= 4 && word.length <= 10);
     return [...new Set(words)].slice(0, BATCH_SIZE);
   } catch (err) {
     console.error("suggestInventedNames: Kilo Gateway call failed", err);
