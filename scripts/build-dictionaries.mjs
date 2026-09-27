@@ -228,6 +228,38 @@ const SAFETY_DENYLIST = new Set([
   // pig-like"), not the literal animal — a negative descriptor of a
   // person, same tier as "loser"/"jerk"-style entries above.
   "hog",
+  // found live in real search output ("cruelraj.com") — its own displayed
+  // gloss ("able or disposed to inflict pain or suffering") is unambiguously
+  // negative, the same "reads badly as a brand descriptor" tier as
+  // "harsh"/"vulgar"/"pathetic" above, just missed by the original sweep.
+  "cruel",
+  // found in the same live-archive review that turned up "cruel" above —
+  // checked each against its own selected definition (the same standard as
+  // "boil"/"queer" above) rather than the word alone, since several
+  // superficially-similar candidates turned out to have a neutral/technical
+  // selected sense and were deliberately left in (see below):
+  // - "abuse": selected gloss is literally "cruel or inhumane treatment" —
+  //   the same tier as "cruel"/"cruelty" above.
+  // - "pain": selected gloss is "a symptom of some physical hurt or
+  //   disorder" — same medical-negative tier as "illness"/"disease"/"tumor".
+  // - "lie": selected gloss is "a statement that deviates from or perverts
+  //   the truth" — same dishonesty tier as "fraud"/"scam"/"bullshit", not
+  //   the unrelated "lie down" sense (which isn't what's shown anyway).
+  // - "waste": selected gloss is the "wasteland" adjective sense ("located
+  //   in a dismal or remote area; desolate") — same tier as "lonely"/"lone".
+  // Left in, checked and kept, for the record: "wound" (selected sense is
+  // "put in a coil", the "wind" homograph, not the injury sense), "choke"
+  // (selected sense is a literal electrical component), "anger" (selected
+  // sense is the neutral clinical "a strong emotion..." definition, same
+  // tier "fear"/"stress" were kept at), "worm" (selected sense is the
+  // literal invertebrate, not the "insect"-as-insult sense "hog" was
+  // excluded for), "pains" (selected sense is actually positive/neutral:
+  // "an effortful attempt to attain a goal", the "took pains to..." idiom),
+  // "stab" (selected sense is "a sudden sharp feeling", the "a stab of
+  // jealousy" idiom, not violence), "rude" ("socially incorrect in
+  // behavior" reads as milder than this tier's bar, closer to already-kept
+  // words like "petty" than to "vulgar").
+  "abuse", "pain", "lie", "waste",
 ]);
 
 // WordNet's index.adj follows an older grammatical scheme that files
