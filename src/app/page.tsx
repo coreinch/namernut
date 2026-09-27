@@ -63,6 +63,18 @@ const STORAGE_KEY = "namernut:state:v1";
 const LEGACY_STORAGE_KEYS = ["namerag:state:v1", "domain-finder:state:v1"];
 
 const MAX_LOG_ENTRIES = 200;
+// foundHistory persists to localStorage (see the effect below) and, before
+// this cap, grew without bound across a browser profile's lifetime — every
+// "found" event during every search prepended a new entry, and the full
+// array was re-serialized to localStorage on every single one. A cap keeps
+// both the per-write JSON.stringify cost and the persisted payload size
+// bounded instead of growing forever toward the ~5-10MB per-origin quota,
+// where writes silently fail (see the "ignore write failures" comment in
+// the persistence effect below). 500 is a round number comfortably above
+// what one
+// sitting of searches produces, so normal usage never notices entries being
+// dropped; oldest entries (the array is newest-first) are the ones trimmed.
+const MAX_FOUND_HISTORY = 500;
 
 // Fed to tryExample below (the "Try an example" link) — verified directly
 // to produce real, varied output (dictionary pairings plus AI synonyms/
@@ -315,7 +327,12 @@ export default function Home() {
         }
       }
       const parsed: Partial<PersistedState> = JSON.parse(raw ?? legacyRaw ?? "{}");
-      if (parsed.foundHistory) setFoundHistory(dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry)));
+      if (parsed.foundHistory) {
+        // .slice(0, MAX_FOUND_HISTORY) trims anyone whose persisted history
+        // already exceeds the cap from before it existed (entries are
+        // newest-first, so this keeps the most recent ones).
+        setFoundHistory(dedupeByDomain(parsed.foundHistory.map(migrateLegacyEntry)).slice(0, MAX_FOUND_HISTORY));
+      }
       if (parsed.favorites) setFavorites(parsed.favorites.map(migrateLegacyEntry));
       if (parsed.enabledLangs) setEnabledLangs(parsed.enabledLangs);
       if (parsed.enabledTlds) setEnabledTlds(parsed.enabledTlds);
@@ -585,7 +602,7 @@ export default function Home() {
                 // already carry a brandability score from being checked
                 // earlier) rather than replacing it with an unscored one.
                 if (prev.some((e) => e.domain === event.domain)) return prev;
-                return [
+                const next = [
                   // A random id, not `${domain}-${Date.now()}`: with
                   // several concurrent workers, two "found" events can
                   // land in the same millisecond, and Date.now() alone
@@ -605,6 +622,10 @@ export default function Home() {
                   },
                   ...prev,
                 ];
+                // See MAX_FOUND_HISTORY's declaration — bounds unbounded
+                // localStorage growth. Newest-first, so this drops the
+                // oldest entries once the cap is exceeded.
+                return next.length > MAX_FOUND_HISTORY ? next.slice(0, MAX_FOUND_HISTORY) : next;
               });
               resolveLog(event.domain, "available");
               // autoCheck is always true now — see its declaration above.

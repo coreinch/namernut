@@ -24,7 +24,16 @@ export default defineConfig({
       // API routes, and now a first pass of component tests — see
       // @testing-library/react) rather than being diluted by every
       // untested file in src/.
-      reporter: ["text"],
+      // `skipFull: false` because the default text reporter silently omits
+      // any file at 100% coverage on every metric from the printed table —
+      // confirmed by diffing the table against coverage-final.json's raw
+      // per-file numbers (18 fully-covered lib/component files were missing
+      // rows entirely, e.g. kilocode.ts, Footer.tsx). The aggregate
+      // percentages and threshold gate were never affected by this — it's a
+      // reporting gap, not a coverage gap — but a hidden 100%-covered file
+      // that later regresses would show no row and no uncovered-line
+      // numbers, only a small dip in the aggregate.
+      reporter: [["text", { skipFull: false }]],
       // Raised from 78/70/65/80 now that FiltersPanel, GateToggle, LogDot,
       // LiveLogSection, and ResultsGrid — flagged as the next round's
       // highest-value target when that lower floor was set (they'd been
