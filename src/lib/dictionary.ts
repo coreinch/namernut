@@ -72,7 +72,10 @@ export function getWordPool(): WordEntry[] {
   return cachedPool;
 }
 
-/** Parses/validates a requested language subset, falling back to all three. */
+/** Parses/validates a requested language subset, falling back to ALL_LANGS
+ * (just "english" today — Lang is a single-member union, kept as a type
+ * rather than inlined so a future second language only needs a Lang variant
+ * added, not this function's signature changed). */
 export function parseLangs(raw: string | null): Lang[] {
   if (!raw) return ALL_LANGS;
   const requested = raw

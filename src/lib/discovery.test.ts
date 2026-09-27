@@ -46,7 +46,7 @@ const ALL_GATES_ON: DiscoveryGates = {
 describe("runDiscovery", () => {
   // Every test drives checkDomain/checkDomainWhois explicitly, but most of
   // them don't care about the social checks specifically (that's covered
-  // below) — default all three to "available" so a domain match still
+  // below) — default all six to "available" so a domain match still
   // counts as "found" the way it did before these gates existed (an
   // available domain where any required platform's handle is taken/unknown
   // no longer counts — see the dedicated tests below).

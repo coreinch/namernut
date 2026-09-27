@@ -672,7 +672,7 @@ export async function runDiscovery(
         // that's disabled (never required, or dropped mid-search — see
         // gateDisabled below) — SocialStatus has no separate "not
         // checked" state, and DiscoveryEvent's "found" case always
-        // carries all three (see its own doc comment), so a disabled
+        // carries all six (see its own doc comment), so a disabled
         // platform reports the same "unknown" a genuinely inconclusive
         // check would.
         const social: Record<string, SocialStatus> = {
