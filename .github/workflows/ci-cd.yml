@@ -6,6 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+# Without this, two pushes to main in quick succession run as fully
+# independent, overlapping workflow runs with no ordering guarantee between
+# them — deploy pulls the image tagged with that run's own commit SHA, so a
+# slower run for an older commit could finish its deploy job after a faster
+# run for a newer commit, silently redeploying stale code with no error
+# surfaced anywhere. Grouping by ref serializes runs on the same branch/PR
+# instead of letting them race. `cancel-in-progress: false` is deliberate:
+# `true` would cancel a queued run outright, including one whose deploy job
+# is already mid-SSH into the production VPS, which is worse than the race
+# this fixes. Queuing (never cancelling) means each push's run waits its
+# turn and the most recently pushed commit is always the one deployed last,
+# guaranteeing production ends up on the newest commit.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
