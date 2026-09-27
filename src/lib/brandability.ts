@@ -14,7 +14,7 @@ const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
- * Advanced filters (page.tsx), which owns the canonical list (REGION_OPTIONS
+ * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
  * in searchConfig.ts) since it's the client-safe constants file; this just
  * derives the plain value list for server-side validation (route.ts) and
  * search calls. A prior version of this checked every region concurrently
@@ -51,7 +51,7 @@ export interface BrandabilityResult {
    * no per-result attribution to which side of the OR matched. */
   resultCount: number;
   /** Which region the search actually ran in — see REGIONS and the region
-   * dropdown in Advanced filters (page.tsx). Exposed for transparency,
+   * dropdown in SettingsPanel (page.tsx). Exposed for transparency,
    * since Google's results (including whether it silently overrides the
    * query) are region-dependent. */
   region: Region;

@@ -20,8 +20,8 @@ function SlidersIcon() {
  * `"hero"` is the full-screen first-visit treatment (value-prop copy, large
  * type, example chips), `"compact"` is what every later stage uses once
  * there's a header/tabs/results above and below it (small, no copy, plus a
- * "Customize" trigger for SettingsDrawer since Style chips/Advanced filters
- * no longer live inline in either mode — see page.tsx). `onOpenSettings` is
+ * "Customize" trigger for SettingsDrawer since the settings panel doesn't
+ * live inline in either mode — see page.tsx). `onOpenSettings` is
  * only read in compact mode: hero mode intentionally offers no way to reach
  * those settings at all, so a first-time visitor's only decision is the
  * keyword itself (see the redesign's progressive-disclosure reasoning).
