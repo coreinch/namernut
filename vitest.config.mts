@@ -25,24 +25,24 @@ export default defineConfig({
       // @testing-library/react) rather than being diluted by every
       // untested file in src/.
       reporter: ["text"],
-      // Set a bit below the ~81/73/69/83 baseline measured once page.test.tsx
-      // (rendering the full Home tree to exercise the localStorage
-      // hydration/dedupe/migration logic) started pulling several
-      // still-untested presentational components — FiltersPanel, GateToggle,
-      // LogDot, LiveLogSection, ResultsGrid's pending-card branch — into the
-      // coverage denominator just by being imported, without any of *them*
-      // gaining real test coverage. Was 85/75/90/85 (measured ~92/85/98/94)
-      // before this file existed, back when only src/lib and the API routes
-      // were exercised at all; those numbers weren't a regression in
-      // anything already tested, just a wider, more honest denominator now
-      // that page.tsx/Header/Footer have real coverage. Future rounds can
-      // raise this back up as more of the newly-counted components get their
-      // own tests, the same way this round did for page.tsx/Header/Footer.
+      // Raised from 78/70/65/80 now that FiltersPanel, GateToggle, LogDot,
+      // LiveLogSection, and ResultsGrid — flagged as the next round's
+      // highest-value target when that lower floor was set (they'd been
+      // pulled into the coverage denominator just by being imported from
+      // page.test.tsx's full Home render, without any real coverage of
+      // their own) — all got their own test files. Measured ~82.2/78.0/
+      // 75.3/85.0 with those in place; set a bit below so small, incidental
+      // drift doesn't fail CI. page.tsx itself (44.72% stmts) is still the
+      // biggest remaining gap — it's exercised only indirectly via
+      // page.test.tsx's localStorage/dedupe/migration tests, not through its
+      // own render tree of event handlers — and is the natural next target
+      // once it's worth the same render-tree-mocking investment page.test.tsx
+      // already made.
       thresholds: {
-        statements: 78,
-        branches: 70,
-        functions: 65,
-        lines: 80,
+        statements: 80,
+        branches: 75,
+        functions: 72,
+        lines: 83,
       },
     },
   },
