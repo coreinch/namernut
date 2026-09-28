@@ -5,3 +5,4 @@ node_modules
 coverage
 *.tsbuildinfo
 src/**/*.test.ts
+src/**/*.test.tsx
