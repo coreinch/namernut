@@ -6,10 +6,16 @@
  * structure involved. Confirmed directly (2026-09-25) against both a
  * known-real account and a random unlikely-to-exist string. Unauthenticated
  * requests are capped at 60/hour per IP (GitHub's documented limit) — no
- * token is used here since this app has no GitHub App/PAT configured and
- * the volume a single search generates (checked once per found name, same
- * as Instagram — see checkGithubOne in discovery.ts) stays well under that
- * in normal use.
+ * token is used here since this app has no GitHub App/PAT configured. This
+ * is checked once per domain-available candidate, not once per *found*
+ * result (see runDiscovery in discovery.ts) — a candidate whose domain is
+ * free but whose GitHub username is taken still costs one of these checks
+ * even though it doesn't count toward the search's target. When GitHub
+ * availability is the actual bottleneck, that volume is NOT bounded by the
+ * handful of results a search asks for: a direct 100-request-in-a-row test
+ * (2026-09-27, see DEFERRED_PLATFORMS in discovery.ts) hit this exact 403
+ * limit at request #61 within a single search, which is why requireGithub
+ * now defaults to off (see DEFAULT_GATES in usePersistedAppState.ts).
  */
 import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited, type SocialStatus } from "@/lib/socialStatus";
 
