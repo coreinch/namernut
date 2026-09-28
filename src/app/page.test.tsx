@@ -290,6 +290,25 @@ describe("Home — live search", () => {
     await waitFor(() => expect(screen.getByText("glow + fox")).toBeTruthy());
   });
 
+  it("moves focus to the new compact layout's primary button when the very first search unmounts the hero", () => {
+    // The hero's own Generate button unmounts the instant a first search
+    // starts — the whole hero layout (see isFirstVisit in page.tsx) swaps
+    // for the compact layout below it, a structurally different subtree,
+    // not an update to the same button.
+    stubFetchWithDiscoverEvents([{ type: "complete", checkedCount: 0, foundCount: 0 }]);
+    render(<Home />);
+    const generateButton = screen.getByRole("button", { name: "Generate" });
+    generateButton.focus();
+    fireEvent.click(generateButton);
+
+    // The compact layout's SearchBar relabels its own primary button "Stop"
+    // the instant a run starts — that's the button focus should land on
+    // (not Footer's separate, also-labeled-"Stop" docked button, hence
+    // asserting by id rather than role/name here).
+    expect(document.activeElement).toBe(document.getElementById("primary-search-action"));
+  });
+
+
   // 501 "found" events each trigger a setFoundHistory re-sort plus a
   // (mocked) brandability fetch and its own follow-up setFoundHistory — on
   // top of 500 rendered ResultCards, that's meaningfully more work than the

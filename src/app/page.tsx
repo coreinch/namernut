@@ -329,6 +329,29 @@ export default function Home() {
   // they've searched again this session) — that's a real "Current" tab
   // state, not the first-visit case, so it still gets the full layout.
   const isFirstVisit = runStatus === "idle" && foundHistory.length === 0 && favorites.length === 0;
+
+  // Starting the very first search flips isFirstVisit false in the same
+  // render that starts the run — swapping the entire hero layout (including
+  // the very "Generate" button just clicked) for the compact layout below,
+  // whose SearchBar is a structurally different subtree, not an update to
+  // the same one. React has no reason to preserve identity across that, so
+  // the hero's Generate button unmounts along with the rest of the hero,
+  // dropping a keyboard/screen-reader user's focus to <body> on literally
+  // their first interaction with the app — confirmed directly (activeElement
+  // was <body> right after firing this click in isolation). Same guarded-
+  // redirect shape as the isRunning effect above (only ever act once focus
+  // has actually landed on <body>, never steal it preemptively): once the
+  // compact layout mounts, its own primary button (now reading "Stop",
+  // since the run isFirstVisit was gating on already started) is the
+  // closest equivalent to what was just clicked.
+  const wasFirstVisitRef = useRef(isFirstVisit);
+  useEffect(() => {
+    if (wasFirstVisitRef.current && !isFirstVisit && document.activeElement === document.body) {
+      document.getElementById("primary-search-action")?.focus();
+    }
+    wasFirstVisitRef.current = isFirstVisit;
+  }, [isFirstVisit]);
+
   // Shared by both places SettingsPanel renders (the desktop rail and the
   // mobile SettingsDrawer) so the two can never drift out of sync with each
   // other's props.
