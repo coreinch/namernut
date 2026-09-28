@@ -21,21 +21,29 @@ import { LiveLogSection } from "@/components/LiveLogSection";
 import { usePersistedAppState } from "@/hooks/usePersistedAppState";
 import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 
-// Fed to tryExample below (the example-keyword chips) — "glow" was
-// verified directly to produce real, varied output (dictionary pairings
-// plus AI synonyms/invented names) rather than a picked-for-looks string
-// that might not actually demonstrate the product; the rest are plain
-// dictionary words chosen to span different business categories (food,
-// creative services, tech) so a first-time visitor is more likely to see
-// one land near their own idea than with a single fixed example. Each is
-// deliberately a single plain word, same reasoning as before: the keyword
-// field only ever pairs one dictionary/AI word onto this literal string
-// (see sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword in
+// Fed to tryExample below (the example-keyword chips) — each was verified
+// directly (live, against the real production API) to produce real, varied
+// output (dictionary pairings plus AI synonyms/invented names) rather than
+// being picked for looks alone: "glow" first, then "coffee"/"nova" when
+// this list was set. "studio" was in this list too until a later direct
+// check turned up a real problem: 39/39 candidates paired with it came back
+// with the domain already taken (studiola.com, nostudio.com, instudio.com,
+// etc. — "studio" is simply a heavily-squatted .com term), landing a
+// first-time visitor who clicked it on a discouraging "No matches found"
+// instead of the demo it's meant to be. Replaced with "craft" (also
+// verified: 10/10 found, with on-theme AI synonyms like "forge"/"carve"/
+// "weave") to keep the same "creative services" category the four examples
+// were chosen to span (food, creative services, tech) alongside "coffee"
+// and "nova", so a first-time visitor is more likely to see one land near
+// their own idea than with a single fixed example. Each is deliberately a
+// single plain word, same reasoning as before: the keyword field only ever
+// pairs one dictionary/AI word onto this literal string (see
+// sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword in
 // lib/candidates.ts, which strips anything past 15 characters and
 // non-alphanumerics) — it was never a "describe your idea" field, so the
 // examples have to be honest about that rather than modeling a longer
 // pitch a first-time visitor might reasonably try typing themselves.
-const EXAMPLE_KEYWORDS = ["glow", "coffee", "studio", "nova"];
+const EXAMPLE_KEYWORDS = ["glow", "coffee", "craft", "nova"];
 
 function formatNumber(n: number) {
   return n.toLocaleString("en-US");
