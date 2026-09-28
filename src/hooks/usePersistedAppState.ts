@@ -45,7 +45,11 @@ interface PersistedState {
 // server falls back to for a request with no gate params at all. A fresh
 // install gets these defaults; a persisted state from before this change
 // keeps whatever it already had saved.
-const DEFAULT_GATES: DiscoveryGates = {
+// Exported solely so a test can assert parseGates(new URLSearchParams())
+// (an empty request, i.e. every gate absent) produces exactly this — see
+// this constant's own comment above for why the two must stay in sync by
+// hand.
+export const DEFAULT_GATES: DiscoveryGates = {
   requireInstagram: true,
   requireGithub: false,
   requireTiktok: true,
