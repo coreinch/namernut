@@ -531,7 +531,7 @@ async function main() {
         // word -> short WordNet gloss (first relevant sense's definition,
         // usage examples stripped). Shown in the UI under each result
         // instead of the (now pointless, English-only) "English + English"
-        // origin label. See src/lib/definitions.ts.
+        // origin label. See src/lib/dictionary.ts.
         englishDefinitions,
       },
       null,
