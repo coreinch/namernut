@@ -112,7 +112,7 @@ export function SettingsPanel({
         />
       </div>
 
-      <div className="flex flex-col gap-4 rounded-2xl bg-card p-4 shadow-[0_2px_10px_rgba(27,21,51,0.06)] dark:shadow-none">
+      <div className="flex flex-col gap-4">
         {keywordParam && (
           <p className="text-xs text-muted">Every result will include &ldquo;{keywordParam}&rdquo;.</p>
         )}
