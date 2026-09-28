@@ -160,6 +160,65 @@ describe("ResultCard", () => {
     });
   });
 
+  it("moves focus to the next card's favorite toggle when un-favoriting unmounts this card (the Favorites tab)", async () => {
+    // Mirrors page.tsx's Favorites tab: entries ARE the favorites array
+    // itself, so toggling one off removes it from the list the same way
+    // onRemove does above — unlike the Current/Archive tabs, where the same
+    // toggle only flips the star in place (see the next test).
+    function TwoFavorites() {
+      const [favorites, setFavorites] = useState([makeEntry({ id: "1", domain: "first.com" }), makeEntry({ id: "2", domain: "second.com" })]);
+      return (
+        <>
+          {favorites.map((entry) => (
+            <ResultCard
+              key={entry.id}
+              entry={entry}
+              favorited={true}
+              brandability={idleBrandability}
+              onSearch={() => {}}
+              onToggleFavorite={() => setFavorites((prev) => prev.filter((e) => e.id !== entry.id))}
+              onCheckBrandability={() => {}}
+              onRegister={() => {}}
+            />
+          ))}
+        </>
+      );
+    }
+    render(<TwoFavorites />);
+    const unfavoriteButtons = screen.getAllByRole("button", { name: "Remove from favorites" });
+    unfavoriteButtons[0].focus();
+    unfavoriteButtons[0].click();
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Remove from favorites" })).toHaveLength(1);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove from favorites" }));
+    });
+  });
+
+  it("leaves focus on the favorite toggle itself when toggling doesn't unmount the card (Current/Archive tabs)", async () => {
+    const onToggleFavorite = vi.fn();
+    render(
+      <ResultCard
+        entry={makeEntry()}
+        favorited={false}
+        brandability={idleBrandability}
+        onSearch={() => {}}
+        onToggleFavorite={onToggleFavorite}
+        onCheckBrandability={() => {}}
+        onRegister={() => {}}
+      />
+    );
+    const favoriteButton = screen.getByRole("button", { name: "Add to favorites" });
+    favoriteButton.focus();
+    favoriteButton.click();
+    expect(onToggleFavorite).toHaveBeenCalledTimes(1);
+    // No unmount happens in this test (the card stays put, same as the real
+    // Current/Archive tabs when the parent's onToggleFavorite doesn't
+    // remove the entry) — focus must stay exactly where it was rather than
+    // being redirected preemptively.
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(document.activeElement).toBe(favoriteButton);
+  });
+
   it("only renders a social badge for a platform whose status is exactly 'taken'", () => {
     render(
       <ResultCard

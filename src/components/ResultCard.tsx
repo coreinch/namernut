@@ -61,24 +61,39 @@ export function ResultCard({
   const sourceStyle = SOURCE_STYLE[entry.source ?? "dictionary"];
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Removing a card unmounts it — without this, focus (which was on this
-  // card's own Remove button, since that's the only way to trigger this)
-  // silently reverts to <body>, dropping a keyboard/screen-reader user out
-  // of the list with no indication of where they landed. Picks the next
-  // card's Remove button (or the previous one's, for the last card in the
-  // list) as the natural place to continue removing entries one after
-  // another; falls back to the enclosing tabpanel (already a tabIndex={0}
-  // focus stop — see page.tsx) if this was the only card left.
-  const handleRemove = () => {
+  // Removing a card unmounts it outright — the same thing un-favoriting
+  // does when this card is being shown *because* it's a favorite (the
+  // Favorites tab's own ResultsGrid, whose entries come straight from the
+  // favorites array — see page.tsx). Either way, focus (which was on the
+  // very button just clicked, the only way to trigger either action)
+  // silently reverts to <body> once the card's gone, dropping a keyboard/
+  // screen-reader user out of the list with no indication of where they
+  // landed. Picks the next card in the list as the natural place to keep
+  // going (or the previous one, for the last card in the list); falls back
+  // to the enclosing tabpanel (already a tabIndex={0} focus stop — see
+  // page.tsx) if this was the only card left. Checked only after the fact
+  // (card.isConnected), not assumed — the same toggle button also runs on
+  // the Current/Archive tabs, where un-favoriting only changes the star in
+  // place and the card never unmounts at all, so this must never move
+  // focus there.
+  // `actionType` matches the neighbor's own button by role, not by its
+  // current aria-label text — a favorite toggle's label flips between "Add"
+  // and "Remove" depending on ITS OWN favorited state, which has nothing to
+  // do with the card that's being removed, so text-matching it would miss
+  // as often as it'd hit.
+  const runAndHandleUnmount = (action: () => void, actionType: "remove" | "favorite") => {
     const card = rootRef.current;
     const neighbor = (card?.nextElementSibling ?? card?.previousElementSibling) as HTMLElement | null;
     const focusTarget =
-      neighbor?.querySelector<HTMLElement>('button[aria-label="Remove from results"]') ??
+      neighbor?.querySelector<HTMLElement>(`[data-card-action="${actionType}"]`) ??
+      neighbor?.querySelector<HTMLElement>("button") ??
       neighbor ??
       card?.closest<HTMLElement>('[role="tabpanel"]') ??
       null;
-    onRemove?.();
-    requestAnimationFrame(() => focusTarget?.focus());
+    action();
+    requestAnimationFrame(() => {
+      if (card && !card.isConnected) focusTarget?.focus();
+    });
   };
 
   return (
@@ -117,7 +132,8 @@ export function ResultCard({
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
-            onClick={onToggleFavorite}
+            data-card-action="favorite"
+            onClick={() => runAndHandleUnmount(onToggleFavorite, "favorite")}
             aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={favorited}
             className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-base leading-none transition-transform active:scale-90 ${FOCUS_RING} ${
@@ -147,7 +163,8 @@ export function ResultCard({
           {onRemove && (
             <button
               type="button"
-              onClick={handleRemove}
+              data-card-action="remove"
+              onClick={() => runAndHandleUnmount(onRemove!, "remove")}
               aria-label="Remove from results"
               title="Remove from results"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg leading-none text-black/30 transition-colors hover:text-black/55 dark:text-white/30 dark:hover:text-white/55 ${FOCUS_RING}`}
