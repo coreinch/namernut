@@ -174,15 +174,11 @@ describe("SettingsPanel", () => {
   it("renders GateToggles for npm/YouTube/X/GitHub/TikTok and the quality filters, forwarding merged updates via onGatesChange", () => {
     const props = baseProps();
     render(<SettingsPanel {...props} />);
-    // GitHub's toggle carries a non-disabled `hint` (see GateToggle.tsx),
-    // which GateToggle folds into the accessible name as "label — hint" —
-    // matched with a regex here rather than the exact string every other
-    // case uses.
     const cases: [string | RegExp, keyof DiscoveryGates][] = [
       ["Require npm package name", "requireNpm"],
       ["Require YouTube handle", "requireYoutube"],
       ["Require X (Twitter) handle", "requireTwitter"],
-      [/^Require GitHub username/, "requireGithub"],
+      ["Require GitHub username", "requireGithub"],
       ["Require TikTok handle", "requireTiktok"],
       ["Pronounceable only", "filterPronounceable"],
       ["Skip typo-like names", "filterTypos"],
