@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 import type { LogEntry } from "@/lib/types";
 import { FOCUS_RING } from "./constants";
@@ -23,6 +23,14 @@ function ChevronIcon({ open }: { open: boolean }) {
   );
 }
 
+/** How often the throttled sr-only summary below updates while expanded and
+ * a search is actively running — matches Footer's own announcer interval
+ * (see its comment) for the same reason: at CONCURRENCY workers each
+ * checking a new candidate every CHECK_DELAY_MS+ (see discovery.ts), a raw
+ * per-entry `role="log"` live region would queue up far more announcements
+ * than a screen reader user could ever keep up with. */
+const ANNOUNCE_INTERVAL_MS = 4000;
+
 // Rendered only once there's actually something to show — an empty log box
 // with a placeholder illustration was pure filler on every load before the
 // first search — so this returns null itself rather than the caller
@@ -30,8 +38,41 @@ function ChevronIcon({ open }: { open: boolean }) {
 // toggle: this is a play-by-play of the run's internals (useful, but
 // secondary to the actual results), so it shouldn't compete with them for
 // space on every screen the way it used to once any log existed at all.
-export function LiveLogSection({ log, logBoxRef }: { log: LogEntry[]; logBoxRef: RefObject<HTMLDivElement | null> }) {
+export function LiveLogSection({
+  log,
+  logBoxRef,
+  isRunning,
+}: {
+  log: LogEntry[];
+  logBoxRef: RefObject<HTMLDivElement | null>;
+  /** Only used to gate the throttled announcer below — once a run ends
+   * there's nothing left to keep periodically summarizing. */
+  isRunning: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
+
+  // Summarizes the log's current tail into one sentence, updated at most
+  // once per ANNOUNCE_INTERVAL_MS rather than once per entry — the visible
+  // list above updates live on every entry regardless (sighted users scan
+  // it at their own pace), but this is the only thing screen reader users
+  // hear, so it needs the same "periodic summary, not a firehose" treatment
+  // Footer's statusText announcer already uses.
+  // Starts undefined, not log[log.length - 1] — the effect below is what
+  // gates this on isRunning && expanded; seeding it with a real entry here
+  // would render the sr-only span (and announce something) even before a
+  // search has ever run or the log has ever been opened.
+  const [announcedEntry, setAnnouncedEntry] = useState<LogEntry | undefined>(undefined);
+  const latestEntry = useRef(log[log.length - 1]);
+  useEffect(() => {
+    latestEntry.current = log[log.length - 1];
+  });
+  useEffect(() => {
+    if (!isRunning || !expanded) return;
+    setAnnouncedEntry(latestEntry.current);
+    const id = setInterval(() => setAnnouncedEntry(latestEntry.current), ANNOUNCE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [isRunning, expanded]);
+
   if (log.length === 0) return null;
   return (
     <section className="flex flex-col gap-2">
@@ -50,9 +91,12 @@ export function LiveLogSection({ log, logBoxRef }: { log: LogEntry[]; logBoxRef:
         hidden={!expanded}
         ref={logBoxRef}
         className="thin-scrollbar max-h-[35vh] overflow-y-auto rounded-2xl bg-card p-3 text-sm shadow-[0_1px_3px_rgba(27,21,51,0.05)] dark:shadow-none"
-        role="log"
         aria-label="Search activity"
       >
+        {/* Not a live region itself (no role="log"/aria-live here) — see
+            ANNOUNCE_INTERVAL_MS above for why a screen reader instead gets
+            the throttled summary below rather than one announcement per
+            entry. */}
         <ul className="space-y-0.5">
           {log.map((entry) => (
             <li key={entry.id} className="flex items-center gap-2 animate-fade-in-up">
@@ -62,6 +106,11 @@ export function LiveLogSection({ log, logBoxRef }: { log: LogEntry[]; logBoxRef:
             </li>
           ))}
         </ul>
+        {announcedEntry && (
+          <span className="sr-only" aria-live="polite">
+            {announcedEntry.name} {LOG_STATUS_LABEL[announcedEntry.status]}
+          </span>
+        )}
       </div>
     </section>
   );

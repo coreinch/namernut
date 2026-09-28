@@ -495,7 +495,7 @@ export default function Home() {
                       pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
                     />
                   )}
-                  <LiveLogSection log={log} logBoxRef={logBoxRef} />
+                  <LiveLogSection log={log} logBoxRef={logBoxRef} isRunning={isRunning} />
                 </section>
               )}
 
