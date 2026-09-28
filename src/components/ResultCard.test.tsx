@@ -221,5 +221,33 @@ describe("ResultCard", () => {
       screen.getByRole("button", { name: "Rescore" }).click();
       expect(onCheckBrandability).toHaveBeenCalledTimes(1);
     });
+
+    it("colors a saturated (0-19) score red, distinct from a merely crowded (20-39) one", () => {
+      const { rerender } = render(
+        <ResultCard
+          entry={makeEntry()}
+          favorited={false}
+          brandability={{ ...idleBrandability, score: 10, summary: "Direct collision." }}
+          onSearch={() => {}}
+          onToggleFavorite={() => {}}
+          onCheckBrandability={() => {}}
+          onRegister={() => {}}
+        />
+      );
+      expect(screen.getByLabelText("10% brandable").className).toContain("text-red-700");
+
+      rerender(
+        <ResultCard
+          entry={makeEntry()}
+          favorited={false}
+          brandability={{ ...idleBrandability, score: 30, summary: "Crowded space." }}
+          onSearch={() => {}}
+          onToggleFavorite={() => {}}
+          onCheckBrandability={() => {}}
+          onRegister={() => {}}
+        />
+      );
+      expect(screen.getByLabelText("30% brandable").className).toContain("text-orange-700");
+    });
   });
 });
