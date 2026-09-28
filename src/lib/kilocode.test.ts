@@ -93,4 +93,79 @@ describe("completeChat", () => {
     controller.abort();
     await expect(promise).rejects.toThrow();
   });
+
+  describe("retrying kilo-auto/free's documented hang (REQUEST_TIMEOUT_MS)", () => {
+    // AbortSignal.timeout() can't be fast-forwarded without controlling real
+    // time, so this stubs it with a plain AbortController per call, letting
+    // each test fire that specific attempt's "timeout" on demand — the same
+    // approach the caller-abort test above uses, just driven by
+    // completeChat's own internal signal instead of one passed in.
+    let timeoutControllers: AbortController[];
+
+    beforeEach(() => {
+      timeoutControllers = [];
+      vi.spyOn(AbortSignal, "timeout").mockImplementation(() => {
+        const controller = new AbortController();
+        timeoutControllers.push(controller);
+        return controller.signal;
+      });
+    });
+
+    it("retries exactly once when the first attempt times out, resolving with the second attempt's content", async () => {
+      let callCount = 0;
+      const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        callCount++;
+        if (callCount === 1) {
+          return new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          });
+        }
+        return Promise.resolve(mockResponse(200, { choices: [{ message: { content: "second try" } }] }));
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = completeChat("hi");
+      timeoutControllers[0].abort();
+      await expect(promise).resolves.toBe("second try");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("throws a KilocodeError when both attempts time out", async () => {
+      const fetchMock = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const promise = completeChat("hi");
+      timeoutControllers[0].abort();
+      // The retry's own AbortSignal.timeout() call only happens after the
+      // first attempt's rejection has propagated back through completeChat
+      // — several microtask hops away, not synchronous like the first
+      // controller's creation — so poll for it rather than guessing a fixed
+      // number of `await Promise.resolve()` hops.
+      for (let i = 0; i < 50 && timeoutControllers.length < 2; i++) {
+        await Promise.resolve();
+      }
+      expect(timeoutControllers).toHaveLength(2);
+      timeoutControllers[1].abort();
+      await expect(promise).rejects.toMatchObject({ name: "KilocodeError" });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does NOT retry a 429 — a moment-later retry wouldn't still be rate-limited any less", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(mockResponse(429));
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(completeChat("hi")).rejects.toMatchObject({ name: "RateLimitError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does NOT retry a non-timeout, non-429 failure — a second identical request wouldn't fix it either", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(mockResponse(500));
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(completeChat("hi")).rejects.toMatchObject({ name: "KilocodeError" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
 });

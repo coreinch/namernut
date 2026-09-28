@@ -57,25 +57,37 @@ interface KilocodeResponse {
 // upstream succeed.
 const REQUEST_TIMEOUT_MS = 30000;
 
-export async function completeChat(prompt: string, signal?: AbortSignal, temperature: number = 0.2): Promise<string> {
-  const apiKey = process.env.KILOCODE_API_KEY;
-  if (!apiKey) throw new KilocodeApiKeyMissingError();
-  const model = process.env.KILOCODE_MODEL || DEFAULT_MODEL;
-
+async function completeChatOnce(
+  prompt: string,
+  apiKey: string,
+  model: string,
+  temperature: number,
+  signal?: AbortSignal
+): Promise<{ content: string } | { timedOut: true }> {
   const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      temperature,
-    }),
-    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        temperature,
+      }),
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+    });
+  } catch (err) {
+    // Only our own REQUEST_TIMEOUT_MS counts as "timed out" here, not the
+    // caller's own signal firing (e.g. the user hit Stop, or checkBrandability's
+    // outer abort) — that's a real cancellation the caller asked for, not a
+    // hung model, and completeChatOnce's own caller below must never retry it.
+    if (timeoutSignal.aborted) return { timedOut: true };
+    throw err;
+  }
 
   if (res.status === 429) {
     const err = new Error("kilocode_rate_limited");
@@ -95,5 +107,39 @@ export async function completeChat(prompt: string, signal?: AbortSignal, tempera
     err.name = "KilocodeError";
     throw err;
   }
-  return content.trim();
+  return { content: content.trim() };
+}
+
+/**
+ * Retries exactly once, and only on our own REQUEST_TIMEOUT_MS firing — the
+ * specific, empirically-confirmed failure mode of kilo-auto/free (see
+ * REQUEST_TIMEOUT_MS's own comment): a rotated-through free upstream model
+ * hanging with zero response, not an error. A retry gets a fresh shot at the
+ * router picking a different (responsive) free model. Deliberately NOT
+ * retried: a 429 (still rate-limited a moment later) or any other
+ * KilocodeError (a real failure a second identical request won't fix) —
+ * retrying those would just spend another request for no benefit. Without
+ * this, a single hung free-model pick silently degraded every caller
+ * (suggestKeywordSynonyms, suggestInventedNames, checkBrandability) straight
+ * to their no-AI fallback — confirmed directly: a keyword whose literal
+ * dictionary-pairing space is thin and heavily domain-squatted (e.g.
+ * "studio") could swing between finding a full batch of results (when the
+ * AI call succeeded) and "No matches found" (when it silently timed out)
+ * from one run to the next, with nothing in the UI hinting that AI
+ * augmentation was the actual difference.
+ */
+export async function completeChat(prompt: string, signal?: AbortSignal, temperature: number = 0.2): Promise<string> {
+  const apiKey = process.env.KILOCODE_API_KEY;
+  if (!apiKey) throw new KilocodeApiKeyMissingError();
+  const model = process.env.KILOCODE_MODEL || DEFAULT_MODEL;
+
+  const first = await completeChatOnce(prompt, apiKey, model, temperature, signal);
+  if ("content" in first) return first.content;
+
+  const second = await completeChatOnce(prompt, apiKey, model, temperature, signal);
+  if ("content" in second) return second.content;
+
+  const err = new Error("kilocode_timeout");
+  err.name = "KilocodeError";
+  throw err;
 }

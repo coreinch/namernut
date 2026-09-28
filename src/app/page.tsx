@@ -24,26 +24,29 @@ import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 // Fed to tryExample below (the example-keyword chips) — each was verified
 // directly (live, against the real production API) to produce real, varied
 // output (dictionary pairings plus AI synonyms/invented names) rather than
-// being picked for looks alone: "glow" first, then "coffee"/"nova" when
-// this list was set. "studio" was in this list too until a later direct
-// check turned up a real problem: 39/39 candidates paired with it came back
-// with the domain already taken (studiola.com, nostudio.com, instudio.com,
-// etc. — "studio" is simply a heavily-squatted .com term), landing a
-// first-time visitor who clicked it on a discouraging "No matches found"
-// instead of the demo it's meant to be. Replaced with "craft" (also
-// verified: 10/10 found, with on-theme AI synonyms like "forge"/"carve"/
-// "weave") to keep the same "creative services" category the four examples
-// were chosen to span (food, creative services, tech) alongside "coffee"
-// and "nova", so a first-time visitor is more likely to see one land near
-// their own idea than with a single fixed example. Each is deliberately a
-// single plain word, same reasoning as before: the keyword field only ever
-// pairs one dictionary/AI word onto this literal string (see
-// sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword in
+// being picked for looks alone. "studio" briefly got swapped for "craft"
+// after a live check found 39/39 literal "studio"+word candidates already
+// domain-taken (studiola.com, nostudio.com, etc. — "studio" is simply a
+// heavily-squatted .com term) — but a follow-up investigation found the
+// real bug wasn't "studio" itself: completeChat (kilocode.ts) had no retry
+// on its own documented kilo-auto/free hang, so a keyword whose LITERAL
+// pairing space is thin (like "studio") swung between finding a full batch
+// (AI synonyms/invented names succeeded) and "No matches found" (that one
+// LLM call silently timed out, degrading to literal-only) from one run to
+// the next. Fixed at the root (completeChat now retries once specifically
+// on that timeout) rather than just avoiding the symptom, so "studio" is
+// back — re-verified live, repeatedly, after the fix. Kept alongside
+// "coffee" and "nova" to span different business categories (food,
+// creative services, tech), so a first-time visitor is more likely to see
+// one land near their own idea than with a single fixed example. Each is
+// deliberately a single plain word, same reasoning as before: the keyword
+// field only ever pairs one dictionary/AI word onto this literal string
+// (see sanitizeKeyword in hooks/useDiscoveryRun.ts and parseKeyword in
 // lib/candidates.ts, which strips anything past 15 characters and
 // non-alphanumerics) — it was never a "describe your idea" field, so the
 // examples have to be honest about that rather than modeling a longer
 // pitch a first-time visitor might reasonably try typing themselves.
-const EXAMPLE_KEYWORDS = ["glow", "coffee", "craft", "nova"];
+const EXAMPLE_KEYWORDS = ["glow", "coffee", "studio", "nova"];
 
 function formatNumber(n: number) {
   return n.toLocaleString("en-US");
