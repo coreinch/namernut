@@ -51,30 +51,26 @@ export default defineConfig({
       // that later regresses would show no row and no uncovered-line
       // numbers, only a small dip in the aggregate.
       reporter: [["text", { skipFull: false }]],
-      // Raised from 80/75/72/83 now that page.tsx's own event-handler tree —
-      // flagged as the next round's highest-value target when that floor was
-      // set, since it was previously exercised only indirectly via
-      // page.test.tsx's localStorage/dedupe/migration tests — has its own
-      // coverage too: a mocked-fetch/SSE-stream "Home — live search" describe
-      // block in page.test.tsx that drives a real Generate click through a
-      // fake ReadableStream of "found"/"complete" events, covering the
-      // found-event handler (including the MAX_FOUND_HISTORY live-append cap)
-      // rather than only the hydration path. page.tsx went from 44.75% to
-      // 71.91% stmts; measured ~89.0/81.8/82.6/92.1 overall with that in
-      // place, set a bit below so small, incidental drift doesn't fail CI.
-      // FiltersPanel.tsx was later split into SearchBar.tsx and
-      // SettingsPanel.tsx (see "Redesign search UI with progressive
-      // disclosure and responsive layouts"). SettingsPanel.tsx's own gap
-      // (was 57.69% stmts) has since been closed to 100/90/96.15/100 —
-      // ResultsGrid.tsx (66.66% stmts, the untested onSearch/
-      // onToggleFavorite/onRegister callback wiring) is now the biggest
-      // remaining per-file gap and a reasonable candidate for a future
-      // round.
+      // Raised again (was 87/79/80/90, itself raised from an original
+      // 80/75/72/83) now that a round of accessibility/focus-management
+      // fixes each shipped with real regression tests — the ResultCard
+      // remove/favorite-unmount focus handoff, SettingsDrawer's
+      // return-focus-on-close, Footer's Stop-button unmount redirect, the
+      // hero-to-compact-layout first-search redirect, LiveLogSection's
+      // throttled announcer, plus a new configSync.test.ts and
+      // nextConfig.test.ts covering invariants that previously had no test
+      // at all — pushed real coverage to roughly 94/89/93/97. Set a bit
+      // below that (not at it) for the same reason as every previous raise
+      // here: so small, incidental drift doesn't fail CI, while still
+      // catching an actual regression rather than drifting arbitrarily far
+      // below the tested reality. See git history for the specific
+      // per-file numbers at each prior raise if reconstructing this
+      // trajectory is ever useful.
       thresholds: {
-        statements: 87,
-        branches: 79,
-        functions: 80,
-        lines: 90,
+        statements: 93,
+        branches: 87,
+        functions: 91,
+        lines: 95,
       },
     },
   },
