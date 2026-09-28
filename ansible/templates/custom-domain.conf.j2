@@ -1,9 +1,23 @@
+# Plain HTTP was previously served directly by the same server block as
+# HTTPS below (listen 80 and listen 443 ssl on one block) — confirmed live
+# (2026-09-28) that this meant http://{{ custom_domain }}/ returned the
+# full site over an unencrypted connection with no upgrade anywhere in the
+# chain, rather than the 301 a visitor typing (or a stray link using) the
+# bare http:// scheme would need. Split into its own block that only
+# redirects, so HSTS (set by the app itself, next.config.ts) has an actual
+# HTTPS response to attach to on a visitor's very first request instead of
+# depending on them already being on https://.
 server {
     listen 80;
     listen [::]:80;
     server_name {{ custom_domain }} www.{{ custom_domain }};
+    return 301 https://$host$request_uri;
+}
+
+server {
     listen 443 ssl;
     listen [::]:443 ssl;
+    server_name {{ custom_domain }} www.{{ custom_domain }};
     include snippets/ssl-promptbox.conf;
 
     # SSE endpoint: nginx buffers proxied responses by default and only
