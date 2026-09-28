@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import type { CandidateSource } from "@/lib/candidates";
 import type { FoundEntry, SocialStatus } from "@/lib/types";
 import { FOCUS_RING } from "./constants";
@@ -58,9 +59,31 @@ export function ResultCard({
   const name = dotIndex >= 0 ? entry.domain.slice(0, dotIndex) : entry.domain;
   const tld = dotIndex >= 0 ? entry.domain.slice(dotIndex) : "";
   const sourceStyle = SOURCE_STYLE[entry.source ?? "dictionary"];
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Removing a card unmounts it — without this, focus (which was on this
+  // card's own Remove button, since that's the only way to trigger this)
+  // silently reverts to <body>, dropping a keyboard/screen-reader user out
+  // of the list with no indication of where they landed. Picks the next
+  // card's Remove button (or the previous one's, for the last card in the
+  // list) as the natural place to continue removing entries one after
+  // another; falls back to the enclosing tabpanel (already a tabIndex={0}
+  // focus stop — see page.tsx) if this was the only card left.
+  const handleRemove = () => {
+    const card = rootRef.current;
+    const neighbor = (card?.nextElementSibling ?? card?.previousElementSibling) as HTMLElement | null;
+    const focusTarget =
+      neighbor?.querySelector<HTMLElement>('button[aria-label="Remove from results"]') ??
+      neighbor ??
+      card?.closest<HTMLElement>('[role="tabpanel"]') ??
+      null;
+    onRemove?.();
+    requestAnimationFrame(() => focusTarget?.focus());
+  };
 
   return (
     <div
+      ref={rootRef}
       className={`animate-fade-in-up flex flex-col gap-2 rounded-2xl border-l-4 bg-card p-3.5 shadow-[0_1px_3px_rgba(27,21,51,0.05)] dark:shadow-none ${sourceStyle.border}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -124,7 +147,7 @@ export function ResultCard({
           {onRemove && (
             <button
               type="button"
-              onClick={onRemove}
+              onClick={handleRemove}
               aria-label="Remove from results"
               title="Remove from results"
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg leading-none text-black/30 transition-colors hover:text-black/55 dark:text-white/30 dark:hover:text-white/55 ${FOCUS_RING}`}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { ResultCard, type BrandabilityDisplay } from "./ResultCard";
 import type { FoundEntry } from "@/lib/types";
 
@@ -122,6 +123,41 @@ describe("ResultCard", () => {
     );
     screen.getByRole("button", { name: "Remove from results" }).click();
     expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves focus to the next card's Remove button after this card unmounts, instead of dropping it to <body>", async () => {
+    // A minimal stand-in for ResultsGrid: two sibling cards, with state that
+    // actually drops the removed one on click — the DOM-sibling-based focus
+    // handoff in ResultCard only makes sense with real siblings and a real
+    // unmount, which a single-card render (the test above) can't exercise.
+    function TwoCards() {
+      const [entries, setEntries] = useState([makeEntry({ id: "1", domain: "first.com" }), makeEntry({ id: "2", domain: "second.com" })]);
+      return (
+        <>
+          {entries.map((entry) => (
+            <ResultCard
+              key={entry.id}
+              entry={entry}
+              favorited={false}
+              brandability={idleBrandability}
+              onSearch={() => {}}
+              onToggleFavorite={() => {}}
+              onCheckBrandability={() => {}}
+              onRegister={() => {}}
+              onRemove={() => setEntries((prev) => prev.filter((e) => e.id !== entry.id))}
+            />
+          ))}
+        </>
+      );
+    }
+    render(<TwoCards />);
+    const removeButtons = screen.getAllByRole("button", { name: "Remove from results" });
+    removeButtons[0].focus();
+    removeButtons[0].click();
+    await waitFor(() => {
+      expect(screen.getAllByRole("button", { name: "Remove from results" })).toHaveLength(1);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Remove from results" }));
+    });
   });
 
   it("only renders a social badge for a platform whose status is exactly 'taken'", () => {
