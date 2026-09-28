@@ -41,7 +41,7 @@ export async function checkInstagramUsername(
 
   const res = await fetchWithTimeout(`https://www.instagram.com/${encodeURIComponent(username)}/`, { headers }, signal);
 
-  if (res.status === 429) throwRateLimited("rate_limited");
+  if (res.status === 429) throwRateLimited("instagram_rate_limited");
 
   // fetch() follows redirects by default — res.url is the final URL, not
   // the one requested. Instagram now sends every unauthenticated profile
