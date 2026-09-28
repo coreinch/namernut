@@ -91,7 +91,14 @@ export function ResultCard({
       card?.closest<HTMLElement>('[role="tabpanel"]') ??
       null;
     action();
-    requestAnimationFrame(() => {
+    // A microtask, not requestAnimationFrame: confirmed directly that rAF
+    // never fires at all on a hidden/unfocused tab (e.g. the user switched
+    // away right as this ran), silently skipping the focus handoff below
+    // forever. Nothing here needs to wait for an actual paint — only for
+    // React's synchronous commit from the state update `action()` just
+    // triggered to have landed, which a microtask (unlike rAF) is never
+    // gated on document visibility for.
+    queueMicrotask(() => {
       if (card && !card.isConnected) focusTarget?.focus();
     });
   };
