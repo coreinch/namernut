@@ -19,6 +19,7 @@ export function ResultsGrid({
   onToggleFavorite,
   onCheckBrandability,
   onRegister,
+  onRemove,
   pendingCount = 0,
 }: {
   entries: FoundEntry[];
@@ -29,6 +30,9 @@ export function ResultsGrid({
   onToggleFavorite: (entry: FoundEntry) => void;
   onCheckBrandability: (name: string, parts: [string, string] | undefined) => void;
   onRegister: (entry: FoundEntry) => void;
+  /** Only passed by the Current/Archive tabs — see ResultCard's own comment
+   * on why the Favorites tab omits this. */
+  onRemove?: (entry: FoundEntry) => void;
   pendingCount?: number;
 }) {
   return (
@@ -50,6 +54,7 @@ export function ResultsGrid({
             onToggleFavorite={() => onToggleFavorite(entry)}
             onCheckBrandability={() => onCheckBrandability(name, entry.parts)}
             onRegister={() => onRegister(entry)}
+            onRemove={onRemove ? () => onRemove(entry) : undefined}
           />
         );
       })}

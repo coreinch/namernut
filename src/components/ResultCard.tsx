@@ -37,6 +37,7 @@ export function ResultCard({
   onToggleFavorite,
   onCheckBrandability,
   onRegister,
+  onRemove,
 }: {
   entry: FoundEntry;
   favorited: boolean;
@@ -45,6 +46,13 @@ export function ResultCard({
   onToggleFavorite: () => void;
   onCheckBrandability: () => void;
   onRegister: () => void;
+  /** Only passed by the Current/Archive tabs (see page.tsx) — the Favorites
+   * tab already has its own removal mechanism (un-starring via
+   * onToggleFavorite), and removing from foundHistory wouldn't affect the
+   * separate favorites array anyway (see toggleFavorite in page.tsx, which
+   * copies the entry rather than referencing it), so showing this there
+   * too would look like a dead button. */
+  onRemove?: () => void;
 }) {
   const dotIndex = entry.domain.indexOf(".");
   const name = dotIndex >= 0 ? entry.domain.slice(0, dotIndex) : entry.domain;
@@ -113,6 +121,17 @@ export function ResultCard({
           >
             Register
           </button>
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label="Remove from results"
+              title="Remove from results"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg leading-none text-black/30 transition-colors hover:text-black/55 dark:text-white/30 dark:hover:text-white/55 ${FOCUS_RING}`}
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
       {/* Its own full-width line, not squeezed into whatever space is left

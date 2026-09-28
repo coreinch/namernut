@@ -224,6 +224,20 @@ export default function Home() {
     );
   }, [setFavorites]);
 
+  // Only ever wired to the Current/Archive tabs (see ResultCard's own
+  // comment on why Favorites omits this) — doesn't touch `favorites`,
+  // which is intentionally a separate, durable copy (see toggleFavorite
+  // above) rather than a reference into foundHistory. Also drops the
+  // domain from foundDomainsRef: without this, a later run that
+  // legitimately rediscovers the same available domain would have its
+  // "found" handler see isNewFind === false (see useDiscoveryRun's start())
+  // and silently skip re-adding it — removal would look like it worked
+  // once, then quietly made that domain unreachable forever.
+  const removeEntry = useCallback((entry: FoundEntry) => {
+    setFoundHistory((prev) => prev.filter((e) => e.id !== entry.id));
+    foundDomainsRef.current.delete(entry.domain);
+  }, [setFoundHistory, foundDomainsRef]);
+
   const isRunning = runStatus === "running";
   // Only ever rendered while !isRunning (see the footer below, which shows
   // a fixed "Stop" button instead while a search is active) — no
@@ -434,6 +448,7 @@ export default function Home() {
                       onToggleFavorite={toggleFavorite}
                       onCheckBrandability={checkBrandabilityFor}
                       onRegister={registerDomain}
+                      onRemove={removeEntry}
                       pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
                     />
                   )}
@@ -511,6 +526,7 @@ export default function Home() {
                           onToggleFavorite={toggleFavorite}
                           onCheckBrandability={checkBrandabilityFor}
                           onRegister={registerDomain}
+                          onRemove={removeEntry}
                         />
                       )}
                     </>

@@ -73,6 +73,36 @@ describe("Home — localStorage hydration", () => {
     expect(screen.getByText("second")).toBeTruthy();
   });
 
+  it("removes an entry from the Archive without touching a separately-favorited copy", () => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        foundHistory: [
+          { id: "a", domain: "foxglow.com", meaning: "keep me", checkedCount: 1, runId: "old-run" },
+          { id: "b", domain: "wrenpath.com", meaning: "remove me", checkedCount: 1, runId: "old-run" },
+        ],
+        favorites: [{ id: "b", domain: "wrenpath.com", meaning: "remove me", checkedCount: 1, runId: "old-run" }],
+      })
+    );
+
+    render(<Home />);
+    openArchiveTab();
+
+    const removeButtons = screen.getAllByRole("button", { name: "Remove from results" });
+    expect(removeButtons).toHaveLength(2);
+    // Entries render in stable original order (both unscored, sorted by the
+    // same ?? -1 key) — index 1 is "remove me"/wrenpath.com.
+    fireEvent.click(removeButtons[1]);
+
+    expect(screen.queryByText("remove me")).toBeNull();
+    expect(screen.getByText("keep me")).toBeTruthy();
+
+    // favorites is a separate, copied array (see toggleFavorite in
+    // page.tsx) — removing from the archive must not touch it.
+    fireEvent.click(screen.getByRole("tab", { name: /^favorites/i }));
+    expect(screen.getByText("remove me")).toBeTruthy();
+  });
+
   it("migrates legacy rankabilityScore/collisionSummary fields onto brandabilityScore/brandabilitySummary", () => {
     localStorage.setItem(
       STORAGE_KEY,

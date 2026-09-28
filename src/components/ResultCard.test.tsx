@@ -91,6 +91,39 @@ describe("ResultCard", () => {
     expect(onRegister).toHaveBeenCalledTimes(1);
   });
 
+  it("renders no Remove button when onRemove is omitted", () => {
+    render(
+      <ResultCard
+        entry={makeEntry()}
+        favorited={false}
+        brandability={idleBrandability}
+        onSearch={() => {}}
+        onToggleFavorite={() => {}}
+        onCheckBrandability={() => {}}
+        onRegister={() => {}}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Remove from results" })).toBeNull();
+  });
+
+  it("calls onRemove when the Remove button is clicked", () => {
+    const onRemove = vi.fn();
+    render(
+      <ResultCard
+        entry={makeEntry()}
+        favorited={false}
+        brandability={idleBrandability}
+        onSearch={() => {}}
+        onToggleFavorite={() => {}}
+        onCheckBrandability={() => {}}
+        onRegister={() => {}}
+        onRemove={onRemove}
+      />
+    );
+    screen.getByRole("button", { name: "Remove from results" }).click();
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
   it("only renders a social badge for a platform whose status is exactly 'taken'", () => {
     render(
       <ResultCard

@@ -120,6 +120,43 @@ describe("ResultsGrid", () => {
     expect(onRegister).toHaveBeenCalledWith(entries[0]);
   });
 
+  it("omits the Remove button on every card when onRemove isn't passed", () => {
+    const entries = [makeEntry({ id: "1", domain: "glowtastic.com" })];
+    render(
+      <ResultsGrid
+        entries={entries}
+        favoriteDomains={new Set()}
+        checkingBrandabilityNames={new Set()}
+        brandabilityErrors={{}}
+        onSearch={() => {}}
+        onToggleFavorite={() => {}}
+        onCheckBrandability={() => {}}
+        onRegister={() => {}}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Remove from results" })).toBeNull();
+  });
+
+  it("wires onRemove to the clicked entry when passed", () => {
+    const onRemove = vi.fn();
+    const entries = [makeEntry({ id: "1", domain: "glowtastic.com" })];
+    render(
+      <ResultsGrid
+        entries={entries}
+        favoriteDomains={new Set()}
+        checkingBrandabilityNames={new Set()}
+        brandabilityErrors={{}}
+        onSearch={() => {}}
+        onToggleFavorite={() => {}}
+        onCheckBrandability={() => {}}
+        onRegister={() => {}}
+        onRemove={onRemove}
+      />
+    );
+    screen.getByRole("button", { name: "Remove from results" }).click();
+    expect(onRemove).toHaveBeenCalledWith(entries[0]);
+  });
+
   it("defaults pendingCount to 0 — no placeholder rows when omitted", () => {
     const { container } = render(
       <ResultsGrid
