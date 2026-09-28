@@ -26,4 +26,13 @@ describe("GlobalError", () => {
 
     expect(retry).toHaveBeenCalledTimes(1);
   });
+
+  it("announces itself to screen readers via role=alert, since it replaces the whole document with no navigation event", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const error = Object.assign(new globalThis.Error("boom"), { digest: "abc123" });
+
+    render(<GlobalError error={error} retry={() => {}} />);
+
+    expect(screen.getByRole("alert").textContent).toBe("Something went wrong.");
+  });
 });

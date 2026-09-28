@@ -43,7 +43,12 @@ export default function GlobalError({ error, retry }: { error: Error & { digest?
             fontFamily: "system-ui, sans-serif",
           }}
         >
-          <p style={{ fontSize: "1.125rem", fontWeight: 600 }}>Something went wrong.</p>
+          {/* role="alert" — same reasoning as error.tsx's own comment: this
+              replaces the entire document with no navigation event, so
+              nothing else would tell a screen reader user it happened. */}
+          <p role="alert" style={{ fontSize: "1.125rem", fontWeight: 600 }}>
+            Something went wrong.
+          </p>
           <p style={{ maxWidth: "24rem", fontSize: "0.875rem", opacity: 0.7 }}>
             The page hit an unexpected error. Trying again usually fixes it.
           </p>
