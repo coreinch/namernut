@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FoundEntry } from "@/lib/types";
 import {
   DEFAULT_RESULT_COUNT,
@@ -239,6 +239,26 @@ export default function Home() {
   }, [setFoundHistory, foundDomainsRef]);
 
   const isRunning = runStatus === "running";
+
+  // The Footer (see below) only renders while isRunning — its own "Stop"
+  // button unmounts the instant a run ends, whether from actually finishing
+  // or from that same button being clicked. A mouse user never notices
+  // (there's nothing left to click there anyway), but a keyboard/screen-
+  // reader user who had focus on it gets silently dropped to <body> — the
+  // same failure mode ResultCard's onRemove and SettingsDrawer's onClose
+  // both hand focus off explicitly to avoid. Unlike those two, there's no
+  // single natural "next" element already in hand here, so this checks
+  // whether focus actually landed on <body> (the one-node signature of an
+  // unmounted-out-from-under-you focus loss) before redirecting it — never
+  // steals focus from something the user is legitimately doing elsewhere.
+  const wasRunningRef = useRef(isRunning);
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning && document.activeElement === document.body) {
+      document.getElementById("primary-search-action")?.focus();
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning]);
+
   // Only ever rendered while !isRunning (see the footer below, which shows
   // a fixed "Stop" button instead while a search is active) — no
   // "Searching…" branch needed here.

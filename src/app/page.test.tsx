@@ -532,6 +532,34 @@ describe("Home — live search", () => {
     expect(screen.getByRole("button", { name: "Search again" })).toBeTruthy();
   });
 
+  it("moves focus to the primary search button when Footer's own Stop button unmounts out from under it", async () => {
+    let stream: ReturnType<typeof controlledSseStream>;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, opts?: { signal?: AbortSignal }) => {
+        if (url.includes("/api/discover")) {
+          stream = controlledSseStream(opts?.signal);
+          return Promise.resolve({ ok: true, body: stream.body });
+        }
+        return Promise.resolve({ json: () => Promise.resolve({ total: 0, matching: 0 }) });
+      })
+    );
+
+    render(<Home />);
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    stream!.push({ type: "checking", name: "glowfox.com", checkedCount: 1 });
+
+    // Index 1 is Footer's docked Stop button — SearchBar's own relabeled
+    // submit button (index 0) never unmounts on stop, so it can't exercise
+    // this focus-loss path at all.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Stop" }).length).toBe(2));
+    const footerStop = screen.getAllByRole("button", { name: "Stop" })[1];
+    (footerStop as HTMLButtonElement).focus();
+    fireEvent.click(footerStop);
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search again" })));
+  });
+
   it("shows only the error banner, not the 'no matches found' hint, when a search fails", async () => {
     vi.stubGlobal(
       "fetch",

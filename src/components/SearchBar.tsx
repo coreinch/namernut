@@ -109,6 +109,15 @@ export function SearchBar({
             While running this reverts to a plain button: Enter shouldn't
             stop an in-progress search. */}
         <button
+          // Only ever one of these mounted at a time (page.tsx renders
+          // either the hero or compact SearchBar, never both — see its own
+          // isFirstVisit branch), so a fixed id is safe. Used by page.tsx
+          // to refocus this button when the Footer's own Stop control
+          // unmounts out from under a keyboard/screen-reader user's focus
+          // (see the isRunning effect there) — this button is the one
+          // still-visible, always-present equivalent action once that
+          // happens.
+          id="primary-search-action"
           type={isRunning ? "button" : "submit"}
           onClick={isRunning ? onStop : undefined}
           className={`min-h-12 shrink-0 whitespace-nowrap rounded-full px-6 text-base font-semibold text-white transition-all active:scale-95 ${
