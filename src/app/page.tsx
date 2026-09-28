@@ -533,7 +533,16 @@ export default function Home() {
                         />
                       )}
                       {filteredArchiveResults.length === 0 ? (
-                        <p className="py-8 text-center text-sm text-muted">
+                        // role="status" (not "alert" — this isn't an error,
+                        // just informational, the same distinction the real
+                        // error banner above already draws) so a screen
+                        // reader user typing into the filter input actually
+                        // hears that their filter matched nothing, instead
+                        // of having to tab away from the input to discover
+                        // it — the same dynamic-content-update problem
+                        // Footer's own aria-live span exists to solve for
+                        // the run's status line.
+                        <p role="status" className="py-8 text-center text-sm text-muted">
                           No archived names match &ldquo;{archiveFilter.trim()}&rdquo;.
                         </p>
                       ) : (

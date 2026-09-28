@@ -103,6 +103,31 @@ describe("Home — localStorage hydration", () => {
     expect(screen.getByText("remove me")).toBeTruthy();
   });
 
+  it("announces a zero-match archive filter to screen readers via role=status, not silently", () => {
+    // The filter input only renders once there's more than 8 archived
+    // entries (see page.tsx) — below that it'd be one more control to skip
+    // past for no benefit.
+    const entries = Array.from({ length: 9 }, (_, i) => ({
+      id: `id-${i}`,
+      domain: `findable${i}.com`,
+      meaning: `entry ${i}`,
+      checkedCount: 1,
+      runId: "old-run",
+    }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ foundHistory: entries }));
+
+    render(<Home />);
+    openArchiveTab();
+
+    fireEvent.change(screen.getByLabelText("Filter archived names"), { target: { value: "nothing matches this" } });
+
+    // role="status" is what makes a screen reader actually announce this —
+    // without it, a user typing into the filter input has no way to learn
+    // their filter matched nothing short of tabbing away to go look.
+    const message = screen.getByRole("status");
+    expect(message.textContent).toBe("No archived names match “nothing matches this”.");
+  });
+
   it("migrates legacy rankabilityScore/collisionSummary fields onto brandabilityScore/brandabilitySummary", () => {
     localStorage.setItem(
       STORAGE_KEY,
