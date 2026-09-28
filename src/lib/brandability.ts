@@ -278,11 +278,13 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 // cancellation signal, if any), so without this, a hang on the primary
 // provider would never reject at all — the fallback below would simply
 // never be reached, the same failure mode kilocode.ts's own timeout was
-// added to fix (see its comment). 12s each, plus completeChat's own 30s
-// (see kilocode.ts), keeps the worst realistic case (primary times out,
-// fallback also times out, then the LLM call) under nginx's 60s default
-// proxy_read_timeout for this route (see custom-domain.conf.j2 — no
-// override for /api/brandability, unlike /api/discover's SSE stream).
+// added to fix (see its comment). Worst realistic case is both attempts
+// here (12s each) plus completeChat's own two attempts (30s each — it
+// retries once on kilo-auto/free's documented hang, see REQUEST_TIMEOUT_MS)
+// — up to 84s. That's over nginx's 60s default proxy_read_timeout, which is
+// why this route (unlike every other one) has its own explicit override in
+// custom-domain.conf.j2; keep that override in sync if either timeout here
+// changes.
 const SEARCH_TIMEOUT_MS = 12000;
 
 /** Tries PRIMARY_PROVIDER first, falls back to FALLBACK_PROVIDER once on
