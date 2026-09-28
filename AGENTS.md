@@ -19,14 +19,19 @@ For any non-trivial feature, UI, or design task in this repo, work through this 
 5. **Present** — show the result to the user (diff, screenshot, or running demo) for feedback before considering it done.
 6. **Improve** — incorporate feedback and iterate; treat this as a loop back to step 1 for the next refinement, not a one-shot process.
 
-# Autonomous improve-loop operating rules
+# Session operating rules (apply to every session, not just autonomous loops)
 
-The following were given directly by the project owner while running the recurring "improve namernut" autonomous loop. They govern how that loop (and any similarly autonomous session) should operate, and take precedence over the Design Process's "present to the user for feedback" step for that context specifically — the point of the loop is to ship improvements continuously, not to pause it on each one.
+The project owner wants no extra waiting around finished, verified work, in any session — interactive or autonomous. These take precedence over the Design Process's "present to the user for feedback" step: ship the change instead of pausing on it.
 
 - **Commit and push improvements when done.** Don't hold a finished, verified fix waiting for separate approval — ship it.
-- **Decide autonomously; don't ask clarifying questions.** Make the reasonable call yourself and implement it, rather than stopping with a question. Reserve pausing for genuine blockers: missing credentials, an action outside the tool's normal scope, or something destructive/irreversible that can't be decided on the user's behalf (ordinary safety-critical-action judgment still applies and isn't overridden by this).
 - **Move time-consuming tasks to the background** rather than blocking on them synchronously.
 - **Don't wait for CI, and don't watch it.** Push and move on; don't launch or maintain background processes just to babysit a pipeline run.
 - **Don't bother with tests.** Don't reflexively run the full local verification suite (lint/typecheck/test/build) before every small commit — CI already gates it. This also means don't spend effort authoring new test cases for every fix; a quick typecheck/lint sanity pass is enough before pushing.
+
+# Autonomous improve-loop operating rules
+
+The following were given directly by the project owner while running the recurring "improve namernut" autonomous loop. They govern how that loop (and any similarly autonomous session) should operate specifically, on top of the session-wide rules above.
+
+- **Decide autonomously; don't ask clarifying questions.** Make the reasonable call yourself and implement it, rather than stopping with a question. Reserve pausing for genuine blockers: missing credentials, an action outside the tool's normal scope, or something destructive/irreversible that can't be decided on the user's behalf (ordinary safety-critical-action judgment still applies and isn't overridden by this).
 - **When live-testing via browser automation, block brandability checks unless brandability itself is what's being tested.** The app auto-fires a metered brandability check (LLM + search-provider calls) for every "found" result during a live search; override `window.fetch` to short-circuit `/api/brandability` requests before running a test search for anything else.
 - **Never run a destructive/mutating action against the live production site's persisted state** (e.g. `localStorage.clear()`) to check a UI state — use a fresh/incognito browser context, or reason from source, instead.
