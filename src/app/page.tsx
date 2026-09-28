@@ -380,6 +380,11 @@ export default function Home() {
   const searchBarProps = {
     keywordInput,
     onKeywordInputChange: setKeywordInput,
+    // Already computed above via sanitizeKeyword — passed through rather
+    // than re-derived in SearchBar so the two can never disagree on what
+    // "the keyword" actually is. SearchBar's only use for it is detecting
+    // when it's empty despite keywordInput not being (see its own comment).
+    keywordParam,
     isRunning,
     primaryLabel,
     // Wrapped, not passed directly: start() takes an optional

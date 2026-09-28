@@ -30,6 +30,7 @@ export function SearchBar({
   mode,
   keywordInput,
   onKeywordInputChange,
+  keywordParam,
   isRunning,
   primaryLabel,
   onStart,
@@ -42,6 +43,13 @@ export function SearchBar({
   mode: "hero" | "compact";
   keywordInput: string;
   onKeywordInputChange: (value: string) => void;
+  /** sanitizeKeyword(keywordInput) — only letters/digits survive (see
+   * candidates.ts's parseKeyword). Used here only to detect the case where
+   * that strips keywordInput down to nothing at all (non-Latin script,
+   * emoji, pure punctuation) so the warning below can fire — page.tsx
+   * already computes this for its own use, so it's passed through rather
+   * than re-derived here. */
+  keywordParam: string;
   isRunning: boolean;
   primaryLabel: string;
   onStart: () => void;
@@ -129,6 +137,24 @@ export function SearchBar({
           {isRunning ? "Stop" : primaryLabel}
         </button>
       </form>
+
+      {/* Only this app's own dictionary-pairing engine is English-only (see
+          LANGS in searchConfig.ts) — sanitizeKeyword strips anything that
+          isn't a plain a-z/0-9 character, so a keyword typed in another
+          script, all emoji, or pure punctuation silently sanitizes to an
+          empty string, and the search silently falls back to keyword-less
+          generation with no visible sign anything happened. Checked against
+          keywordInput.trim() (not keywordInput itself) so a keyword that's
+          just spaces doesn't trigger this — that's the same as not typing
+          anything, not a "stripped" keyword. role="status" (not "alert" —
+          informational, not an error) so a screen reader hears this the
+          same way the archive filter's own zero-match message is announced
+          (see page.tsx). */}
+      {keywordInput.trim() !== "" && keywordParam === "" && (
+        <p role="status" className="-mt-2 text-center text-xs text-muted">
+          Searching without a keyword — only English letters and numbers are supported.
+        </p>
+      )}
 
       {/* Example chips are a hero-only, zero-typing on-ramp for a first-time
           visitor — see EXAMPLE_KEYWORDS in page.tsx. Once past the first

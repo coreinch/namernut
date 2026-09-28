@@ -8,6 +8,7 @@ afterEach(cleanup);
 function baseProps() {
   return {
     keywordInput: "",
+    keywordParam: "",
     onKeywordInputChange: vi.fn(),
     isRunning: false,
     primaryLabel: "Generate",
@@ -109,5 +110,32 @@ describe("SearchBar", () => {
     expect(screen.getByRole("button", { name: "Customize search options" }).getAttribute("aria-expanded")).toBe(
       "false"
     );
+  });
+
+  describe("the empty-after-sanitizing keyword warning", () => {
+    it("shows a warning, in both modes, when the typed keyword sanitizes to nothing", () => {
+      // "日本語" -> "" via sanitizeKeyword (only a-z/0-9 survive) — the same
+      // case as an emoji-only or pure-punctuation keyword.
+      const props = { ...baseProps(), keywordInput: "日本語", keywordParam: "" };
+      const { rerender } = render(<SearchBar mode="hero" {...props} />);
+      expect(screen.getByRole("status").textContent).toContain("Searching without a keyword");
+      rerender(<SearchBar mode="compact" {...props} />);
+      expect(screen.getByRole("status").textContent).toContain("Searching without a keyword");
+    });
+
+    it("shows nothing when keywordInput is empty (nothing typed at all)", () => {
+      render(<SearchBar mode="hero" {...baseProps()} keywordInput="" keywordParam="" />);
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("shows nothing when keywordInput is only whitespace", () => {
+      render(<SearchBar mode="hero" {...baseProps()} keywordInput="   " keywordParam="" />);
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("shows nothing when the keyword sanitized to something real", () => {
+      render(<SearchBar mode="hero" {...baseProps()} keywordInput="glow" keywordParam="glow" />);
+      expect(screen.queryByRole("status")).toBeNull();
+    });
   });
 });
