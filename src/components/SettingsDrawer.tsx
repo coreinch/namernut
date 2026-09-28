@@ -66,8 +66,20 @@ export function SettingsDrawer({
     // whatever was under it (usually the "Customize" trigger, now visually
     // covered by the overlay), which is disorienting for keyboard/screen
     // reader users.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
     closeButtonRef.current?.focus();
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      // Runs on every path that closes the drawer (Escape, backdrop click,
+      // the close button, or a parent unmounting it outright) since they
+      // all funnel through the same onClose -> open=false state change.
+      // Without this, the close button this effect just focused above
+      // unmounts along with the rest of the dialog, and focus silently
+      // reverts to <body> — the same drop a keyboard/screen-reader user
+      // would hit removing a result card (see ResultCard's own onRemove
+      // focus handoff for the same failure mode elsewhere in this app).
+      previouslyFocused?.focus();
+    };
   }, [open, onClose]);
 
   if (!open) return null;

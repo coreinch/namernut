@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsDrawer } from "./SettingsDrawer";
@@ -107,5 +108,33 @@ describe("SettingsDrawer", () => {
     expect(document.activeElement).toBe(closeButton);
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(control);
+  });
+
+  it("returns focus to the trigger that opened it once it closes, instead of dropping it to <body>", () => {
+    // A minimal stand-in for SearchBar's real "Customize search options"
+    // trigger + page.tsx's open/close state — the drawer only knows to
+    // restore focus to whatever had it *before* open flipped true, so this
+    // needs a real trigger button and a real close, not just a fixed
+    // `open` prop the way the tests above use.
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Customize search options
+          </button>
+          <SettingsDrawer open={open} onClose={() => setOpen(false)}>
+            <p>panel content</p>
+          </SettingsDrawer>
+        </>
+      );
+    }
+    render(<Host />);
+    const trigger = screen.getByRole("button", { name: "Customize search options" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(document.activeElement).toBe(screen.getByLabelText("Close search options"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(trigger);
   });
 });
