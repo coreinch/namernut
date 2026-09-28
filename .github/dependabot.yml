@@ -9,3 +9,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Watches the Dockerfile's FROM lines (node:22-alpine, both build and
+  # runtime stages) — without this, a security patch to that base image
+  # (e.g. an Alpine CVE fix) never surfaces as a PR the way npm/
+  # github-actions updates already do.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
