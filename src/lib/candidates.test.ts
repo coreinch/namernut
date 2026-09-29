@@ -167,18 +167,25 @@ describe("buildCandidateSpace (no keyword, common modifiers and core -> only the
   });
 });
 
-describe("buildCandidateSpace (with keyword)", () => {
-  const space = buildCandidateSpace(pool, "nova");
+// One modifier ("wild") plus the three nouns: keyword searches may only
+// build keyword+noun and modifier+keyword, never noun+keyword/keyword+modifier.
+const kwPool: WordEntry[] = [
+  { word: "wild", langs: ["english"], definition: "not tamed", common: false, noun: false },
+  ...pool,
+];
 
-  it("has a single tier (no common words in this pool), sized 2 * pool.length", () => {
+describe("buildCandidateSpace (with keyword)", () => {
+  const space = buildCandidateSpace(kwPool, "nova");
+
+  it("has a single tier (no common words in this pool), sized modifiers + nouns", () => {
     expect(space.tiers.length).toBe(1);
-    expect(space.tiers[0].total).toBe(2 * pool.length);
+    expect(space.tiers[0].total).toBe(kwPool.length);
   });
 
-  it("pairs the keyword with every pool word in both orders, no other combinations", () => {
+  it("pairs the keyword only as keyword+noun or modifier+keyword, no other combinations", () => {
     const names = new Set(allNames(space));
     expect(names).toEqual(
-      new Set(["novacat", "novadog", "novarex", "catnova", "dognova", "rexnova"])
+      new Set(["novacat", "novadog", "novarex", "wildnova"])
     );
   });
 
@@ -191,26 +198,26 @@ describe("buildCandidateSpace (with keyword)", () => {
       source: "dictionary",
     });
     expect(tier.candidateAt(pool.length)).toEqual({
-      name: "catnova",
-      meaning: "cat: a small domesticated animal · nova",
-      parts: ["cat", "nova"],
+      name: "wildnova",
+      meaning: "wild: not tamed · nova",
+      parts: ["wild", "nova"],
       source: "dictionary",
     });
   });
 });
 
 describe("buildCandidateSpace (with keyword and AI synonyms)", () => {
-  const space = buildCandidateSpace(pool, "nova", ["blaze"]);
+  const space = buildCandidateSpace(kwPool, "nova", ["blaze"]);
 
   it("adds one keyword-shaped tier per AI synonym, on top of the literal keyword tier", () => {
     expect(space.tiers.length).toBe(2);
-    expect(space.tiers[0].total).toBe(2 * pool.length);
-    expect(space.tiers[1].total).toBe(2 * pool.length);
+    expect(space.tiers[0].total).toBe(kwPool.length);
+    expect(space.tiers[1].total).toBe(kwPool.length);
   });
 
   it("lists the synonym tier BEFORE the literal keyword tier, so it isn't crowded out by a large literal-keyword tier filling the target first", () => {
     const names = new Set(allNames({ tiers: [space.tiers[0]] }));
-    expect(names).toEqual(new Set(["blazecat", "blazedog", "blazerex", "catblaze", "dogblaze", "rexblaze"]));
+    expect(names).toEqual(new Set(["blazecat", "blazedog", "blazerex", "wildblaze"]));
   });
 
   it("labels a synonym candidate's meaning as an AI idea for the original keyword, not the bare synonym", () => {
@@ -223,23 +230,23 @@ describe("buildCandidateSpace (with keyword and AI synonyms)", () => {
   });
 
   it("with no AI synonyms passed, behaves exactly like the keyword-only case", () => {
-    expect(buildCandidateSpace(pool, "nova", []).tiers.length).toBe(1);
-    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova", []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova").tiers.length).toBe(1);
   });
 });
 
 describe("buildCandidateSpace (with keyword and alternate spellings)", () => {
-  const space = buildCandidateSpace(pool, "nova", [], [], ["novva"]);
+  const space = buildCandidateSpace(kwPool, "nova", [], [], ["novva"]);
 
   it("adds one keyword-shaped tier per alternate spelling, on top of the literal keyword tier", () => {
     expect(space.tiers.length).toBe(2);
-    expect(space.tiers[0].total).toBe(2 * pool.length);
-    expect(space.tiers[1].total).toBe(2 * pool.length);
+    expect(space.tiers[0].total).toBe(kwPool.length);
+    expect(space.tiers[1].total).toBe(kwPool.length);
   });
 
   it("the alt-spelling tier pairs the respelling itself, not the literal keyword", () => {
     const names = new Set(allNames({ tiers: [space.tiers[0]] }));
-    expect(names).toEqual(new Set(["novvacat", "novvadog", "novvarex", "catnovva", "dognovva", "rexnovva"]));
+    expect(names).toEqual(new Set(["novvacat", "novvadog", "novvarex", "wildnovva"]));
   });
 
   it("labels an alt-spelling candidate's meaning as a respelling of the original keyword, not the bare respelling", () => {
@@ -252,13 +259,13 @@ describe("buildCandidateSpace (with keyword and alternate spellings)", () => {
   });
 
   it("combines with AI synonyms as independent, additional tiers rather than replacing them", () => {
-    const combined = buildCandidateSpace(pool, "nova", ["blaze"], [], ["novva"]);
+    const combined = buildCandidateSpace(kwPool, "nova", ["blaze"], [], ["novva"]);
     expect(combined.tiers.length).toBe(3); // synonym tier + alt-spelling tier + literal keyword tier
   });
 
   it("with no alt spellings passed, behaves exactly like the keyword-only case", () => {
-    expect(buildCandidateSpace(pool, "nova", [], [], []).tiers.length).toBe(1);
-    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova", [], [], []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova").tiers.length).toBe(1);
   });
 });
 
@@ -268,17 +275,17 @@ describe("buildCandidateSpace (AI-invented names)", () => {
     // comment: claimCandidate exhausts tiers in order, and the dictionary
     // tier(s) dwarf a ~20-word invented batch, so invented names need to
     // go first to ever actually get searched.
-    const withKeyword = buildCandidateSpace(pool, "nova", [], ["zuvio", "fovixia"]);
+    const withKeyword = buildCandidateSpace(kwPool, "nova", [], ["zuvio", "fovixia"]);
     expect(withKeyword.tiers.length).toBe(2); // invented tier + keyword tier
     expect(withKeyword.tiers[0].total).toBe(2);
 
-    const withoutKeyword = buildCandidateSpace(pool, undefined, [], ["zuvio", "fovixia"]);
+    const withoutKeyword = buildCandidateSpace(kwPool, undefined, [], ["zuvio", "fovixia"]);
     expect(withoutKeyword.tiers.length).toBe(2); // invented tier + fallback pair tier
     expect(withoutKeyword.tiers[0].total).toBe(2);
   });
 
   it("each invented word is a complete candidate on its own, with an empty second half (no real two-word split)", () => {
-    const space = buildCandidateSpace(pool, undefined, [], ["zuvio"]);
+    const space = buildCandidateSpace(kwPool, undefined, [], ["zuvio"]);
     expect(space.tiers[0].candidateAt(0)).toEqual({
       name: "zuvio",
       meaning: "zuvio (AI-invented name)",
@@ -288,13 +295,13 @@ describe("buildCandidateSpace (AI-invented names)", () => {
   });
 
   it("labels the candidate's meaning with the keyword it was themed around, when there is one", () => {
-    const space = buildCandidateSpace(pool, "nova", [], ["zuvio"]);
+    const space = buildCandidateSpace(kwPool, "nova", [], ["zuvio"]);
     expect(space.tiers[0].candidateAt(0).meaning).toBe('zuvio (AI-invented name for "nova")');
   });
 
   it("adds no tier at all when there are no invented names", () => {
-    expect(buildCandidateSpace(pool, "nova", [], []).tiers.length).toBe(1);
-    expect(buildCandidateSpace(pool, "nova").tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova", [], []).tiers.length).toBe(1);
+    expect(buildCandidateSpace(kwPool, "nova").tiers.length).toBe(1);
   });
 });
 
@@ -306,10 +313,11 @@ describe("countCandidatesWithinLength", () => {
     expect(countCandidatesWithinLength(pool, undefined, 24)).toBe(9);
   });
 
-  it("counts both keyword+word and word+keyword orders, gated on the combined length", () => {
-    // "nova" (4) + cat/dog/rex (3) is always 7 chars combined.
-    expect(countCandidatesWithinLength(pool, "nova", 6)).toBe(0);
-    expect(countCandidatesWithinLength(pool, "nova", 7)).toBe(6); // 2 orders * 3 words
+  it("counts keyword+noun and modifier+keyword, gated on the combined length", () => {
+    // "nova" (4) + cat/dog/rex (3) is always 7 chars; wild+nova is 8.
+    expect(countCandidatesWithinLength(kwPool, "nova", 6)).toBe(0);
+    expect(countCandidatesWithinLength(kwPool, "nova", 7)).toBe(3); // nova+{cat,dog,rex}
+    expect(countCandidatesWithinLength(kwPool, "nova", 8)).toBe(4); // + wild+nova
   });
 
   it("respects the modifier+core tier, not the full pool^2", () => {

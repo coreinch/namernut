@@ -805,7 +805,7 @@ describe("runDiscovery", () => {
     // — the synonym tier is additive, not a replacement.
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     expect(new Set(foundDomains)).toEqual(
-      new Set(["novacat.com", "catnova.com", "blazecat.com", "catblaze.com"])
+      new Set(["novacat.com", "blazecat.com"])
     );
   });
 
@@ -935,7 +935,7 @@ describe("runDiscovery", () => {
     // search — the alt-spelling tier is additive, not a replacement.
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     expect(new Set(foundDomains)).toEqual(
-      new Set(["novacat.com", "catnova.com", "novvacat.com", "catnovva.com"])
+      new Set(["novacat.com", "novvacat.com"])
     );
   });
 
@@ -954,7 +954,6 @@ describe("runDiscovery", () => {
     // pass the gate on their own, defeating the point of this sanity
     // check. "lft" has no such semivowel to rescue it.)
     expect(isPronounceable("lftcat")).toBe(false);
-    expect(isPronounceable("catlft")).toBe(false);
 
     const events: DiscoveryEvent[] = [];
     const controller = new AbortController();
@@ -979,7 +978,7 @@ describe("runDiscovery", () => {
 
     const foundDomains = events.filter((e) => e.type === "found").map((e) => e.domain);
     expect(new Set(foundDomains)).toEqual(
-      new Set(["lftcat.com", "catlft.com", "liftcat.com", "catlift.com"])
+      new Set(["lftcat.com", "liftcat.com"])
     );
   });
 

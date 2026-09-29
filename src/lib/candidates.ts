@@ -64,17 +64,18 @@ function buildPairTier(
 
 /** `label` is what shows in the candidate's meaning string — defaults to the bare keyword itself, but an AI-suggested synonym tier (see suggestKeywordSynonyms) passes something like `blaze (AI idea for "nova")` instead, so a result built from a synonym never reads as if the user had typed it themselves. `source` defaults to "dictionary" (the plain literal-keyword tier); the synonym/alt-spelling tiers pass their own. */
 function buildKeywordTier(
-  words: WordEntry[],
+  nouns: WordEntry[],
+  modifiers: WordEntry[],
   keyword: string,
   label: string = keyword,
   source: CandidateSource = "dictionary"
 ): CandidateTier {
-  const L = words.length;
+  const N = nouns.length;
   return {
-    total: 2 * L,
+    total: N + modifiers.length,
     candidateAt(shuffled) {
-      if (shuffled < L) {
-        const w = words[shuffled];
+      if (shuffled < N) {
+        const w = nouns[shuffled];
         return {
           name: `${keyword}${w.word}`,
           meaning: `${label} · ${describe(w.word, w.definition)}`,
@@ -82,7 +83,7 @@ function buildKeywordTier(
           source,
         };
       }
-      const w = words[shuffled - L];
+      const w = modifiers[shuffled - N];
       return {
         name: `${w.word}${keyword}`,
         meaning: `${describe(w.word, w.definition)} · ${label}`,
@@ -110,8 +111,8 @@ function buildKeywordTier(
  * happens to be all modifiers or all core words (rare) falls back to
  * pairing every ordered pair of pool words instead.
  *
- * With a keyword, every candidate pairs the keyword with one pool word, in
- * both orders (keyword+word, word+keyword), so every result relates to
+ * With a keyword, every candidate pairs the keyword with one pool word, as
+ * keyword+noun or adjective+keyword only, so every result relates to
  * that keyword, the way "include a word" filters work in commercial name
  * generators. Each string in `aiSynonyms` (see suggestKeywordSynonyms in
  * lib/synonyms.ts) gets the exact same treatment as its own additional
@@ -131,7 +132,10 @@ interface PairTierSpec {
 
 interface KeywordTierSpec {
   kind: "keyword";
-  words: WordEntry[];
+  /** Words allowed AFTER the keyword (keyword+noun). */
+  nouns: WordEntry[];
+  /** Words allowed BEFORE the keyword (adjective+keyword). */
+  modifiers: WordEntry[];
   keyword: string;
   label: string;
   source: CandidateSource;
@@ -189,6 +193,12 @@ function selectTierSpecs(
 
   const commonPool = pool.filter((w) => w.common);
   const words = commonPool.length > 0 ? commonPool : pool;
+  // Keep the same English word order as the no-keyword path: the keyword is
+  // treated as a noun, so it's either followed by a noun ("poetapps") or
+  // preceded by an adjective ("swiftpoet") — never noun+keyword or
+  // keyword+adjective.
+  const nouns = words.filter((w) => !isModifier(w.word, w.langs) && w.noun);
+  const modifiers = words.filter((w) => isModifier(w.word, w.langs));
   // AI synonym tiers listed before the literal keyword tier. Tier order
   // barely matters now — claimCandidate in discovery.ts claims round-robin
   // across all tiers, not sequentially, so every non-empty tier gets a
@@ -199,7 +209,8 @@ function selectTierSpecs(
     ...aiSynonyms.map(
       (synonym): KeywordTierSpec => ({
         kind: "keyword",
-        words,
+        nouns,
+        modifiers,
         keyword: synonym,
         label: `${synonym} (AI idea for "${keyword}")`,
         source: "aiSynonym",
@@ -212,13 +223,14 @@ function selectTierSpecs(
     ...altSpellings.map(
       (spelling): KeywordTierSpec => ({
         kind: "keyword",
-        words,
+        nouns,
+        modifiers,
         keyword: spelling,
         label: `${spelling} (alt spelling of "${keyword}")`,
         source: "altSpelling",
       })
     ),
-    { kind: "keyword", words, keyword, label: keyword, source: "dictionary" },
+    { kind: "keyword", nouns, modifiers, keyword, label: keyword, source: "dictionary" },
   ];
 }
 
@@ -248,7 +260,7 @@ export function buildCandidateSpace(
   const tiers = selectTierSpecs(pool, keyword, aiSynonyms, altSpellings).map((spec) =>
     spec.kind === "pair"
       ? buildPairTier(spec.rows, spec.cols, spec.makeCandidate)
-      : buildKeywordTier(spec.words, spec.keyword, spec.label, spec.source)
+      : buildKeywordTier(spec.nouns, spec.modifiers, spec.keyword, spec.label, spec.source)
   );
   // Prepended, not appended — see the tier-order comment above selectTierSpecs's
   // return for the AI synonym tiers: claimCandidate claims round-robin
@@ -286,11 +298,8 @@ export function countCandidatesWithinLength(
     if (spec.kind === "keyword") {
       const limit = maxLength - spec.keyword.length;
       if (limit < 1) continue;
-      let matching = 0;
-      for (const w of spec.words) {
-        if (w.word.length <= limit) matching++;
-      }
-      total += matching * 2; // both keyword+word and word+keyword orders
+      for (const w of spec.nouns) if (w.word.length <= limit) total++; // keyword+noun
+      for (const w of spec.modifiers) if (w.word.length <= limit) total++; // adjective+keyword
     } else {
       const rowHist = lengthHistogram(spec.rows);
       const colHist = lengthHistogram(spec.cols);
