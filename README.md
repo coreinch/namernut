@@ -49,9 +49,6 @@ Open [http://localhost:3000](http://localhost:3000).
 | `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the pinned model `kilo-auto/small` |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |
 | `INSTAGRAM_PROXY_URL` | No | HTTP proxy (ideally residential) used only for Instagram checks; Instagram blocks datacenter IPs |
-| `CHROME_BIN` | No | Path to a Chrome/Chromium binary. Enables a real headless Chrome that scrapes google.com as the **primary** search provider (Serper, then Serpent, are its fallbacks). One Chrome is kept warm and reused. The Docker image ships `/usr/bin/chromium` and the deploy always sets this, so Chrome is always on in production |
-| `CHROME_HEADFUL` | No | `1` runs Chrome headful — on the existing `DISPLAY`, or on a private Xvfb virtual display if there is none (the image ships `xvfb`, and the deploy sets this). Google serves its bot challenge to headless Chrome but not headful. Unset = headless |
-| `GOOGLE_PROXY_URL` | No | HTTP proxy (`http://user:pass@host:port`, residential) used only by the Chrome provider; Google challenges datacenter IPs. In production set it as the `GOOGLE_PROXY_URL` GitHub Actions secret; if unset, Chrome still runs but connects directly, which Google will likely challenge. Metered: each search downloads ~1 MB. If Google blocks the exit IP the provider retries once on a fresh IP, then backs off (1 min, doubling to 15) while the API providers take over |
 
 ## Scripts
 

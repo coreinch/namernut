@@ -1,7 +1,6 @@
 import { search, type SearchContext, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool, type WordEntry } from "@/lib/dictionary";
-import { CHROME_SEARCH_TIMEOUT_MS, isChromeSearchAvailable } from "@/lib/chromeSearch";
 import { TtlCache } from "@/lib/ttlCache";
 import { DEFAULT_REGION, REGION_OPTIONS, type ProviderOption, type RegionOption } from "@/lib/searchConfig";
 
@@ -14,10 +13,6 @@ export type Provider = ProviderOption;
  * https://apiserpent.com/faq), so it's the fallback, not the primary. */
 const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
-/** Opt-in (CHROME_BIN set — see chromeSearch.ts): a real Chrome scraping
- * google.com. When available it goes FIRST; the two API providers above
- * become its fallbacks. */
-const CHROME_PROVIDER: Provider = "chrome";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -325,42 +320,30 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 // changes.
 const SEARCH_TIMEOUT_MS = 12000;
 
-/** Tries each provider in order until one works: chrome first when it's
- * available (CHROME_BIN set and not in its post-failure cooldown — see
- * chromeSearch.ts; it has its own, longer timeout), then PRIMARY_PROVIDER,
- * then FALLBACK_PROVIDER. Every step falls through on any failure —
- * including a timeout (see SEARCH_TIMEOUT_MS) — except when the caller's
- * own `signal` is what aborted: that's a real cancellation (the client
- * disconnected, or checkBrandability's own outer `signal` was aborted for
- * some other reason upstream), not a provider problem, so retrying with a
- * different provider would be pointless and just add latency to a request
- * nobody's waiting on anymore. The last provider's error is the one thrown. */
+/** Tries PRIMARY_PROVIDER first, falls back to FALLBACK_PROVIDER once on
+ * any failure — including a timeout (see SEARCH_TIMEOUT_MS) — except when
+ * the caller's own `signal` is what aborted: that's a real cancellation
+ * (the client disconnected, or checkBrandability's own outer `signal` was
+ * aborted for some other reason upstream), not a provider problem, so
+ * retrying with a different provider would be pointless and just add
+ * latency to a request nobody's waiting on anymore. */
 async function searchWithFallback(
   query: string,
   region: Region,
   signal: AbortSignal | undefined
 ): Promise<{ results: SearchResult[]; context: SearchContext | undefined; provider: Provider }> {
-  const withTimeout = (s: AbortSignal | undefined, ms: number) => {
-    const timeoutSignal = AbortSignal.timeout(ms);
+  const withTimeout = (s: AbortSignal | undefined) => {
+    const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
     return s ? AbortSignal.any([s, timeoutSignal]) : timeoutSignal;
   };
-  const tiers: Array<{ provider: Provider; timeoutMs: number }> = [
-    { provider: PRIMARY_PROVIDER, timeoutMs: SEARCH_TIMEOUT_MS },
-    { provider: FALLBACK_PROVIDER, timeoutMs: SEARCH_TIMEOUT_MS },
-  ];
-  if (isChromeSearchAvailable()) tiers.unshift({ provider: CHROME_PROVIDER, timeoutMs: CHROME_SEARCH_TIMEOUT_MS });
-
-  let lastErr: unknown;
-  for (const { provider, timeoutMs } of tiers) {
-    try {
-      const { results, context } = await search(query, region, withTimeout(signal, timeoutMs), provider);
-      return { results, context, provider };
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      lastErr = err;
-    }
+  try {
+    const { results, context } = await search(query, region, withTimeout(signal), PRIMARY_PROVIDER);
+    return { results, context, provider: PRIMARY_PROVIDER };
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    const { results, context } = await search(query, region, withTimeout(signal), FALLBACK_PROVIDER);
+    return { results, context, provider: FALLBACK_PROVIDER };
   }
-  throw lastErr;
 }
 
 /**

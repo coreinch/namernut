@@ -8,12 +8,6 @@ const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise
 vi.mock("./searchProvider", () => ({
   search: (...args: Parameters<typeof searchMock>) => searchMock(...args),
 }));
-// Defaults to the real env/cooldown check; a test can force it with mockReturnValue.
-const availableMock = vi.fn<() => boolean | undefined>();
-vi.mock("./chromeSearch", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./chromeSearch")>();
-  return { ...actual, isChromeSearchAvailable: () => availableMock() ?? actual.isChromeSearchAvailable() };
-});
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
 }));
@@ -39,9 +33,6 @@ const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
 describe("checkBrandability", () => {
   beforeEach(() => {
-    // GitHub's runners export CHROME_BIN themselves, which would silently put
-    // the Chrome provider first in every test; tests that want it opt in.
-    vi.stubEnv("CHROME_BIN", "");
     clearBrandabilityCache();
     searchMock.mockReset();
     completeChatMock.mockReset();
@@ -83,61 +74,6 @@ describe("checkBrandability", () => {
     expect(searchMock).toHaveBeenNthCalledWith(1, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serper");
     expect(searchMock).toHaveBeenNthCalledWith(2, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serpent");
     expect(res.provider).toBe("serpent");
-  });
-
-  it("puts the opt-in chrome provider first when CHROME_BIN is set, with the API providers as fallbacks", async () => {
-    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
-    try {
-      searchMock.mockResolvedValueOnce({ results: [result({ title: "chrome hit" })] });
-      const res = await checkBrandability("fluidfew");
-      expect(searchMock).toHaveBeenCalledTimes(1);
-      expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "chrome");
-      expect(res.provider).toBe("chrome");
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("falls from chrome to serper to serpent, and the last error propagates if all three fail", async () => {
-    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
-    try {
-      searchMock.mockRejectedValueOnce(new Error("chrome blocked"));
-      searchMock.mockRejectedValueOnce(new Error("serper down"));
-      searchMock.mockResolvedValueOnce({ results: [] });
-      expect((await checkBrandability("fluidfew")).provider).toBe("serpent");
-      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["chrome", "serper", "serpent"]);
-
-      clearBrandabilityCache();
-      searchMock.mockReset();
-      searchMock.mockRejectedValue(new Error("all down"));
-      await expect(checkBrandability("otherword")).rejects.toThrow("all down");
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("skips chrome while it's in its post-failure cooldown", async () => {
-    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
-    availableMock.mockReturnValue(false);
-    try {
-      await checkBrandability("fluidfew");
-      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["serper"]);
-    } finally {
-      availableMock.mockReset();
-      vi.unstubAllEnvs();
-    }
-  });
-
-  it("never tries chrome when CHROME_BIN is unset — the serpent error propagates", async () => {
-    vi.stubEnv("CHROME_BIN", "");
-    try {
-      searchMock.mockRejectedValueOnce(new Error("serper down"));
-      searchMock.mockRejectedValueOnce(new Error("serpent down"));
-      await expect(checkBrandability("fluidfew")).rejects.toThrow("serpent down");
-      expect(searchMock).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.unstubAllEnvs();
-    }
   });
 
   it("doesn't fall back to serpent, and propagates the error, when the caller's own signal was what aborted", async () => {

@@ -16,7 +16,7 @@ RUN npm ci
 COPY . .
 
 # Runtime secrets (SERPER_API_KEY/SERPENT_API_KEY, KILOCODE_API_KEY,
-# INSTAGRAM_SESSION_ID, GOOGLE_PROXY_URL) are read from process.env at request time by the
+# INSTAGRAM_SESSION_ID) are read from process.env at request time by the
 # API routes, not at
 # build time, and none of this app's env vars are NEXT_PUBLIC_-prefixed
 # — so the build needs no secrets and produces one image usable across
@@ -44,15 +44,6 @@ ENV HOSTNAME=0.0.0.0
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-
-# Chromium for the real-browser search provider (src/lib/chromeSearch.ts) —
-# the binary is baked into the image and ansible/templates/env.j2 points
-# CHROME_BIN at it (GOOGLE_PROXY_URL is a separate, optional setting that
-# only routes Chrome through a proxy). The font package is what keeps
-# rendered text/metrics sane on a bare alpine image. xvfb is the virtual
-# display Chrome runs headful on (CHROME_HEADFUL=1): Google serves its bot
-# challenge to headless Chrome but not to a headful one — see chromeSearch.ts.
-RUN apk add --no-cache chromium xvfb font-noto
 
 # Official node images ship a non-root "node" user (uid 1000) for this
 # purpose — the runtime stage never needs root.

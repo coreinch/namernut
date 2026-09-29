@@ -43,14 +43,11 @@ server {
         proxy_read_timeout 300s;
     }
 
-    # Worst-case latency budget: searchWithFallback's attempts — the two API
-    # providers (12s each, see SEARCH_TIMEOUT_MS in brandability.ts) plus,
-    # when the real-Chrome provider is enabled, its own 30s (see
-    # CHROME_SEARCH_TIMEOUT_MS in chromeSearch.ts; it goes first) — plus
-    # completeChat's own two attempts (30s each, see REQUEST_TIMEOUT_MS in
-    # kilocode.ts — retries once on kilo-auto/free's documented hang) is up
-    # to 84s without Chrome and 114s with it, over nginx's 60s default
-    # proxy_read_timeout. This route previously fit under that
+    # Worst-case latency budget: two searchWithFallback attempts (12s each,
+    # see SEARCH_TIMEOUT_MS in brandability.ts) plus completeChat's own two
+    # attempts (30s each, see REQUEST_TIMEOUT_MS in kilocode.ts — retries
+    # once on kilo-auto/free's documented hang) is up to 84s, over nginx's
+    # 60s default proxy_read_timeout. This route previously fit under that
     # default (54s worst case) before completeChat gained its retry; without
     # this override, a slow-but-eventually-successful check now risks nginx
     # cutting the connection with a raw 504 before the app's own clean
@@ -62,7 +59,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 180s;
+        proxy_read_timeout 120s;
     }
 
     location / {
