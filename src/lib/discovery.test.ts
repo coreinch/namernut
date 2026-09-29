@@ -25,6 +25,7 @@ import { checkNpmPackageName } from "./npm";
 import { checkYoutubeHandle } from "./youtube";
 import { checkTwitterHandle } from "./twitter";
 import { buildNicenessIndex } from "./niceness";
+import { clearAvailabilityCaches } from "./discoveryChecks";
 import { parseGates, runDiscovery, type DiscoveryEvent, type DiscoveryGates } from "./discovery";
 import { isPronounceable } from "./pronounceable";
 import type { WordEntry } from "./dictionary";
@@ -51,6 +52,7 @@ describe("runDiscovery", () => {
   // available domain where any required platform's handle is taken/unknown
   // no longer counts — see the dedicated tests below).
   beforeEach(() => {
+    clearAvailabilityCaches();
     vi.mocked(checkInstagramUsername).mockResolvedValue("available");
     vi.mocked(checkGithubUsername).mockResolvedValue("available");
     vi.mocked(checkTiktokUsername).mockResolvedValue("available");
@@ -91,6 +93,58 @@ describe("runDiscovery", () => {
     // No candidate name (checking or found) appears more than once overall.
     expect(new Set(checkingNames).size).toBe(checkingNames.length);
     expect(new Set(foundDomains).size).toBe(foundDomains.length);
+  });
+
+  it("answers a repeat domain/social lookup from cache instead of re-checking", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    const run = () =>
+      runDiscovery(pool, undefined, ["com"], 100, () => {}, new AbortController().signal, 20, ALL_GATES_ON);
+
+    await run();
+    const domainCalls = vi.mocked(checkDomain).mock.calls.length;
+    const npmCalls = vi.mocked(checkNpmPackageName).mock.calls.length;
+    expect(domainCalls).toBeGreaterThan(0);
+
+    await run();
+    expect(vi.mocked(checkDomain).mock.calls.length).toBe(domainCalls);
+    expect(vi.mocked(checkNpmPackageName).mock.calls.length).toBe(npmCalls);
+  });
+
+  it("does not cache an inconclusive domain result", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("unknown");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    const run = () =>
+      runDiscovery(pool, undefined, ["com"], 100, () => {}, new AbortController().signal, 20, ALL_GATES_ON);
+    await run();
+    const first = vi.mocked(checkDomain).mock.calls.length;
+    await run();
+    expect(vi.mocked(checkDomain).mock.calls.length).toBe(first * 2);
+  });
+
+  it("reports why candidates were filtered on the complete event", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    vi.mocked(checkNpmPackageName).mockResolvedValue("taken");
+
+    const events: DiscoveryEvent[] = [];
+    await runDiscovery(pool, undefined, ["com"], 100, (e) => events.push(e), new AbortController().signal, 4, ALL_GATES_ON);
+    const complete = events.find((e) => e.type === "complete");
+    if (complete?.type !== "complete") throw new Error("no complete event");
+    // Six-letter pairs exceed maxLength 4; the rest fail on npm.
+    expect(complete.filterCounts.tooLong).toBeGreaterThan(0);
   });
 
   it("stops at exactly the target count and reports completion", async () => {

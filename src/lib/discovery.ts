@@ -1,148 +1,31 @@
 import crypto from "node:crypto";
 import type { WordEntry } from "@/lib/dictionary";
-import { buildCandidateSpace, type Candidate, type CandidateSource } from "@/lib/candidates";
+import { buildCandidateSpace, type Candidate } from "@/lib/candidates";
 import { isPronounceable } from "@/lib/pronounceable";
 import { buildTypoIndex } from "@/lib/typocheck";
 import { buildNicenessIndex } from "@/lib/niceness";
 import { ShuffledRange } from "@/lib/permutation";
-import { checkDomain } from "@/lib/rdap";
-import { checkDomainWhois } from "@/lib/whois";
-import { checkInstagramUsername } from "@/lib/instagram";
-import { checkGithubUsername } from "@/lib/github";
-import { checkTiktokUsername } from "@/lib/tiktok";
-import { checkNpmPackageName } from "@/lib/npm";
-import { checkYoutubeHandle } from "@/lib/youtube";
-import { checkTwitterHandle } from "@/lib/twitter";
 import type { SocialStatus } from "@/lib/socialStatus";
+import type { DiscoveryEvent, DiscoveryGates, FilterCounts, FilterReason } from "@/lib/discoveryTypes";
+import {
+  CHECK_DELAY_MS,
+  DEFERRED_PLATFORMS,
+  EAGER_PLATFORMS,
+  SOCIAL_BLOCKED_STREAK_THRESHOLD,
+  checkOne,
+  checkSocialOne,
+  isDomainCached,
+  delay,
+  type SocialPlatform,
+} from "@/lib/discoveryChecks";
 
-export type DiscoveryEvent =
-  // Emitted by the /api/discover route itself (never by runDiscovery below)
-  // right after the SSE connection opens, only when at least one AI
-  // candidate source is actually about to be fetched — the route awaits
-  // suggestKeywordSynonyms/suggestInventedNames before it has anything else
-  // to send, and without this the client sees total silence for however
-  // long that call takes (a real multi-second gap, not a rare edge case),
-  // easily read as "stuck" rather than "the AI step is not done making up
-  // words yet". Purely informational, like "synonyms"/"invented" below.
-  | { type: "preparing" }
-  // Emitted once, before any "checking" events, only when aiSynonyms is
-  // non-empty — see suggestKeywordSynonyms in lib/synonyms.ts. Purely
-  // informational: the words are already baked into the candidate space
-  // buildCandidateSpace built (see runDiscovery below) by the time this
-  // fires, so the UI can surface what's being searched without gating
-  // anything on it.
-  | { type: "synonyms"; words: string[] }
-  // Same posture as "synonyms" above, but for suggestInventedNames in
-  // lib/inventedNames.ts — a distinct event since these are complete
-  // standalone candidate names, not halves paired with a dictionary word.
-  | { type: "invented"; words: string[] }
-  // Same posture again, but for alternateSpellings in
-  // lib/alternateSpelling.ts — deterministic respellings of the literal
-  // keyword (e.g. "lyft" for "lift"), not an AI suggestion at all. Emitted
-  // synchronously (no "preparing" wait needed, since there's no LLM call
-  // behind it) once runDiscovery starts, only when the list is non-empty.
-  | { type: "altSpellings"; words: string[] }
-  | { type: "checking"; name: string; checkedCount: number }
-  | { type: "taken"; name: string; checkedCount: number }
-  | { type: "unknown"; name: string; checkedCount: number }
-  // The domain itself was available, but one of its required social
-  // handles wasn't (or that check was inconclusive) — doesn't count
-  // toward the target, but is still worth a distinct log entry rather
-  // than looking identical to a plain domain-taken/unknown result.
-  | { type: "filtered"; name: string; checkedCount: number }
-  | {
-      type: "found";
-      domain: string;
-      meaning: string;
-      /** The two literal strings the name was concatenated from — see
-       * Candidate.parts in lib/candidates.ts — carried through so
-       * lib/brandability.ts can search the name as two separate words without
-       * re-deriving the split. */
-      parts: [string, string];
-      checkedCount: number;
-      foundCount: number;
-      /** All six are always present regardless of which gates were on —
-       * "unknown" for any platform that wasn't required (see
-       * DiscoveryGates) rather than the field being absent, so the client
-       * never has to distinguish "not checked" from "checked, but
-       * inconclusive" itself. */
-      instagram: SocialStatus;
-      github: SocialStatus;
-      tiktok: SocialStatus;
-      npm: SocialStatus;
-      youtube: SocialStatus;
-      twitter: SocialStatus;
-      /** Which generation mechanism produced this candidate — see CandidateSource — carried through so the UI can tell a dictionary pairing apart from an AI synonym/invented name/alt-spelling without re-parsing `meaning`. */
-      source: CandidateSource;
-    }
-  | { type: "complete"; checkedCount: number; foundCount: number }
-  | { type: "stopped"; checkedCount: number }
-  | { type: "error"; message: string };
-
-/**
- * Which of runDiscovery's candidate-rejection gates are actually active —
- * user-configurable (see the "Filters" section in page.tsx). Every gate
- * defaults to true (on) so the out-of-the-box behavior is unchanged from
- * before these were exposed, EXCEPT requireGithub, which defaults to false
- * (off) — see DEFERRED_PLATFORMS below for why GitHub specifically: it's
- * the one platform in this app confirmed (by a real 100-request-in-a-row
- * test, 2026-09-27) to actually hit a hard rate limit in practice, unlike
- * every other platform here (including two, Instagram/TikTok, that are
- * undocumented scraping just like GitHub's neighbors YouTube/X, and
- * including YouTube/X themselves, which cleared that same 100-request test
- * with zero rate-limit responses). Turning a gate off doesn't relax it —
- * it removes that check entirely, so more candidates (including
- * lower-quality ones) reach a real domain/social check.
- */
-export interface DiscoveryGates {
-  /** A result also requires an available Instagram username for the name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
-  requireInstagram: boolean;
-  /** Same requirement, for GitHub — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
-  requireGithub: boolean;
-  /** Same requirement, for TikTok — see EAGER_PLATFORMS/gateDisabled below. On by default. */
-  requireTiktok: boolean;
-  /** Same requirement, for an npm package name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
-  requireNpm: boolean;
-  /** Same requirement, for a YouTube channel handle — see EAGER_PLATFORMS/gateDisabled below. On by default. */
-  requireYoutube: boolean;
-  /** Same requirement, for an X (Twitter) handle — see EAGER_PLATFORMS/gateDisabled below. On by default. */
-  requireTwitter: boolean;
-  /** Reject candidates isPronounceable() flags as unpronounceable. */
-  filterPronounceable: boolean;
-  /** Reject candidates that read as a likely typo of a common word — see typocheck.ts. Only ever applies with no keyword (see worker() below). */
-  filterTypos: boolean;
-  /** Reject candidates with a rare/awkward letter pair — see niceness.ts. Only ever applies with no keyword (see worker() below). */
-  filterNiceness: boolean;
-}
-
-/**
- * Parses the nine gate toggles from request query params. Every gate
- * except requireGithub defaults to on (true) if absent/malformed,
- * reproducing the pre-gates behavior; only the literal string "false"
- * turns one of those off. requireGithub defaults to off (false) instead —
- * see the DiscoveryGates doc comment above — so only the literal string
- * "true" turns it on.
- */
-export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
-  const onByDefault = (key: string) => searchParams.get(key) !== "false";
-  const offByDefault = (key: string) => searchParams.get(key) === "true";
-  return {
-    requireInstagram: onByDefault("requireInstagram"),
-    requireGithub: offByDefault("requireGithub"),
-    requireTiktok: onByDefault("requireTiktok"),
-    requireNpm: onByDefault("requireNpm"),
-    requireYoutube: onByDefault("requireYoutube"),
-    requireTwitter: onByDefault("requireTwitter"),
-    filterPronounceable: onByDefault("filterPronounceable"),
-    filterTypos: onByDefault("filterTypos"),
-    filterNiceness: onByDefault("filterNiceness"),
-  };
-}
+// The event/gate types live in discoveryTypes.ts (and the per-name check
+// helpers in discoveryChecks.ts) so this file is just the search loop;
+// re-exported so existing importers of "@/lib/discovery" are unaffected.
+export { parseGates } from "@/lib/discoveryTypes";
+export type { DiscoveryEvent, DiscoveryGates, FilterCounts, FilterReason } from "@/lib/discoveryTypes";
 
 const CONCURRENCY = 4;
-const CHECK_DELAY_MS = 350;
-const RATE_LIMIT_BACKOFF_MS = 5000;
-const MAX_TRANSIENT_RETRIES = 3;
 
 // A name's least-common letter-pair needs to account for at least this
 // fraction of all letter-pairs in the dictionary to count as "nice" —
@@ -151,219 +34,6 @@ const MAX_TRANSIENT_RETRIES = 3;
 // pair like "mw") don't. A candidate below this is rejected outright (see
 // the niceness check in worker() below), the same as isPronounceable.
 const NICENESS_THRESHOLD = 0.0001;
-
-function delay(ms: number, signal: AbortSignal) {
-  return new Promise<void>((resolve) => {
-    if (signal.aborted) return resolve();
-    const t = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => {
-      clearTimeout(t);
-      resolve();
-    }, { once: true });
-  });
-}
-
-async function checkOne(name: string, tld: string, signal: AbortSignal, onEvent: (event: DiscoveryEvent) => void) {
-  let status: "available" | "taken" | "unknown" = "unknown";
-  let attempt = 0;
-  for (;;) {
-    if (signal.aborted) return "aborted" as const;
-    try {
-      status = await checkDomain(name, tld, signal);
-      break;
-    } catch (err) {
-      if (signal.aborted) return "aborted" as const;
-      if (err instanceof Error && err.name === "RateLimitError") {
-        onEvent({ type: "error", message: "RDAP rate limited, falling back to whois..." });
-        status = await checkDomainWhois(name, tld);
-        if (status !== "unknown") break;
-        // whois can't help for every TLD (e.g. .dev/.app have no whois
-        // server at all) — count this against the same retry cap so
-        // persistent rate-limiting eventually gives up instead of backing
-        // off forever.
-        attempt++;
-        if (attempt >= MAX_TRANSIENT_RETRIES) {
-          status = "unknown";
-          break;
-        }
-        await delay(RATE_LIMIT_BACKOFF_MS, signal);
-        continue;
-      }
-      attempt++;
-      if (attempt >= MAX_TRANSIENT_RETRIES) {
-        status = "unknown";
-        break;
-      }
-      await delay(1000, signal);
-    }
-  }
-
-  if (signal.aborted) return "aborted" as const;
-
-  // RDAP was inconclusive (down, errored out, or returned a non-200/404
-  // status, or the TLD isn't in the bootstrap registry) — fall back to whois.
-  if (status === "unknown") {
-    status = await checkDomainWhois(name, tld);
-  }
-  return status;
-}
-
-/**
- * One entry per social platform runDiscovery can require a result's
- * handle be available on — see DiscoveryGates and checkSocialOne/worker
- * below. Each platform's own lib module (instagram.ts, github.ts,
- * tiktok.ts) knows nothing about the others; this is the one place that
- * treats them as an interchangeable list, which is what lets the worker
- * loop check all of them with one generic path (checkSocialOne/
- * checkPlatformGroup) instead of a separate copy of the same
- * concurrency-sensitive logic per platform. Split below into two groups —
- * EAGER_PLATFORMS and DEFERRED_PLATFORMS — rather than one flat list,
- * since they're checked in two separate phases (see the pendingAvailable
- * loop in worker()). The split is by which platforms have actually been
- * observed hitting a real rate limit in practice, not by "documented API
- * vs. scraping" or "dev tool vs. social platform" — see the two groups'
- * own doc comments below for specifics. A 100-request-in-a-row burst
- * against each platform (2026-09-27) settled this empirically: GitHub hit
- * its documented cap exactly on schedule (403 starting at request #61 of
- * 100), while npm, Instagram (with INSTAGRAM_SESSION_ID configured),
- * TikTok, YouTube, and X all came back clean with zero rate-limit
- * responses — including two (YouTube, X) that had been deferred on a mere
- * suspicion before that test ran.
- */
-interface SocialPlatform {
-  key: "instagram" | "github" | "tiktok" | "npm" | "youtube" | "twitter";
-  /** Used in user-facing log/error messages — see checkSocialOne and the
-   * "structurally blocked" breaker below. */
-  label: string;
-  gate: keyof Pick<
-    DiscoveryGates,
-    "requireInstagram" | "requireGithub" | "requireTiktok" | "requireNpm" | "requireYoutube" | "requireTwitter"
-  >;
-  check: (name: string, signal?: AbortSignal) => Promise<SocialStatus>;
-  /** The Error.name a check throws for "structurally blocked, not just
-   * rate-limited" (retrying the identical request won't help — only
-   * dropping the requirement will) — see instagram.ts's LoginWallError.
-   * Undefined for a platform with no such distinct failure mode: github.ts
-   * hits a real, documented API that has no login-wall-style redirect to
-   * detect, and tiktok.ts's scraping hasn't shown one either (its own
-   * failure modes so far are 429 and generic non-200s, both already
-   * covered by the same retry/backoff every platform gets below). Same for
-   * npm.ts (a real documented API, like github.ts) and youtube.ts/twitter.ts
-   * (status-code-only scraping that also hasn't shown a distinct
-   * login-wall-style signal in testing).
-   */
-  blockedErrorName?: string;
-}
-// Every platform here (like every one below) throws RateLimitError on a
-// 429, but none of these five have actually been observed hitting it in
-// practice: npm's public registry limit isn't documented and a 100-request
-// burst (2026-09-27) came back clean; Instagram's only real out-of-the-box
-// failure mode is its login wall (a structural block, not a rate limit —
-// see LoginWallError above — and a non-issue at all once
-// INSTAGRAM_SESSION_ID is configured); and TikTok/YouTube/X all held up
-// through that same 100-request burst with zero rate-limit responses
-// (YouTube and X had been grouped as deferred before that test ran, on a
-// suspicion neither actually panned out). Cheap enough to run eagerly
-// alongside the domain checks and on by default.
-const EAGER_PLATFORMS: SocialPlatform[] = [
-  { key: "npm", label: "npm", gate: "requireNpm", check: checkNpmPackageName },
-  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
-  { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
-  { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
-  { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
-];
-
-// Checked only once every EAGER_PLATFORMS requirement has already passed
-// (see the pendingAvailable loop below), so a candidate that would be
-// filtered out anyway never burns one of these requests, and it defaults
-// off (see parseGates/DEFAULT_GATES) rather than requiring the user to
-// hit a rate limit before discovering they should turn it off. GitHub is
-// the only platform in this app confirmed to actually hit its limit in
-// practice: unlike every other platform, its 403 + X-RateLimit-Remaining:0
-// response documents a hard, tight cap (60 unauthenticated requests/hour
-// per IP — confirmed directly 2026-09-25 by reading its docs, and again
-// 2026-09-27 by an actual 100-request-in-a-row test that hit 403 exactly
-// at request #61), and was the platform whose exhausted-rate-limit case
-// this app's SOCIAL_BLOCKED_STREAK_THRESHOLD breaker was originally
-// written to handle. That same test ran against npm/Instagram/TikTok/
-// YouTube/X too (see EAGER_PLATFORMS above) and came back clean for all
-// five, so GitHub stands alone here now.
-const DEFERRED_PLATFORMS: SocialPlatform[] = [
-  { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
-];
-
-// How many consecutive "blocked" results (see SocialPlatform.blockedErrorName
-// above) it takes before a search concludes a given platform's checking is
-// structurally blocked right now, not just having a rough patch — at which
-// point it stops requiring that one platform for the rest of this search.
-// Reset by any non-blocked result for that platform, so a handful of
-// sporadic blips can't trip it; only a sustained run can. Each platform
-// tracks its own streak independently (see gateDisabled/blockedStreaks in
-// runDiscovery) — one platform tripping this never affects the others.
-const SOCIAL_BLOCKED_STREAK_THRESHOLD = 3;
-
-// Checked once per found name (see worker below), not once per TLD, so this
-// runs far less often than checkOne — but every platform here is on much
-// shakier ground than RDAP/whois (either undocumented HTML structure, or —
-// for GitHub — a real API but one this app has no elevated access to), so
-// each gets the same retry/backoff treatment rather than failing a whole
-// search over one flaky response. Returns "blocked" (rather than retrying)
-// when the platform's own blockedErrorName fires — that isn't transient the
-// way a rate limit is, so retrying the same candidate won't help; the
-// caller tracks how often this happens per platform.
-async function checkSocialOne(
-  platform: SocialPlatform,
-  name: string,
-  signal: AbortSignal,
-  onEvent: (event: DiscoveryEvent) => void
-) {
-  let status: SocialStatus = "unknown";
-  let attempt = 0;
-  for (;;) {
-    if (signal.aborted) return "aborted" as const;
-    try {
-      status = await platform.check(name, signal);
-      break;
-    } catch (err) {
-      if (signal.aborted) return "aborted" as const;
-      if (platform.blockedErrorName && err instanceof Error && err.name === platform.blockedErrorName) {
-        return "blocked" as const;
-      }
-      if (err instanceof Error && err.name === "RateLimitError") {
-        onEvent({ type: "error", message: `${platform.label} rate limited, backing off...` });
-        attempt++;
-        if (attempt >= MAX_TRANSIENT_RETRIES) {
-          // Some of these limits are hourly (see github.ts's 60/hour
-          // unauthenticated cap) — a few seconds of backoff can't outlast
-          // that, and falling through to "unknown" would fail every
-          // remaining candidate for the rest of this search with no way
-          // to recover, unlike the SOCIAL_BLOCKED_STREAK_THRESHOLD breaker
-          // below, which only counts the "blocked" return value. Returning
-          // "blocked" here (once retries are exhausted, not on the first
-          // hit) lets a sustained rate limit trip that same breaker instead.
-          return "blocked" as const;
-        }
-        await delay(RATE_LIMIT_BACKOFF_MS, signal);
-        continue;
-      }
-      attempt++;
-      if (attempt >= MAX_TRANSIENT_RETRIES) {
-        status = "unknown";
-        break;
-      }
-      await delay(1000, signal);
-    }
-  }
-  if (signal.aborted) return "aborted" as const;
-  // A slightly longer delay than the domain check's: this only fires once
-  // per found name (bounded by targetCount) rather than once per TLD, but
-  // every platform here has a stricter anti-scraping/rate-limit posture
-  // than a domain registry's, so it's worth being more conservative
-  // per-request. Platforms run concurrently (see worker below), so this
-  // delay overlaps across them rather than stacking.
-  await delay(CHECK_DELAY_MS * 2, signal);
-  return status;
-}
 
 /**
  * Runs one independent discovery search: a freshly seeded, shuffled walk
@@ -492,6 +162,10 @@ export async function runDiscovery(
   // Dedupe by name so we never check (or report as found) the same domain
   // twice in one run.
   const seenNames = new Set<string>();
+  const filterCounts: FilterCounts = {};
+  const countFilter = (reason: FilterReason) => {
+    filterCounts[reason] = (filterCounts[reason] ?? 0) + 1;
+  };
 
   // A respelling is deliberately built to drop a vowel or double a letter
   // (see lib/alternateSpelling.ts) — "lyft" reads as an intentional brand
@@ -587,10 +261,16 @@ export async function runDiscovery(
       // workers can't both slip past this for the same name.
       if (seenNames.has(name)) continue;
       seenNames.add(name);
-      if (name.length > maxLength) continue;
+      if (name.length > maxLength) {
+        countFilter("tooLong");
+        continue;
+      }
       // Alt-spelling candidates are exempt — see altSpellingSet above.
       const isAltSpelling = altSpellingSet.has(parts[0]) || altSpellingSet.has(parts[1]);
-      if (gates.filterPronounceable && !isAltSpelling && !isPronounceable(name)) continue;
+      if (gates.filterPronounceable && !isAltSpelling && !isPronounceable(name)) {
+        countFilter("unpronounceable");
+        continue;
+      }
       // Skipped when a keyword is present: both checks judge the whole
       // name as if it were algorithmically generated, but a keyword is a
       // fixed, user-chosen string glued onto a word, not another generated
@@ -600,11 +280,17 @@ export async function runDiscovery(
         // letter off) rather than an intentional invented name — see
         // typocheck.ts for why this is a local dictionary check rather than
         // a live search engine's spelling correction.
-        if (gates.filterTypos && typoIndex.findMatch(name)) continue;
+        if (gates.filterTypos && typoIndex.findMatch(name)) {
+          countFilter("typo");
+          continue;
+        }
         // Contains a letter pair that barely occurs anywhere in real English
         // words (e.g. "mw") — reads as clunky rather than a natural-sounding
         // invented name. See niceness.ts.
-        if (gates.filterNiceness && nicenessIndex.score(name) < NICENESS_THRESHOLD) continue;
+        if (gates.filterNiceness && nicenessIndex.score(name) < NICENESS_THRESHOLD) {
+          countFilter("awkward");
+          continue;
+        }
       }
 
       // Each social platform is checked once per name (none of them have a
@@ -638,6 +324,9 @@ export async function runDiscovery(
         const domain = `${name}.${tld}`;
         onEvent({ type: "checking", name: domain, checkedCount });
 
+        // A remembered answer costs no request, so the politeness delay
+        // below is skipped for it.
+        const wasCached = isDomainCached(name, tld);
         const status = await checkOne(name, tld, signal, onEvent);
         if (status === "aborted") return;
 
@@ -659,7 +348,7 @@ export async function runDiscovery(
         }
 
         if (signal.aborted) return;
-        await delay(CHECK_DELAY_MS, signal);
+        if (!wasCached) await delay(CHECK_DELAY_MS, signal);
       }
 
       for (const { domain } of pendingAvailable) {
@@ -708,6 +397,9 @@ export async function runDiscovery(
           (p) => !gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available"
         );
         if (anyEagerUnavailable) {
+          for (const p of EAGER_PLATFORMS) {
+            if (!gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available") countFilter(p.key);
+          }
           onEvent({ type: "filtered", name: domain, checkedCount });
           continue;
         }
@@ -729,6 +421,9 @@ export async function runDiscovery(
           (p) => !gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available"
         );
         if (anyDeferredUnavailable) {
+          for (const p of DEFERRED_PLATFORMS) {
+            if (!gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available") countFilter(p.key);
+          }
           onEvent({ type: "filtered", name: domain, checkedCount });
           continue;
         }
@@ -760,8 +455,8 @@ export async function runDiscovery(
   await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
   if (signal.aborted) {
-    onEvent({ type: "stopped", checkedCount });
+    onEvent({ type: "stopped", checkedCount, filterCounts });
   } else {
-    onEvent({ type: "complete", checkedCount, foundCount });
+    onEvent({ type: "complete", checkedCount, foundCount, filterCounts });
   }
 }

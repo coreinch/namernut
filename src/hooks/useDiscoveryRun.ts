@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { DiscoveryGates } from "@/lib/discovery";
+import type { FilterCounts } from "@/lib/discoveryTypes";
 import type { FoundEntry, LogEntry, LogStatus, RunStatus } from "@/lib/types";
 import { DEFAULT_RESULT_COUNT, type RegionOption } from "@/lib/searchConfig";
 import { MAX_FOUND_HISTORY } from "./usePersistedAppState";
@@ -86,6 +87,9 @@ export function useDiscoveryRun({
   // with a concrete "Getting AI ideas…" state instead of a run that looks
   // like it hasn't started.
   const [gettingIdeas, setGettingIdeas] = useState(false);
+  // Why candidates were dropped this run — set from the final "complete"/
+  // "stopped" event (see FilterCounts), so it stays empty while running.
+  const [filterCounts, setFilterCounts] = useState<FilterCounts>({});
   const [currentRunFound, setCurrentRunFound] = useState(0);
   // A collision-proof id per search, not a simple counter: results
   // (tagged with the runId that found them) are persisted across reloads
@@ -224,6 +228,7 @@ export function useDiscoveryRun({
     setErrorMessage(null);
     setCheckedCount(0);
     setCurrentRunFound(0);
+    setFilterCounts({});
     setLog([]);
     setAiSynonymWords([]);
     setAiInventedWords([]);
@@ -378,9 +383,11 @@ export function useDiscoveryRun({
               setRunStatus("found");
               setCheckedCount(event.checkedCount);
               setCurrentRunFound(event.foundCount);
+              setFilterCounts(event.filterCounts ?? {});
               break;
             case "stopped":
               setRunStatus("stopped");
+              setFilterCounts(event.filterCounts ?? {});
               break;
             case "error":
               setErrorMessage(event.message);
@@ -435,6 +442,7 @@ export function useDiscoveryRun({
     log,
     checkedCount,
     currentRunFound,
+    filterCounts,
     activeRunId,
     gettingIdeas,
     aiSynonymWords,

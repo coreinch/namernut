@@ -1,12 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FoundEntry } from "@/lib/types";
+import { useCallback, useMemo, useState } from "react";
 import {
   DEFAULT_RESULT_COUNT,
   PRIMARY_TLD_COUNT,
   TLDS,
-  type DictionaryStats,
   type Lang,
   type Tld,
 } from "@/lib/searchConfig";
@@ -18,8 +16,13 @@ import { SettingsPanel } from "@/components/SettingsPanel";
 import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { ResultsGrid } from "@/components/ResultsGrid";
 import { LiveLogSection } from "@/components/LiveLogSection";
+import { FilterSummary } from "@/components/FilterSummary";
 import { usePersistedAppState } from "@/hooks/usePersistedAppState";
 import { useAutoUpdate } from "@/hooks/useAutoUpdate";
+import { useDictionaryStats } from "@/hooks/useDictionaryStats";
+import { useFocusHandoff } from "@/hooks/useFocusHandoff";
+import { useResultActions } from "@/hooks/useResultActions";
+import { useResultLists } from "@/hooks/useResultLists";
 import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 
 // Fed to tryExample below (the example-keyword chips) — each was verified
@@ -53,15 +56,6 @@ function formatNumber(n: number) {
   return n.toLocaleString("en-US");
 }
 
-// TODO(affiliate): once we're signed up with Namecheap's affiliate program,
-// tag this URL with whatever tracking it requires. Left as a single named
-// spot rather than guessing now, since the exact mechanism (a query param
-// appended here vs. wrapping the whole URL in a redirect through the
-// affiliate network's own domain, e.g. Awin/CJ) depends on which program we
-// actually join.
-function namecheapRegisterUrl(domain: string): string {
-  return `https://www.namecheap.com/domains/registration/results/?domain=${encodeURIComponent(domain)}`;
-}
 
 export default function Home() {
   const {
@@ -90,7 +84,6 @@ export default function Home() {
     scoredNamesRef,
   } = usePersistedAppState();
 
-  const [stats, setStats] = useState<DictionaryStats | null>(null);
   const [showMoreTlds, setShowMoreTlds] = useState(false);
   // Mobile/`<lg` only (see SettingsDrawer) — on `lg:` screens SettingsPanel
   // renders inline as a permanent rail instead, so this stays false there
@@ -134,39 +127,8 @@ export default function Home() {
     });
   }, [setEnabledTlds]);
 
-  useEffect(() => {
-    // Abort the previous in-flight request on every re-run (including on
-    // unmount): without this, the very first fetch — dispatched on mount
-    // with the default all-languages selection, before localStorage
-    // hydration restores the real one a moment later — can resolve *after*
-    // the second, correct-filters request and silently overwrite it with
-    // the stale, unfiltered pool size. Aborting means only the latest
-    // request's response can ever reach setStats.
-    const controller = new AbortController();
-    // keywordParam changes on every keystroke in the keyword field — debounce
-    // so typing doesn't fire a request per character.
-    const id = setTimeout(() => {
-      fetch(
-        `/api/stats?langs=${encodeURIComponent(langsParam)}&maxLength=${maxLength}&keyword=${encodeURIComponent(keywordParam)}`,
-        { signal: controller.signal }
-      )
-        // A non-2xx response (e.g. STATS_RATE_LIMIT hit) is a plain
-        // {error: "..."} JSON body, not a DictionaryStats shape — passing
-        // it straight to setStats crashed SettingsPanel's
-        // formatNumber(stats.totalCombinations) on the resulting
-        // `undefined`. Match the res.ok guard already used by the
-        // discover/brandability fetches below.
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          if (data) setStats(data);
-        })
-        .catch(() => {});
-    }, 250);
-    return () => {
-      clearTimeout(id);
-      controller.abort();
-    };
-  }, [langsParam, maxLength, keywordParam]);
+
+  const stats = useDictionaryStats(langsParam, maxLength, keywordParam);
 
   const {
     runStatus,
@@ -174,6 +136,7 @@ export default function Home() {
     checkedCount,
     currentRunFound,
     activeRunId,
+    filterCounts,
     gettingIdeas,
     aiSynonymWords,
     aiInventedWords,
@@ -215,114 +178,27 @@ export default function Home() {
     start(keyword);
   }, [start, setKeywordInput]);
 
-  const searchDomain = useCallback((entry: FoundEntry) => {
-    // Search the bare name, not the TLD (e.g. "swiftfox", not "swiftfox.com") —
-    // domain here is always name + "." + tld, no subdomains, so splitting on
-    // the first "." reliably strips it.
-    const name = entry.domain.split(".")[0];
-    const url = `https://www.google.com/search?q=${encodeURIComponent(name)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
-  }, []);
 
-  const registerDomain = useCallback((entry: FoundEntry) => {
-    window.open(namecheapRegisterUrl(entry.domain), "_blank", "noopener,noreferrer");
-  }, []);
-
-  const toggleFavorite = useCallback((entry: FoundEntry) => {
-    setFavorites((prev) =>
-      prev.some((f) => f.domain === entry.domain)
-        ? prev.filter((f) => f.domain !== entry.domain)
-        : [entry, ...prev]
-    );
-  }, [setFavorites]);
-
-  // Only ever wired to the Current/Archive tabs (see ResultCard's own
-  // comment on why Favorites omits this) — doesn't touch `favorites`,
-  // which is intentionally a separate, durable copy (see toggleFavorite
-  // above) rather than a reference into foundHistory. Also drops the
-  // domain from foundDomainsRef: without this, a later run that
-  // legitimately rediscovers the same available domain would have its
-  // "found" handler see isNewFind === false (see useDiscoveryRun's start())
-  // and silently skip re-adding it — removal would look like it worked
-  // once, then quietly made that domain unreachable forever.
-  const removeEntry = useCallback((entry: FoundEntry) => {
-    setFoundHistory((prev) => prev.filter((e) => e.id !== entry.id));
-    foundDomainsRef.current.delete(entry.domain);
-  }, [setFoundHistory, foundDomainsRef]);
+  const { searchDomain, registerDomain, toggleFavorite, removeEntry } = useResultActions({
+    setFavorites,
+    setFoundHistory,
+    foundDomainsRef,
+  });
 
   const isRunning = runStatus === "running";
   useAutoUpdate(isRunning);
 
-  // The Footer (see below) only renders while isRunning — its own "Stop"
-  // button unmounts the instant a run ends, whether from actually finishing
-  // or from that same button being clicked. A mouse user never notices
-  // (there's nothing left to click there anyway), but a keyboard/screen-
-  // reader user who had focus on it gets silently dropped to <body> — the
-  // same failure mode ResultCard's onRemove and SettingsDrawer's onClose
-  // both hand focus off explicitly to avoid. Unlike those two, there's no
-  // single natural "next" element already in hand here, so this checks
-  // whether focus actually landed on <body> (the one-node signature of an
-  // unmounted-out-from-under-you focus loss) before redirecting it — never
-  // steals focus from something the user is legitimately doing elsewhere.
-  const wasRunningRef = useRef(isRunning);
-  useEffect(() => {
-    if (wasRunningRef.current && !isRunning && document.activeElement === document.body) {
-      document.getElementById("primary-search-action")?.focus();
-    }
-    wasRunningRef.current = isRunning;
-  }, [isRunning]);
 
   // Only ever rendered while !isRunning (see the footer below, which shows
   // a fixed "Stop" button instead while a search is active) — no
   // "Searching…" branch needed here.
   const primaryLabel = runStatus === "idle" ? "Generate" : "Search again";
-  // foundHistory is stored newest-first (new finds are prepended, so
-  // Favorites/Archive read newest-first). Reverse just this slice first so
-  // ties (equal score, or both still unscored) fall back to discovery
-  // order — first found stays earlier, each new one appends after it —
-  // rather than reshuffling on every find. Then rank by brandabilityScore,
-  // highest first, same as the Archive tab below: since autoCheck fires a
-  // brandability check as soon as a result is found, scores stream in
-  // asynchronously and the list re-sorts as they land. Entries with no
-  // score yet sort last via the ?? -1 fallback.
-  const currentRunResults = useMemo(
-    () =>
-      foundHistory
-        .filter((e) => e.runId === activeRunId)
-        .slice()
-        .reverse()
-        .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1)),
-    [foundHistory, activeRunId]
-  );
-  // Everything not from the active run, ranked best-first (highest
-  // brandabilityScore — easiest to actually rank #1 for — at the top): once
-  // a result has aged out of the current run, how promising it is matters
-  // more than when it happened to turn up. Entries with no score yet
-  // (never checked — see FoundEntry) sort last, via the ?? -1 fallback,
-  // rather than being scattered among real 0-100 scores. Always reachable
-  // via the Archive tab (see Header) — there's no separate "top ranked"
-  // slot to fill an idle screen anymore, since the tab itself is always on
-  // screen.
-  const archiveResults = useMemo(
-    () =>
-      foundHistory
-        .filter((e) => e.runId !== activeRunId)
-        .slice()
-        .sort((a, b) => (b.brandabilityScore ?? -1) - (a.brandabilityScore ?? -1)),
-    [foundHistory, activeRunId]
-  );
-  // Matches on the domain only (not `meaning`'s free-text description) —
-  // the filter box exists to jump back to a specific name someone
-  // remembers, not to full-text search every dictionary-pairing blurb.
-  const trimmedArchiveFilter = archiveFilter.trim().toLowerCase();
-  const filteredArchiveResults = useMemo(
-    () =>
-      trimmedArchiveFilter
-        ? archiveResults.filter((e) => e.domain.toLowerCase().includes(trimmedArchiveFilter))
-        : archiveResults,
-    [archiveResults, trimmedArchiveFilter]
-  );
-  const favoriteDomains = useMemo(() => new Set(favorites.map((f) => f.domain)), [favorites]);
+  const { currentRunResults, archiveResults, filteredArchiveResults, favoriteDomains } = useResultLists({
+    foundHistory,
+    favorites,
+    activeRunId,
+    archiveFilter,
+  });
   const statusText = gettingIdeas ? "Getting AI ideas…" : `${formatNumber(checkedCount)} checked this search`;
   const tabCounts: Record<ResultsTab, number> = {
     current: currentRunResults.length,
@@ -342,28 +218,8 @@ export default function Home() {
   // they've searched again this session) — that's a real "Current" tab
   // state, not the first-visit case, so it still gets the full layout.
   const isFirstVisit = runStatus === "idle" && foundHistory.length === 0 && favorites.length === 0;
+  useFocusHandoff(isRunning, isFirstVisit);
 
-  // Starting the very first search flips isFirstVisit false in the same
-  // render that starts the run — swapping the entire hero layout (including
-  // the very "Generate" button just clicked) for the compact layout below,
-  // whose SearchBar is a structurally different subtree, not an update to
-  // the same one. React has no reason to preserve identity across that, so
-  // the hero's Generate button unmounts along with the rest of the hero,
-  // dropping a keyboard/screen-reader user's focus to <body> on literally
-  // their first interaction with the app — confirmed directly (activeElement
-  // was <body> right after firing this click in isolation). Same guarded-
-  // redirect shape as the isRunning effect above (only ever act once focus
-  // has actually landed on <body>, never steal it preemptively): once the
-  // compact layout mounts, its own primary button (now reading "Stop",
-  // since the run isFirstVisit was gating on already started) is the
-  // closest equivalent to what was just clicked.
-  const wasFirstVisitRef = useRef(isFirstVisit);
-  useEffect(() => {
-    if (wasFirstVisitRef.current && !isFirstVisit && document.activeElement === document.body) {
-      document.getElementById("primary-search-action")?.focus();
-    }
-    wasFirstVisitRef.current = isFirstVisit;
-  }, [isFirstVisit]);
 
   // Shared by both places SettingsPanel renders (the desktop rail and the
   // mobile SettingsDrawer) so the two can never drift out of sync with each
@@ -513,6 +369,7 @@ export default function Home() {
                       pendingCount={isRunning ? Math.max(0, DEFAULT_RESULT_COUNT - currentRunResults.length) : 0}
                     />
                   )}
+                  {!isRunning && <FilterSummary counts={filterCounts} />}
                   <LiveLogSection log={log} logBoxRef={logBoxRef} isRunning={isRunning} />
                 </section>
               )}
