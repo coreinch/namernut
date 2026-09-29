@@ -39,6 +39,9 @@ const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
 describe("checkBrandability", () => {
   beforeEach(() => {
+    // GitHub's runners export CHROME_BIN themselves, which would silently put
+    // the Chrome provider first in every test; tests that want it opt in.
+    vi.stubEnv("CHROME_BIN", "");
     clearBrandabilityCache();
     searchMock.mockReset();
     completeChatMock.mockReset();
