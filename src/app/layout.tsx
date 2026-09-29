@@ -94,9 +94,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${sora.variable} h-full antialiased overscroll-none`}
+      className={`${spaceGrotesk.variable} ${sora.variable} h-full antialiased`}
     >
-      <body className="h-full flex flex-col overscroll-none">
+      <body className="h-full flex flex-col">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}

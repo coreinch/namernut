@@ -19,6 +19,7 @@ import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { ResultsGrid } from "@/components/ResultsGrid";
 import { LiveLogSection } from "@/components/LiveLogSection";
 import { usePersistedAppState } from "@/hooks/usePersistedAppState";
+import { useAutoUpdate } from "@/hooks/useAutoUpdate";
 import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 
 // Fed to tryExample below (the example-keyword chips) — each was verified
@@ -250,6 +251,7 @@ export default function Home() {
   }, [setFoundHistory, foundDomainsRef]);
 
   const isRunning = runStatus === "running";
+  useAutoUpdate(isRunning);
 
   // The Footer (see below) only renders while isRunning — its own "Stop"
   // button unmounts the instant a run ends, whether from actually finishing
@@ -412,7 +414,7 @@ export default function Home() {
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <Header activeTab={activeTab} onTabChange={setActiveTab} counts={tabCounts} showTabs={!isFirstVisit} />
 
-      <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6">
+      <main className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-6">
         {isFirstVisit ? (
           // The entire first-ever screen: hero copy + keyword field +
           // example chips, vertically centered, nothing else — see
