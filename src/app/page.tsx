@@ -12,6 +12,7 @@ import { CONTENT_WIDTH, FOCUS_RING, PAGE_WIDTH } from "@/components/constants";
 import { Header, tabButtonId, tabPanelId, type ResultsTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { SearchBar } from "@/components/SearchBar";
+import { ExampleResults } from "@/components/ExampleResults";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { ResultsGrid } from "@/components/ResultsGrid";
@@ -277,8 +278,9 @@ export default function Home() {
           // isFirstVisit's own comment above for why every other section
           // (tabs, style chips, advanced filters, results, log) is left out
           // rather than rendered empty.
-          <div className={`mx-auto flex h-full w-full flex-col justify-start gap-5 pt-2 sm:justify-center sm:pt-0 ${CONTENT_WIDTH}`}>
+          <div className={`mx-auto flex min-h-full w-full flex-col justify-start gap-5 pt-2 sm:justify-center sm:pt-0 ${CONTENT_WIDTH}`}>
             <SearchBar mode="hero" {...searchBarProps} />
+            {!isRunning && <ExampleResults />}
           </div>
         ) : (
           <div className={`mx-auto flex w-full flex-col gap-6 lg:grid lg:grid-cols-[300px_1fr] lg:items-start lg:gap-8 ${PAGE_WIDTH}`}>
