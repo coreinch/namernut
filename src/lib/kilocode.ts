@@ -14,7 +14,12 @@
  * OpenRouter-proxy path.
  */
 const ENDPOINT = "https://api.kilo.ai/api/gateway/v1/chat/completions";
-const DEFAULT_MODEL = "kilo-auto/free";
+// Pinned 2026-09-29 after benchmarking every free gateway model with the real
+// synonyms+invented prompt (3 sequential runs each): stepfun/step-3.7-flash:free
+// was the fastest one that answered validly every time (~19-32s, 3/3 ok).
+// kilo-auto/free routes to overloaded/hanging upstreams (frequent 503s and
+// timeouts); the other free models mostly errored or timed out.
+const DEFAULT_MODEL = "stepfun/step-3.7-flash:free";
 
 export class KilocodeApiKeyMissingError extends Error {
   constructor() {

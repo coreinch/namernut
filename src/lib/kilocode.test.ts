@@ -47,14 +47,14 @@ describe("completeChat", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("defaults to the free auto-router model when KILOCODE_MODEL is unset", async () => {
+  it("defaults to the pinned free model when KILOCODE_MODEL is unset", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockResponse(200, { choices: [{ message: { content: "ok" } }] })
     );
     vi.stubGlobal("fetch", fetchMock);
     await completeChat("hi");
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.model).toBe("kilo-auto/free");
+    expect(body.model).toBe("stepfun/step-3.7-flash:free");
   });
 
   it("uses KILOCODE_MODEL when set", async () => {

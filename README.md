@@ -46,7 +46,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `SERPER_API_KEY` | Yes (primary provider) | Web search backing the brandability check ([serper.dev](https://serper.dev)) |
 | `SERPENT_API_KEY` | Recommended | Automatic fallback search provider, used only if the primary fails — not a settable choice |
 | `KILOCODE_API_KEY` | Yes | LLM calls for AI synonyms/invented names/brandability summaries |
-| `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the free auto-router model |
+| `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the pinned free model `stepfun/step-3.7-flash:free` |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |
 
 ## Scripts
