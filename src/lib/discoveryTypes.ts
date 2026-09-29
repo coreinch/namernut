@@ -101,7 +101,7 @@ export type DiscoveryEvent =
  * lower-quality ones) reach a real domain/social check.
  */
 export interface DiscoveryGates {
-  /** A result also requires an available Instagram username for the name — see EAGER_PLATFORMS/gateDisabled below. On by default. */
+  /** A result also requires an available Instagram username for the name — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
   requireInstagram: boolean;
   /** Same requirement, for GitHub — see DEFERRED_PLATFORMS/gateDisabled below. Off by default. */
   requireGithub: boolean;
@@ -133,7 +133,7 @@ export function parseGates(searchParams: URLSearchParams): DiscoveryGates {
   const onByDefault = (key: string) => searchParams.get(key) !== "false";
   const offByDefault = (key: string) => searchParams.get(key) === "true";
   return {
-    requireInstagram: onByDefault("requireInstagram"),
+    requireInstagram: offByDefault("requireInstagram"),
     requireGithub: offByDefault("requireGithub"),
     requireTiktok: onByDefault("requireTiktok"),
     requireNpm: onByDefault("requireNpm"),

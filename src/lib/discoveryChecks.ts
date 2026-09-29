@@ -159,7 +159,6 @@ export interface SocialPlatform {
 // alongside the domain checks and on by default.
 export const EAGER_PLATFORMS: SocialPlatform[] = [
   { key: "npm", label: "npm", gate: "requireNpm", check: checkNpmPackageName },
-  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
   { key: "tiktok", label: "TikTok", gate: "requireTiktok", check: checkTiktokUsername },
   { key: "youtube", label: "YouTube", gate: "requireYoutube", check: checkYoutubeHandle },
   { key: "twitter", label: "X", gate: "requireTwitter", check: checkTwitterHandle },
@@ -182,6 +181,7 @@ export const EAGER_PLATFORMS: SocialPlatform[] = [
 // five, so GitHub stands alone here now.
 export const DEFERRED_PLATFORMS: SocialPlatform[] = [
   { key: "github", label: "GitHub", gate: "requireGithub", check: checkGithubUsername },
+  { key: "instagram", label: "Instagram", gate: "requireInstagram", check: checkInstagramUsername, blockedErrorName: "LoginWallError" },
 ];
 
 // How many consecutive "blocked" results (see SocialPlatform.blockedErrorName

@@ -50,7 +50,7 @@ interface PersistedState {
 // this constant's own comment above for why the two must stay in sync by
 // hand.
 export const DEFAULT_GATES: DiscoveryGates = {
-  requireInstagram: true,
+  requireInstagram: false,
   requireGithub: false,
   requireTiktok: true,
   requireNpm: true,

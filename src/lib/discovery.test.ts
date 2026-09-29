@@ -1120,22 +1120,22 @@ describe("runDiscovery", () => {
 // on-by-default behavior, same as every quality filter.
 const DEFAULT_QUERY_GATES: DiscoveryGates = {
   ...ALL_GATES_ON,
+  requireInstagram: false,
   requireGithub: false,
 };
 
 describe("parseGates", () => {
-  it("defaults every gate on for an empty/missing query string, except requireGithub", () => {
+  it("defaults every gate on for an empty/missing query string, except requireGithub and requireInstagram", () => {
     expect(parseGates(new URLSearchParams(""))).toEqual(DEFAULT_QUERY_GATES);
   });
 
   it("turns an on-by-default gate off only when its param is exactly the string 'false'", () => {
     expect(
       parseGates(
-        new URLSearchParams("requireInstagram=false&requireTiktok=false&requireNpm=false&requireYoutube=false&requireTwitter=false")
+        new URLSearchParams("requireTiktok=false&requireNpm=false&requireYoutube=false&requireTwitter=false")
       )
     ).toEqual({
       ...DEFAULT_QUERY_GATES,
-      requireInstagram: false,
       requireTiktok: false,
       requireNpm: false,
       requireYoutube: false,
