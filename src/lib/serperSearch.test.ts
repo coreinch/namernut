@@ -35,15 +35,41 @@ describe("serperSearch", () => {
         })
       )
     );
-    await expect(serperSearch("foo", "us")).resolves.toEqual([
-      { title: "A", description: "desc a", url: "https://a.example" },
-      { title: "B", description: "desc b", url: "https://b.example" },
-    ]);
+    await expect(serperSearch("foo", "us")).resolves.toEqual({
+      results: [
+        { title: "A", description: "desc a", url: "https://a.example" },
+        { title: "B", description: "desc b", url: "https://b.example" },
+      ],
+    });
   });
 
-  it("returns an empty array when the response has no organic results", async () => {
+  it("maps Google's query substitution, knowledge graph, related searches, and PAA into context", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        mockResponse(200, {
+          organic: [],
+          searchInformation: { showingResultsFor: "findterm" },
+          knowledgeGraph: { title: "Findterm", type: "Company", description: "desc" },
+          relatedSearches: [{ query: "r1" }, {}],
+          peopleAlsoAsk: [{ question: "q1" }, {}],
+        })
+      )
+    );
+    await expect(serperSearch("fondterm", "us")).resolves.toEqual({
+      results: [],
+      context: {
+        showingResultsFor: "findterm",
+        knowledgeGraph: { title: "Findterm", type: "Company", description: "desc" },
+        relatedSearches: ["r1"],
+        peopleAlsoAsk: ["q1"],
+      },
+    });
+  });
+
+  it("returns empty results and no context when the response has nothing", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(200, {})));
-    await expect(serperSearch("foo", "us")).resolves.toEqual([]);
+    await expect(serperSearch("foo", "us")).resolves.toEqual({ results: [] });
   });
 
   it("sends the API key as X-API-KEY, the query as 'q', and the region as 'gl' in a POST body", async () => {

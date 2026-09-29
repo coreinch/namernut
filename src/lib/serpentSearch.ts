@@ -7,11 +7,12 @@
  * results.organic[] with title/url/snippet/position, matching the shape
  * documented at https://apiserpent.com/docs. No spelling-correction/"did
  * you mean" field anywhere in the response (checked with a deliberately
- * misspelled query) — same blind spot as Serper.dev, which is why
- * brandability.ts relies on the LLM reading result content instead (see the
+ * misspelled query), unlike Serper.dev's searchInformation.showingResultsFor
+ * (see serperSearch.ts) — so a Serpent result carries no SearchContext, and
+ * brandability.ts falls back to the LLM reading result content (see the
  * override-detection rubric bullet in buildPrompt).
  */
-import type { SearchResult } from "@/lib/searchProvider";
+import type { SearchResponse } from "@/lib/searchProvider";
 
 const ENDPOINT = "https://apiserpent.com/api/search";
 
@@ -53,7 +54,7 @@ export async function serpentSearch(
   query: string,
   region: string,
   signal?: AbortSignal
-): Promise<SearchResult[]> {
+): Promise<SearchResponse> {
   const apiKey = process.env.SERPENT_API_KEY;
   if (!apiKey) throw new SerpentApiKeyMissingError();
 
@@ -86,9 +87,11 @@ export async function serpentSearch(
 
   const data = (await res.json()) as SerpentApiResponse;
   const items = data.results?.organic ?? [];
-  return items.map((item) => ({
-    title: item.title ?? "",
-    description: item.snippet ?? "",
-    url: item.url ?? "",
-  }));
+  return {
+    results: items.map((item) => ({
+      title: item.title ?? "",
+      description: item.snippet ?? "",
+      url: item.url ?? "",
+    })),
+  };
 }

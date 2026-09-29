@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SearchResult } from "./searchProvider";
+import type { SearchResponse } from "./searchProvider";
 
-const serperSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
-const serpentSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>>();
+const serperSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>>();
+const serpentSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>>();
 
 vi.mock("./serperSearch", () => ({
   serperSearch: (...args: Parameters<typeof serperSearchMock>) => serperSearchMock(...args),
@@ -17,8 +17,8 @@ import { search } from "./searchProvider";
 
 describe("search", () => {
   beforeEach(() => {
-    serperSearchMock.mockReset().mockResolvedValue([]);
-    serpentSearchMock.mockReset().mockResolvedValue([]);
+    serperSearchMock.mockReset().mockResolvedValue({ results: [] });
+    serpentSearchMock.mockReset().mockResolvedValue({ results: [] });
   });
 
   it("defaults to serper when no providerOverride is given", async () => {

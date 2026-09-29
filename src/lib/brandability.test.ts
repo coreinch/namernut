@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { SearchResult } from "./searchProvider";
+import type { SearchResponse, SearchResult } from "./searchProvider";
 
 const searchMock =
-  vi.fn<(query: string, region: string, signal: AbortSignal | undefined, provider: string) => Promise<SearchResult[]>>();
+  vi.fn<(query: string, region: string, signal: AbortSignal | undefined, provider: string) => Promise<SearchResponse>>();
 const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise<string>>();
 
 vi.mock("./searchProvider", () => ({
@@ -39,7 +39,7 @@ describe("checkBrandability", () => {
     // fallback — so give one a default and let individual tests override it
     // (mockResolvedValueOnce, or a rejection) where the response matters.
     completeChatMock.mockResolvedValue(DEFAULT_LLM_RESPONSE);
-    searchMock.mockResolvedValue([]);
+    searchMock.mockResolvedValue({ results: [] });
   });
 
   it("runs a single unquoted search in the default region, against serper first, when the name doesn't split into two words", async () => {
@@ -67,7 +67,7 @@ describe("checkBrandability", () => {
 
   it("falls back to serpent when serper fails, and reports serpent as the provider that actually ran", async () => {
     searchMock.mockRejectedValueOnce(new Error("serper down"));
-    searchMock.mockResolvedValueOnce([result({ title: "serpent hit" })]);
+    searchMock.mockResolvedValueOnce({ results: [result({ title: "serpent hit" })] });
     const res = await checkBrandability("fluidfew");
     expect(searchMock).toHaveBeenCalledTimes(2);
     expect(searchMock).toHaveBeenNthCalledWith(1, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "serper");
@@ -93,14 +93,14 @@ describe("checkBrandability", () => {
   });
 
   it("attaches the two-word split and the merged query's result count to the returned result", async () => {
-    searchMock.mockResolvedValue(Array.from({ length: 4 }, () => result()));
+    searchMock.mockResolvedValue({ results: Array.from({ length: 4 }, () => result()) });
     const res = await checkBrandability("catdog");
     expect(res.twoWordSplit).toBe("cat dog");
     expect(res.resultCount).toBe(4);
   });
 
   it("includes the region's results in the prompt sent to the LLM, labeled by region", async () => {
-    searchMock.mockImplementation(async () => [result({ title: "gb hit" })]);
+    searchMock.mockImplementation(async () => ({ results: [result({ title: "gb hit" })] }));
     await checkBrandability("fluidfew", undefined, undefined, "gb");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("region: gb");
@@ -108,7 +108,7 @@ describe("checkBrandability", () => {
   });
 
   it("includes the merged query's results in the prompt sent to the LLM, and notes the two-word reading", async () => {
-    searchMock.mockResolvedValue([result({ title: "cat dog hit" })]);
+    searchMock.mockResolvedValue({ results: [result({ title: "cat dog hit" })] });
     await checkBrandability("catdog");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("cat dog hit");
@@ -163,6 +163,29 @@ describe("checkBrandability", () => {
     await expect(checkBrandability("fluidfew")).rejects.toBe(err);
   });
 
+  it("puts Google's query substitution, knowledge panel, related searches, and PAA into the prompt", async () => {
+    searchMock.mockResolvedValue({
+      results: [result()],
+      context: {
+        showingResultsFor: "findterm",
+        knowledgeGraph: { title: "Findterm", type: "Company", description: "A fintech brand" },
+        relatedSearches: ["findterm login"],
+        peopleAlsoAsk: ["What is Findterm?"],
+      },
+    });
+    await checkBrandability("fondterm");
+    const prompt = completeChatMock.mock.calls[0][0];
+    expect(prompt).toContain('GOOGLE SUBSTITUTED THE QUERY: it showed results for "findterm"');
+    expect(prompt).toContain("Google knowledge panel: Findterm (Company) — A fintech brand");
+    expect(prompt).toContain("Related searches: findterm login");
+    expect(prompt).toContain("People also ask: What is Findterm?");
+  });
+
+  it("omits the Google signals section when the provider gave no context", async () => {
+    await checkBrandability("fluidfew");
+    expect(completeChatMock.mock.calls[0][0]).not.toContain("Google signals:");
+  });
+
   it("propagates a missing-key error from completeChat rather than falling back", async () => {
     const err = new Error("KILOCODE_API_KEY is not set");
     err.name = "KilocodeApiKeyMissingError";
@@ -171,7 +194,7 @@ describe("checkBrandability", () => {
   });
 
   it("returns the merged query's top 5 results as topResults", async () => {
-    searchMock.mockResolvedValue(Array.from({ length: 8 }, (_, i) => result({ title: `hit ${i}` })));
+    searchMock.mockResolvedValue({ results: Array.from({ length: 8 }, (_, i) => result({ title: `hit ${i}` })) });
     const res = await checkBrandability("catdog");
     expect(res.topResults).toEqual(Array.from({ length: 5 }, (_, i) => result({ title: `hit ${i}` })));
   });

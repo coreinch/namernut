@@ -38,15 +38,17 @@ describe("serpentSearch", () => {
         })
       )
     );
-    await expect(serpentSearch("foo", "us")).resolves.toEqual([
-      { title: "A", description: "desc a", url: "https://a.example" },
-      { title: "B", description: "desc b", url: "https://b.example" },
-    ]);
+    await expect(serpentSearch("foo", "us")).resolves.toEqual({
+      results: [
+        { title: "A", description: "desc a", url: "https://a.example" },
+        { title: "B", description: "desc b", url: "https://b.example" },
+      ],
+    });
   });
 
   it("returns an empty array when the response has no organic results", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse(200, { success: true, results: {} })));
-    await expect(serpentSearch("foo", "us")).resolves.toEqual([]);
+    await expect(serpentSearch("foo", "us")).resolves.toEqual({ results: [] });
   });
 
   it("sends the API key as X-API-Key, the query as 'q', and the region as 'country', restricted to the google engine", async () => {

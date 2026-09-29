@@ -13,7 +13,30 @@ export interface SearchResult {
   url: string;
 }
 
-type SearchFn = (query: string, region: string, signal?: AbortSignal) => Promise<SearchResult[]>;
+/**
+ * Extra Google signals some providers return alongside the organic results —
+ * all optional, since not every provider has them (see serperSearch.ts,
+ * which does; apiserpent.com returned none of these when checked).
+ */
+export interface SearchContext {
+  /** Google's "Showing results for X" — present when it silently replaced
+   * the query with a different term. The one direct, programmatic signal
+   * of the query-override behavior brandability.ts's prompt asks the LLM to
+   * look for (confirmed live: "fondterm" -> "findterm"). */
+  showingResultsFor?: string;
+  /** Google's own "Knowledge Graph" card — present when the query is a
+   * known entity (brand, person, place). */
+  knowledgeGraph?: { title?: string; type?: string; description?: string };
+  relatedSearches?: string[];
+  peopleAlsoAsk?: string[];
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  context?: SearchContext;
+}
+
+type SearchFn = (query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>;
 
 const PROVIDERS: Record<string, SearchFn> = {
   serper: serperSearch,
@@ -46,7 +69,7 @@ export function search(
   region: string,
   signal?: AbortSignal,
   providerOverride: string = "serper"
-): Promise<SearchResult[]> {
+): Promise<SearchResponse> {
   const provider = PROVIDERS[providerOverride];
   if (!provider) {
     throw new Error(`Unknown search provider "${providerOverride}" — expected "serper" or "serpent"`);

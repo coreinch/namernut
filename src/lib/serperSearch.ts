@@ -7,7 +7,7 @@
  * common word) that a fresh registrant would be competing with or mistaken
  * for.
  */
-import type { SearchResult } from "@/lib/searchProvider";
+import type { SearchContext, SearchResponse } from "@/lib/searchProvider";
 
 const ENDPOINT = "https://google.serper.dev/search";
 
@@ -18,8 +18,16 @@ export class SerperApiKeyMissingError extends Error {
   }
 }
 
+// Field names verified against the live API (2026-09-29): "fondterm" returned
+// searchInformation.showingResultsFor = "findterm"; "dugbrand" (which Google
+// treats as "The Dua Brand") returned relatedSearches/peopleAlsoAsk about it.
+// knowledgeGraph is documented by Serper and absent on obscure queries.
 interface SerperApiResponse {
   organic?: Array<{ title?: string; snippet?: string; link?: string }>;
+  searchInformation?: { showingResultsFor?: string };
+  knowledgeGraph?: { title?: string; type?: string; description?: string };
+  relatedSearches?: Array<{ query?: string }>;
+  peopleAlsoAsk?: Array<{ question?: string }>;
 }
 
 /**
@@ -41,7 +49,7 @@ export async function serperSearch(
   query: string,
   region: string,
   signal?: AbortSignal
-): Promise<SearchResult[]> {
+): Promise<SearchResponse> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) throw new SerperApiKeyMissingError();
 
@@ -68,9 +76,23 @@ export async function serperSearch(
 
   const data = (await res.json()) as SerperApiResponse;
   const items = data.organic ?? [];
-  return items.map((item) => ({
+  const results = items.map((item) => ({
     title: item.title ?? "",
     description: item.snippet ?? "",
     url: item.link ?? "",
   }));
+
+  const context: SearchContext = {};
+  const showingResultsFor = data.searchInformation?.showingResultsFor;
+  if (showingResultsFor) context.showingResultsFor = showingResultsFor;
+  const kg = data.knowledgeGraph;
+  if (kg && (kg.title || kg.description)) {
+    context.knowledgeGraph = { title: kg.title, type: kg.type, description: kg.description };
+  }
+  const related = (data.relatedSearches ?? []).map((r) => r.query).filter((q): q is string => Boolean(q));
+  if (related.length > 0) context.relatedSearches = related;
+  const paa = (data.peopleAlsoAsk ?? []).map((r) => r.question).filter((q): q is string => Boolean(q));
+  if (paa.length > 0) context.peopleAlsoAsk = paa;
+
+  return Object.keys(context).length > 0 ? { results, context } : { results };
 }
