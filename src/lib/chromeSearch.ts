@@ -1,8 +1,8 @@
 /**
- * Third search provider (see searchProvider.ts): drives a real Chrome over
- * raw CDP to load google.com/search and scrape the rendered results —
- * opt-in, and only ever tried after serper and serpent have both failed
- * (see brandability.ts's searchWithFallback). Tested 2026-09-29 from the dev
+ * Search provider (see searchProvider.ts): drives a real Chrome over raw
+ * CDP to load google.com/search and scrape the rendered results. Opt-in
+ * (CHROME_BIN), and when enabled it's the PRIMARY provider — serper and
+ * serpent are its fallbacks (see brandability.ts's searchWithFallback). Tested 2026-09-29 from the dev
  * machine: the Chameleon/Lightpanda engine got Google's "unusual traffic"
  * reCAPTCHA page with and without the residential proxy, while a real
  * Chrome through the proxy got a full results page, so the browser
@@ -11,11 +11,16 @@
  * Off unless CHROME_BIN points at a Chrome/Chromium binary. Optional
  * GOOGLE_PROXY_URL (http://user:pass@host:port — a residential proxy,
  * never committed) routes it; without one, Google will very likely
- * challenge a datacenter IP. Every search launches a fresh Chrome with a
- * throwaway profile and downloads a full results page (~1MB), which is metered bandwidth on a residential
- * proxy and slow — hence the last-resort position, the small concurrency
- * cap, and the longer timeout (CHROME_SEARCH_TIMEOUT_MS) than the API
- * providers get.
+ * challenge a datacenter IP (deploy only sets CHROME_BIN when a proxy is
+ * configured — see ansible/templates/env.j2).
+ *
+ * Speed: one headless Chrome is launched lazily and kept warm (reused
+ * TLS/proxy connections and cookies; closed after IDLE_MS unused), each
+ * search is just a new tab, and the page is read as soon as the results
+ * block exists rather than after the full load event. A failure trips a
+ * COOLDOWN_MS circuit breaker (isChromeSearchAvailable) so a blocked IP
+ * doesn't cost every subsequent check a slow failed attempt before the
+ * API fallbacks run.
  *
  * Google's markup churns, so the scrape is best-effort and structural: it
  * refuses to return an empty result list for a page that doesn't look like
@@ -32,11 +37,38 @@ import type { SearchContext, SearchResponse, SearchResult } from "@/lib/searchPr
 
 /** Longer than the API providers' 12s: launching Chrome and loading a full
  * results page through a residential proxy took ~23s in the one live run. */
-export const CHROME_SEARCH_TIMEOUT_MS = 40000;
+export const CHROME_SEARCH_TIMEOUT_MS = 30000;
 const MAX_CONCURRENT = 2;
+/** Warm Chrome is closed after this long with no search in flight. */
+const IDLE_MS = 5 * 60 * 1000;
+/** After a failed search, isChromeSearchAvailable() is false for this long,
+ * doubling with each consecutive failure up to MAX_COOLDOWN_MS and reset by
+ * the next success — so a persistently blocked setup costs a slow failed
+ * attempt only every few minutes, not on every check. */
+const COOLDOWN_MS = 60 * 1000;
+const MAX_COOLDOWN_MS = 15 * 60 * 1000;
+const POLL_MS = 150;
+/** The proxy hands out a new exit IP per new connection, and a fair share of
+ * them are already burned for Google (observed live: roughly every other
+ * request got the "unusual traffic" page). A warm Chrome reuses one tunnel,
+ * so on a blocked page it is closed and the search retried on a fresh
+ * Chrome — i.e. a fresh IP. */
+const MAX_ATTEMPTS = 2;
 
 export function isChromeSearchEnabled(): boolean {
   return Boolean(process.env.CHROME_BIN);
+}
+
+let cooldownUntil = 0;
+let consecutiveFailures = 0;
+/** Enabled AND not in the post-failure cooldown — what brandability.ts
+ * checks before putting Chrome first in the provider order. */
+export function isChromeSearchAvailable(): boolean {
+  return isChromeSearchEnabled() && Date.now() >= cooldownUntil;
+}
+export function resetChromeCooldown(): void {
+  cooldownUntil = 0;
+  consecutiveFailures = 0;
 }
 
 export class ChromeSearchError extends Error {
@@ -189,15 +221,30 @@ function release() {
   waiting.shift()?.();
 }
 
-async function scrape(url: string, signal?: AbortSignal): Promise<Extracted> {
+interface CdpReply {
+  result?: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  error?: unknown;
+}
+interface Browser {
+  proc: ReturnType<typeof spawn>;
+  send: (method: string, params?: object, sessionId?: string) => Promise<CdpReply>;
+  ua: string;
+  close: () => void;
+}
+
+let browserPromise: Promise<Browser> | undefined;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let exitHookInstalled = false;
+
+async function launchBrowser(): Promise<Browser> {
   const chromeBin = process.env.CHROME_BIN;
   if (!chromeBin) throw new ChromeSearchError("chrome_search_disabled");
-  signal?.throwIfAborted();
 
-  const port = 9400 + Math.floor(Math.random() * 500);
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "namernut-chrome-"));
   const args = [
-    `--remote-debugging-port=${port}`,
+    // Port 0 + DevToolsActivePort file: no port collisions between
+    // concurrent processes / dev-server reloads.
+    "--remote-debugging-port=0",
     `--user-data-dir=${userDir}`,
     "--headless=new",
     "--no-first-run",
@@ -218,80 +265,141 @@ async function scrape(url: string, signal?: AbortSignal): Promise<Extracted> {
     }
   }
   const proc = spawn(chromeBin, [...args, "about:blank"], { stdio: "ignore" });
-  const onAbort = () => proc.kill();
-  signal?.addEventListener("abort", onAbort, { once: true });
-  try {
-    let wsUrl: string | undefined;
-    for (let i = 0; i < 100 && !wsUrl; i++) {
-      signal?.throwIfAborted();
-      try {
-        const res = await fetch(`http://127.0.0.1:${port}/json/version`);
-        wsUrl = ((await res.json()) as { webSocketDebuggerUrl: string }).webSocketDebuggerUrl;
-      } catch {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    }
-    if (!wsUrl) throw new ChromeSearchError("chrome_search_launch_failed");
-
-    const ws = new WebSocket(wsUrl);
-    await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new ChromeSearchError("chrome_search_launch_failed"));
+  if (!exitHookInstalled) {
+    exitHookInstalled = true;
+    process.once("exit", () => {
+      void browserPromise?.then((b) => b.proc.kill()).catch(() => {});
     });
-    let id = 0;
-    const pending = new Map<number, (d: { result?: any; error?: unknown }) => void>(); // eslint-disable-line @typescript-eslint/no-explicit-any
-    const listeners: Array<(d: { method?: string }) => void> = [];
-    ws.onmessage = (m) => {
-      const d = JSON.parse(String(m.data));
-      if (d.id) pending.get(d.id)?.(d);
-      else listeners.forEach((l) => l(d));
-    };
-    ws.onclose = () => pending.forEach((cb) => cb({ error: "closed" }));
-    const send = (method: string, params: object = {}, sessionId?: string) =>
-      new Promise<{ result?: any; error?: unknown }>((resolve) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-        const i = ++id;
-        pending.set(i, resolve);
-        ws.send(JSON.stringify({ id: i, method, params, sessionId }));
-      });
-    const evaluate = async (sid: string, expression: string) =>
-      (await send("Runtime.evaluate", { expression, returnByValue: true }, sid)).result?.result?.value;
+  }
 
-    try {
-      const { result: t } = await send("Target.createTarget", { url: "about:blank" });
-      const { result: a } = await send("Target.attachToTarget", { targetId: t.targetId, flatten: true });
-      const sid: string = a.sessionId;
-      // Headless advertises itself in the UA ("HeadlessChrome/143").
-      const ua = (await evaluate(sid, "navigator.userAgent")) as string;
-      await send("Network.enable", {}, sid);
-      // Deliberately no Network.setBlockedURLs to save proxy bandwidth: with
-      // images/fonts/media blocked, live requests got Google's bot challenge.
-      await send("Network.setUserAgentOverride", { userAgent: ua.replace("HeadlessChrome", "Chrome") }, sid);
-      await send("Page.enable", {}, sid);
-      const loaded = new Promise<void>((resolve) => listeners.push((d) => d.method === "Page.loadEventFired" && resolve()));
-      const nav = await send("Page.navigate", { url }, sid);
-      if (nav.result?.errorText) throw new ChromeSearchError(`chrome_search_nav_${nav.result.errorText}`);
-      await loaded;
-      // Wait for the real document (not the initial about:blank).
-      for (let i = 0; i < 20; i++) {
-        signal?.throwIfAborted();
-        if (await evaluate(sid, "location.href !== 'about:blank' && document.readyState === 'complete' && !!document.body && document.body.innerText.length > 0")) break;
-        await new Promise((r) => setTimeout(r, 250));
-      }
-      await new Promise((r) => setTimeout(r, 500)); // late-inserted blocks (PAA, related)
-      const json = await evaluate(sid, EXTRACT_SCRIPT);
-      if (typeof json !== "string") throw new ChromeSearchError("chrome_search_extract_failed");
-      return JSON.parse(json) as Extracted;
-    } finally {
-      ws.close();
-    }
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (idleTimer) clearTimeout(idleTimer);
+    if (browserPromise === thisBrowser) browserPromise = undefined;
     proc.kill();
     forwarder?.close();
     // Chrome may still be flushing into its profile for a moment after the
-    // kill (ENOTEMPTY), and cleanup failing must never mask the search
+    // kill (ENOTEMPTY), and cleanup failing must never mask a search
     // outcome — retry in the background and ignore errors.
     fs.promises.rm(userDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => {});
+  };
+  proc.on?.("exit", close);
+  const thisBrowser: Promise<Browser> = (async () => {
+    try {
+      let endpoint: string | undefined;
+      for (let i = 0; i < 100 && !endpoint; i++) {
+        try {
+          const [port, wsPath] = fs.readFileSync(path.join(userDir, "DevToolsActivePort"), "utf8").split("\n");
+          if (port && wsPath) endpoint = `ws://127.0.0.1:${port}${wsPath}`;
+        } catch {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+      if (!endpoint) throw new ChromeSearchError("chrome_search_launch_failed");
+
+      const ws = new WebSocket(endpoint);
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => resolve();
+        ws.onerror = () => reject(new ChromeSearchError("chrome_search_launch_failed"));
+      });
+      let id = 0;
+      const pending = new Map<number, (d: CdpReply) => void>();
+      ws.onmessage = (m) => {
+        const d = JSON.parse(String(m.data));
+        if (d.id) pending.get(d.id)?.(d);
+      };
+      ws.onclose = () => {
+        pending.forEach((cb) => cb({ error: "closed" }));
+        close();
+      };
+      const send = (method: string, params: object = {}, sessionId?: string) =>
+        new Promise<CdpReply>((resolve) => {
+          const i = ++id;
+          pending.set(i, (d) => {
+            pending.delete(i);
+            resolve(d);
+          });
+          ws.send(JSON.stringify({ id: i, method, params, sessionId }));
+        });
+      // Headless advertises itself in the UA ("HeadlessChrome/143").
+      const version = await send("Browser.getVersion");
+      const ua = String(version.result?.userAgent ?? "").replace("HeadlessChrome", "Chrome");
+      return { proc, send, ua, close };
+    } catch (err) {
+      close();
+      throw err;
+    }
+  })();
+  browserPromise = thisBrowser;
+  return thisBrowser;
+}
+
+/** Exposed for tests and graceful shutdown. */
+export async function shutdownChrome(): Promise<void> {
+  const b = await browserPromise?.catch(() => undefined);
+  b?.close();
+}
+
+// Bit 0 = not there yet; 1 = blocked; 2 = results block present (and the
+// document parsed past "loading", so the bottom-of-page blocks exist too);
+// 3 = fully loaded with no results block (zero-result / odd page).
+const READY_SCRIPT = `(function () {
+  if (location.href === "about:blank") return 0;
+  if (/^\\/sorry\\//.test(location.pathname) || document.querySelector("#captcha-form, .g-recaptcha")) return 1;
+  if (document.readyState !== "loading" && document.querySelector("#rso a h3")) return 2;
+  if (document.readyState === "complete") return 3;
+  return 0;
+})()`;
+
+async function scrape(url: string, signal?: AbortSignal): Promise<{ data: Extracted; browser: Browser }> {
+  signal?.throwIfAborted();
+  const browser = await (browserPromise ?? launchBrowser());
+  if (idleTimer) clearTimeout(idleTimer);
+  const { send } = browser;
+  const call = async (method: string, params?: object, sessionId?: string) => {
+    const r = await send(method, params, sessionId);
+    if (r.error === "closed") throw new ChromeSearchError("chrome_search_browser_died");
+    return r;
+  };
+
+  let targetId: string | undefined;
+  try {
+    const created = await call("Target.createTarget", { url: "about:blank" });
+    targetId = created.result?.targetId as string;
+    const attached = await call("Target.attachToTarget", { targetId, flatten: true });
+    const sid = attached.result?.sessionId as string;
+    const evaluate = async (expression: string) =>
+      (await call("Runtime.evaluate", { expression, returnByValue: true }, sid)).result?.result?.value;
+
+    await call("Network.enable", {}, sid);
+    // Deliberately no Network.setBlockedURLs to save proxy bandwidth: with
+    // images/fonts/media blocked, live requests got Google's bot challenge.
+    await call("Network.setUserAgentOverride", { userAgent: browser.ua }, sid);
+    const nav = await call("Page.navigate", { url }, sid);
+    if (nav.result?.errorText) throw new ChromeSearchError(`chrome_search_nav_${nav.result.errorText}`);
+
+    const deadline = Date.now() + CHROME_SEARCH_TIMEOUT_MS;
+    let state = 0;
+    while (Date.now() < deadline) {
+      signal?.throwIfAborted();
+      state = Number(await evaluate(READY_SCRIPT)) || 0;
+      if (state) break;
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
+    if (!state) throw new ChromeSearchError("chrome_search_timeout");
+    // Late-inserted blocks (PAA answers, related searches) settle shortly after.
+    if (state === 2) await new Promise((r) => setTimeout(r, 250));
+    const json = await evaluate(EXTRACT_SCRIPT);
+    if (typeof json !== "string") throw new ChromeSearchError("chrome_search_extract_failed");
+    return { data: JSON.parse(json) as Extracted, browser };
+  } finally {
+    if (targetId) void send("Target.closeTarget", { targetId });
+    if (active <= 1 && waiting.length === 0) {
+      idleTimer = setTimeout(browser.close, IDLE_MS);
+      idleTimer.unref?.();
+    }
   }
 }
 
@@ -300,10 +408,39 @@ async function scrape(url: string, signal?: AbortSignal): Promise<Extracted> {
  * of where the proxy exits (the same query came back in Ukrainian through
  * a Ukrainian exit IP without it). */
 export async function chromeSearch(query: string, region: string, signal?: AbortSignal): Promise<SearchResponse> {
+  if (!isChromeSearchEnabled()) throw new ChromeSearchError("chrome_search_disabled");
   const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&gl=${encodeURIComponent(region)}&hl=en`;
   await acquire(signal);
   try {
-    return toSearchResponse(await scrape(url, signal));
+    let lastErr: unknown;
+    let response: SearchResponse | undefined;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const { data, browser } = await scrape(url, signal);
+        try {
+          response = toSearchResponse(data);
+          break;
+        } catch (err) {
+          // Blocked: this Chrome's tunnel has a burned exit IP — drop it.
+          if ((err as Error).message === "chrome_search_blocked") browser.close();
+          throw err;
+        }
+      } catch (err) {
+        lastErr = err;
+        const retryable = ["chrome_search_blocked", "chrome_search_browser_died"].includes((err as Error).message);
+        if (signal?.aborted || !retryable) break;
+      }
+    }
+    if (!response) throw lastErr;
+    consecutiveFailures = 0;
+    return response;
+  } catch (err) {
+    // A caller-side cancellation says nothing about Chrome's health.
+    if (!signal?.aborted) {
+      consecutiveFailures++;
+      cooldownUntil = Date.now() + Math.min(COOLDOWN_MS * 2 ** (consecutiveFailures - 1), MAX_COOLDOWN_MS);
+    }
+    throw err;
   } finally {
     release();
   }

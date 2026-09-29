@@ -8,6 +8,12 @@ const completeChatMock = vi.fn<(prompt: string, signal?: AbortSignal) => Promise
 vi.mock("./searchProvider", () => ({
   search: (...args: Parameters<typeof searchMock>) => searchMock(...args),
 }));
+// Defaults to the real env/cooldown check; a test can force it with mockReturnValue.
+const availableMock = vi.fn<() => boolean | undefined>();
+vi.mock("./chromeSearch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./chromeSearch")>();
+  return { ...actual, isChromeSearchAvailable: () => availableMock() ?? actual.isChromeSearchAvailable() };
+});
 vi.mock("./kilocode", () => ({
   completeChat: (...args: Parameters<typeof completeChatMock>) => completeChatMock(...args),
 }));
@@ -76,17 +82,45 @@ describe("checkBrandability", () => {
     expect(res.provider).toBe("serpent");
   });
 
-  it("tries the opt-in chrome provider last, with a longer timeout, when CHROME_BIN is set and both API providers fail", async () => {
+  it("puts the opt-in chrome provider first when CHROME_BIN is set, with the API providers as fallbacks", async () => {
     vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
     try {
-      searchMock.mockRejectedValueOnce(new Error("serper down"));
-      searchMock.mockRejectedValueOnce(new Error("serpent down"));
       searchMock.mockResolvedValueOnce({ results: [result({ title: "chrome hit" })] });
       const res = await checkBrandability("fluidfew");
-      expect(searchMock).toHaveBeenCalledTimes(3);
-      expect(searchMock).toHaveBeenNthCalledWith(3, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "chrome");
+      expect(searchMock).toHaveBeenCalledTimes(1);
+      expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "chrome");
       expect(res.provider).toBe("chrome");
     } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("falls from chrome to serper to serpent, and the last error propagates if all three fail", async () => {
+    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("chrome blocked"));
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockResolvedValueOnce({ results: [] });
+      expect((await checkBrandability("fluidfew")).provider).toBe("serpent");
+      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["chrome", "serper", "serpent"]);
+
+      clearBrandabilityCache();
+      searchMock.mockReset();
+      searchMock.mockRejectedValue(new Error("all down"));
+      await expect(checkBrandability("otherword")).rejects.toThrow("all down");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("skips chrome while it's in its post-failure cooldown", async () => {
+    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
+    availableMock.mockReturnValue(false);
+    try {
+      await checkBrandability("fluidfew");
+      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["serper"]);
+    } finally {
+      availableMock.mockReset();
       vi.unstubAllEnvs();
     }
   });

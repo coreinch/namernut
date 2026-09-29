@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.fn();
@@ -10,10 +12,14 @@ vi.mock("node:child_process", () => {
 });
 
 import {
+  CHROME_SEARCH_TIMEOUT_MS,
   ChromeSearchError,
   EXTRACT_SCRIPT,
   chromeSearch,
+  isChromeSearchAvailable,
   isChromeSearchEnabled,
+  resetChromeCooldown,
+  shutdownChrome,
   startAuthForwarder,
   toSearchResponse,
 } from "./chromeSearch";
@@ -104,49 +110,105 @@ describe("isChromeSearchEnabled", () => {
   });
 });
 
-/** Minimal CDP peer standing in for Chrome's websocket. */
+/** Minimal CDP peer standing in for Chrome's browser-level websocket. */
 class FakeWebSocket {
   static sent: Array<{ method: string; params: Record<string, unknown> }> = [];
-  static evalResult: unknown = "";
+  static extract: unknown = "";
+  static extractQueue: unknown[] = []; // consumed one per EXTRACT_SCRIPT call, then falls back to `extract`
+  static ready = 2;
   static navError: string | undefined;
+  static failOpen = false;
+  static dieOnEvaluate = 0; // how many evaluate calls kill the socket
+  static holdNavigate = false;
+  static held: Array<() => void> = [];
+  static reset() {
+    FakeWebSocket.sent = [];
+    FakeWebSocket.extract = JSON.stringify({
+      blocked: false,
+      looksLikeResults: true,
+      results: [{ title: "t", description: "d", url: "https://u.example" }],
+      context: {},
+    });
+    FakeWebSocket.extractQueue = [];
+    FakeWebSocket.ready = 2;
+    FakeWebSocket.navError = undefined;
+    FakeWebSocket.failOpen = false;
+    FakeWebSocket.dieOnEvaluate = 0;
+    FakeWebSocket.holdNavigate = false;
+    FakeWebSocket.held = [];
+  }
   onopen?: () => void;
   onerror?: () => void;
   onclose?: () => void;
   onmessage?: (m: { data: string }) => void;
-  constructor() {
-    queueMicrotask(() => this.onopen?.());
+  constructor(public url: string) {
+    queueMicrotask(() => (FakeWebSocket.failOpen ? this.onerror?.() : this.onopen?.()));
   }
   send(raw: string) {
     const { id, method, params } = JSON.parse(raw);
     FakeWebSocket.sent.push({ method, params });
     const reply = (result: unknown) => this.onmessage?.({ data: JSON.stringify({ id, result }) });
-    if (method === "Target.createTarget") reply({ targetId: "t" });
+    if (method === "Browser.getVersion") reply({ userAgent: "Mozilla/5.0 HeadlessChrome/143.0.0.0 Safari/537.36" });
+    else if (method === "Target.createTarget") reply({ targetId: "t" });
     else if (method === "Target.attachToTarget") reply({ sessionId: "s" });
     else if (method === "Page.navigate") {
-      reply(FakeWebSocket.navError ? { errorText: FakeWebSocket.navError } : {});
-      this.onmessage?.({ data: JSON.stringify({ method: "Page.loadEventFired" }) });
+      const go = () => reply(FakeWebSocket.navError ? { errorText: FakeWebSocket.navError } : {});
+      if (FakeWebSocket.holdNavigate) FakeWebSocket.held.push(go);
+      else go();
     } else if (method === "Runtime.evaluate") {
+      if (FakeWebSocket.dieOnEvaluate > 0) {
+        FakeWebSocket.dieOnEvaluate--;
+        return void this.onclose?.();
+      }
       const e = params.expression as string;
-      reply({ result: { value: e === "navigator.userAgent" ? "HeadlessChrome/143" : e === EXTRACT_SCRIPT ? FakeWebSocket.evalResult : true } });
+      const value =
+        e === EXTRACT_SCRIPT
+          ? FakeWebSocket.extractQueue.length > 0
+            ? FakeWebSocket.extractQueue.shift()
+            : FakeWebSocket.extract
+          : FakeWebSocket.ready;
+      reply({ result: { value } });
     } else reply({});
   }
   close() {}
 }
 
+const killMock = vi.fn();
+let procHandlers: Record<string, () => void> = {};
+let writeEndpoint = true;
+
+const sent = (m: string) => FakeWebSocket.sent.filter((x) => x.method === m);
+const spawnArgs = (i = 0) => spawnMock.mock.calls[i][1] as string[];
+
+/** With fake timers the polling/settle sleeps never fire on their own. */
+async function settle<T>(p: Promise<T>): Promise<T> {
+  let done = false;
+  const guarded = p.finally(() => (done = true));
+  guarded.catch(() => {});
+  for (let i = 0; i < 400 && !done; i++) await vi.advanceTimersByTimeAsync(250);
+  return guarded;
+}
+
 describe("chromeSearch", () => {
-  const killMock = vi.fn();
   beforeEach(() => {
-    FakeWebSocket.sent = [];
-    FakeWebSocket.navError = undefined;
-    FakeWebSocket.evalResult = JSON.stringify({ blocked: false, looksLikeResults: true, results: [{ title: "t", description: "d", url: "https://u.example" }], context: {} });
-    spawnMock.mockReset().mockReturnValue({ kill: killMock });
+    FakeWebSocket.reset();
+    procHandlers = {};
+    writeEndpoint = true;
     killMock.mockReset();
+    spawnMock.mockReset().mockImplementation((_bin: string, args: string[]) => {
+      const dir = args.find((a) => a.startsWith("--user-data-dir="))!.split("=")[1];
+      if (writeEndpoint) fs.writeFileSync(path.join(dir, "DevToolsActivePort"), "12345\n/devtools/browser/abc\n");
+      return { kill: killMock, on: (ev: string, cb: () => void) => (procHandlers[ev] = cb) };
+    });
     vi.stubGlobal("WebSocket", FakeWebSocket);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ json: async () => ({ webSocketDebuggerUrl: "ws://x" }) }));
     vi.stubEnv("CHROME_BIN", "/x/chrome");
     vi.stubEnv("GOOGLE_PROXY_URL", "");
+    resetChromeCooldown();
   });
-  afterEach(() => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    await shutdownChrome();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
@@ -154,53 +216,171 @@ describe("chromeSearch", () => {
   it("throws when disabled", async () => {
     vi.stubEnv("CHROME_BIN", "");
     await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_disabled");
+    expect(isChromeSearchAvailable()).toBe(false);
   });
 
-  it("launches headless Chrome, pins gl/hl, de-headlesses the UA, and returns results", async () => {
-    await expect(chromeSearch("a b", "gb")).resolves.toEqual({
-      results: [{ title: "t", description: "d", url: "https://u.example" }],
-    });
-    const [bin, args] = spawnMock.mock.calls[0];
-    expect(bin).toBe("/x/chrome");
+  it("launches headless Chrome once, keeps it warm across searches, and opens/closes one tab per search", async () => {
+    const expected = { results: [{ title: "t", description: "d", url: "https://u.example" }] };
+    await expect(chromeSearch("a b", "gb")).resolves.toEqual(expected);
+    await expect(chromeSearch("c", "us")).resolves.toEqual(expected);
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    const args = spawnArgs();
+    expect(spawnMock.mock.calls[0][0]).toBe("/x/chrome");
     expect(args).toContain("--headless=new");
-    expect(args.some((a: string) => a.startsWith("--proxy-server"))).toBe(false);
-    const nav = FakeWebSocket.sent.find((m) => m.method === "Page.navigate")!;
-    expect(nav.params.url).toBe("https://www.google.com/search?q=a%20b&gl=gb&hl=en");
-    expect(FakeWebSocket.sent.find((m) => m.method === "Network.setUserAgentOverride")!.params.userAgent).toBe("Chrome/143");
-    // Blocking images/fonts to save proxy bandwidth got the live request
-    // served Google's bot challenge, so nothing may be blocked.
-    expect(FakeWebSocket.sent.some((m) => m.method === "Network.setBlockedURLs")).toBe(false);
-    expect(killMock).toHaveBeenCalled();
+    expect(args).toContain("--remote-debugging-port=0");
+    expect(args.some((a) => a.startsWith("--proxy-server"))).toBe(false);
+    expect(FakeWebSocket.sent.map((m) => m.method).filter((m) => m === "Browser.getVersion")).toHaveLength(1);
+    expect(sent("Page.navigate").map((m) => m.params.url)).toEqual([
+      "https://www.google.com/search?q=a%20b&gl=gb&hl=en",
+      "https://www.google.com/search?q=c&gl=us&hl=en",
+    ]);
+    // de-headlessed UA, applied per tab
+    expect(sent("Network.setUserAgentOverride")[0].params.userAgent).toBe("Mozilla/5.0 Chrome/143.0.0.0 Safari/537.36");
+    // Blocking images/fonts to save proxy bandwidth got live requests served
+    // Google's bot challenge, so nothing may be blocked.
+    expect(sent("Network.setBlockedURLs")).toHaveLength(0);
+    expect(sent("Target.closeTarget")).toHaveLength(2);
+  });
+
+  it("reads the page as soon as results exist, and also handles a fully-loaded page with no results block", async () => {
+    FakeWebSocket.ready = 3;
+    await expect(chromeSearch("q", "us")).resolves.toBeTruthy();
   });
 
   it("passes an unauthenticated proxy straight to Chrome", async () => {
     vi.stubEnv("GOOGLE_PROXY_URL", "http://proxy.example:8080");
     await chromeSearch("q", "us");
-    expect(spawnMock.mock.calls[0][1]).toContain("--proxy-server=http://proxy.example:8080");
+    expect(spawnArgs()).toContain("--proxy-server=http://proxy.example:8080");
   });
 
   it("routes an authenticated proxy through a local credential-adding forwarder", async () => {
     vi.stubEnv("GOOGLE_PROXY_URL", "http://user:pw@proxy.example:8080");
     await chromeSearch("q", "us");
-    const flag = spawnMock.mock.calls[0][1].find((a: string) => a.startsWith("--proxy-server="));
+    const flag = spawnArgs().find((a) => a.startsWith("--proxy-server="));
     expect(flag).toMatch(/^--proxy-server=http:\/\/127\.0\.0\.1:\d+$/);
     expect(flag).not.toContain("pw");
   });
 
-  it("throws on navigation errors, blocked pages and unreadable extractions — and still kills Chrome", async () => {
+  it("throws on navigation errors, blocked pages and unreadable extractions, and trips the cooldown", async () => {
     FakeWebSocket.navError = "net::ERR_X";
     await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_nav_net::ERR_X");
+    expect(isChromeSearchAvailable()).toBe(false);
+    resetChromeCooldown();
+    expect(isChromeSearchAvailable()).toBe(true);
+
     FakeWebSocket.navError = undefined;
-    FakeWebSocket.evalResult = JSON.stringify({ blocked: true, looksLikeResults: false, results: [], context: {} });
+    FakeWebSocket.extract = JSON.stringify({ blocked: true, looksLikeResults: false, results: [], context: {} });
     await expect(chromeSearch("q", "us")).rejects.toBeInstanceOf(ChromeSearchError);
-    FakeWebSocket.evalResult = undefined;
+    FakeWebSocket.extract = undefined;
     await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_extract_failed");
-    expect(killMock).toHaveBeenCalledTimes(3);
+    expect(isChromeSearchAvailable()).toBe(false);
+  });
+
+  it("gives up with chrome_search_timeout when the page never becomes ready", async () => {
+    FakeWebSocket.ready = 0;
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValueOnce(0).mockReturnValue(CHROME_SEARCH_TIMEOUT_MS + 1);
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_timeout");
+  });
+
+  it("doesn't trip the cooldown when the caller cancelled", async () => {
+    const controller = new AbortController();
+    FakeWebSocket.ready = 0;
+    const p = chromeSearch("q", "us", controller.signal);
+    p.catch(() => {});
+    await new Promise((r) => setTimeout(r, 50));
+    controller.abort();
+    await expect(p).rejects.toBeTruthy();
+    expect(isChromeSearchAvailable()).toBe(true);
   });
 
   it("rejects without launching when the signal is already aborted", async () => {
     await expect(chromeSearch("q", "us", AbortSignal.abort())).rejects.toBeTruthy();
     expect(spawnMock).not.toHaveBeenCalled();
+  });
+
+  it("fails cleanly, killing Chrome, when the debugging endpoint never appears", async () => {
+    vi.useFakeTimers();
+    writeEndpoint = false;
+    await expect(settle(chromeSearch("q", "us"))).rejects.toThrow("chrome_search_launch_failed");
+    expect(killMock).toHaveBeenCalled();
+  });
+
+  it("fails cleanly when the websocket can't be opened", async () => {
+    FakeWebSocket.failOpen = true;
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_launch_failed");
+    expect(killMock).toHaveBeenCalled();
+  });
+
+  it("retries on a fresh Chrome (fresh proxy exit IP) when the page is blocked, then keeps the good one warm", async () => {
+    const blocked = JSON.stringify({ blocked: true, looksLikeResults: false, results: [], context: {} });
+    FakeWebSocket.extractQueue = [blocked];
+    await expect(chromeSearch("q", "us")).resolves.toBeTruthy();
+    expect(spawnMock).toHaveBeenCalledTimes(2); // one burned Chrome, one good
+    expect(killMock).toHaveBeenCalledTimes(1);
+    expect(isChromeSearchAvailable()).toBe(true);
+    await chromeSearch("q2", "us");
+    expect(spawnMock).toHaveBeenCalledTimes(2); // the good one stayed warm
+  });
+
+  it("gives up after two blocked attempts and trips the cooldown", async () => {
+    FakeWebSocket.extract = JSON.stringify({ blocked: true, looksLikeResults: false, results: [], context: {} });
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_blocked");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+    expect(isChromeSearchAvailable()).toBe(false);
+  });
+
+  it("doubles the cooldown with each consecutive failure and resets it on success", async () => {
+    FakeWebSocket.navError = "net::ERR_X";
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    await expect(chromeSearch("q", "us")).rejects.toThrow();
+    now.mockReturnValue(1_000_000 + 60_000 - 1);
+    expect(isChromeSearchAvailable()).toBe(false);
+    now.mockReturnValue(1_000_000 + 60_000);
+    expect(isChromeSearchAvailable()).toBe(true); // 1st failure: 60s
+    await expect(chromeSearch("q", "us")).rejects.toThrow();
+    now.mockReturnValue(1_000_000 + 60_000 + 119_999);
+    expect(isChromeSearchAvailable()).toBe(false);
+    now.mockReturnValue(1_000_000 + 60_000 + 120_000);
+    expect(isChromeSearchAvailable()).toBe(true); // 2nd failure: 120s
+    FakeWebSocket.navError = undefined;
+    await chromeSearch("q", "us"); // success resets the streak
+    FakeWebSocket.navError = "net::ERR_X";
+    await expect(chromeSearch("q", "us")).rejects.toThrow();
+    now.mockReturnValue(1_000_000 + 60_000 + 120_000 + 60_000);
+    expect(isChromeSearchAvailable()).toBe(true); // back to 60s, not 240s
+  });
+
+  it("doesn't retry errors that a fresh Chrome wouldn't fix", async () => {
+    FakeWebSocket.navError = "net::ERR_X";
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_nav_net::ERR_X");
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("relaunches after Chrome dies mid-search (socket closes) and after the process exits", async () => {
+    FakeWebSocket.dieOnEvaluate = 1;
+    await expect(chromeSearch("q", "us")).resolves.toBeTruthy(); // retried on a new Chrome
+    expect(killMock).toHaveBeenCalled();
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    procHandlers.exit(); // process crashed between searches
+    await chromeSearch("q", "us");
+    expect(spawnMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws browser_died when every attempt's Chrome dies", async () => {
+    FakeWebSocket.dieOnEvaluate = 99;
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_browser_died");
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes the warm Chrome after it has been idle", async () => {
+    vi.useFakeTimers();
+    await settle(chromeSearch("q", "us"));
+    expect(killMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 1);
+    expect(killMock).toHaveBeenCalled();
   });
 });
 
@@ -293,49 +473,41 @@ describe("startAuthForwarder", () => {
 });
 
 describe("chromeSearch concurrency", () => {
-  afterEach(() => {
+  beforeEach(() => {
+    FakeWebSocket.reset();
+    killMock.mockReset();
+    spawnMock.mockReset().mockImplementation((_bin: string, args: string[]) => {
+      const dir = args.find((a) => a.startsWith("--user-data-dir="))!.split("=")[1];
+      fs.writeFileSync(path.join(dir, "DevToolsActivePort"), "12345\n/devtools/browser/abc\n");
+      return { kill: killMock, on: () => {} };
+    });
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    vi.stubEnv("CHROME_BIN", "/x/chrome");
+    vi.stubEnv("GOOGLE_PROXY_URL", "");
+    resetChromeCooldown();
+  });
+  afterEach(async () => {
+    await shutdownChrome();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
   });
 
-  it("runs at most two Chromes at once, queues the rest, and lets a queued search be cancelled", async () => {
-    vi.stubEnv("CHROME_BIN", "/x/chrome");
-    vi.stubEnv("GOOGLE_PROXY_URL", "");
-    let inFlight = 0;
-    let peak = 0;
-    const releases: Array<() => void> = [];
-    spawnMock.mockReset().mockImplementation(() => {
-      inFlight++;
-      peak = Math.max(peak, inFlight);
-      return { kill: () => {} };
-    });
-    // Hold each scrape open at the /json/version poll until released.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockImplementation(
-        () => new Promise((resolve) => releases.push(() => resolve({ json: async () => ({ webSocketDebuggerUrl: "ws://x" }) })))
-      )
-    );
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-    FakeWebSocket.sent = [];
-    FakeWebSocket.navError = undefined;
-    FakeWebSocket.evalResult = JSON.stringify({ blocked: false, looksLikeResults: true, results: [], context: {} });
-
+  it("shares one Chrome, runs at most two tabs at once, queues the rest, and lets a queued search be cancelled", async () => {
+    FakeWebSocket.holdNavigate = true;
     const a = chromeSearch("a", "us");
     const b = chromeSearch("b", "us");
     const controller = new AbortController();
     const c = chromeSearch("c", "us", controller.signal);
     const d = chromeSearch("d", "us");
-    await new Promise((r) => setTimeout(r, 20));
-    expect(spawnMock).toHaveBeenCalledTimes(2); // c and d are queued
+    await vi.waitFor(() => expect(FakeWebSocket.held).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sent("Page.navigate")).toHaveLength(2); // c and d are queued
     controller.abort();
     await expect(c).rejects.toBeTruthy(); // cancelled while still queued
-    releases.splice(0).forEach((r) => r());
-    await Promise.all([a, b]);
-    await new Promise((r) => setTimeout(r, 20));
-    releases.splice(0).forEach((r) => r()); // d gets its slot once a/b finished
-    await d;
-    expect(spawnMock).toHaveBeenCalledTimes(3);
-    expect(peak).toBeLessThanOrEqual(3);
+    FakeWebSocket.holdNavigate = false;
+    FakeWebSocket.held.splice(0).forEach((go) => go());
+    await Promise.all([a, b, d]);
+    expect(sent("Page.navigate")).toHaveLength(3);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 });

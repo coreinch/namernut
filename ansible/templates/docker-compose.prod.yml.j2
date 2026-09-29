@@ -2,6 +2,9 @@ services:
   app:
     image: "{{ ghcr_image }}:{{ image_tag }}"
     restart: unless-stopped
+    # Chromium (see Dockerfile) spawns helper processes; without an init
+    # to reap them, crashed/killed Chrome instances leave zombies behind.
+    init: true
     env_file:
       - .env
     ports:

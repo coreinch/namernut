@@ -138,6 +138,7 @@ jobs:
           KILOCODE_MODEL: ${{ secrets.KILOCODE_MODEL }}
           INSTAGRAM_SESSION_ID: ${{ secrets.INSTAGRAM_SESSION_ID }}
           INSTAGRAM_PROXY_URL: ${{ secrets.INSTAGRAM_PROXY_URL }}
+          GOOGLE_PROXY_URL: ${{ secrets.GOOGLE_PROXY_URL }}
         run: |
           # Built via jq rather than interpolated straight into the
           # ansible-playbook command line: INSTAGRAM_SESSION_ID in
@@ -153,6 +154,7 @@ jobs:
             --arg kilocode_model "$KILOCODE_MODEL" \
             --arg instagram_session_id "$INSTAGRAM_SESSION_ID" \
             --arg instagram_proxy_url "$INSTAGRAM_PROXY_URL" \
+            --arg google_proxy_url "$GOOGLE_PROXY_URL" \
             '$ARGS.named' > /tmp/extra-vars.json
 
           ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy.yml \
