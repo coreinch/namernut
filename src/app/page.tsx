@@ -19,6 +19,7 @@ import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { ResultsGrid } from "@/components/ResultsGrid";
 import { LiveLogSection } from "@/components/LiveLogSection";
 import { usePersistedAppState } from "@/hooks/usePersistedAppState";
+import { useAutoUpdate } from "@/hooks/useAutoUpdate";
 import { useDiscoveryRun, sanitizeKeyword } from "@/hooks/useDiscoveryRun";
 
 // Fed to tryExample below (the example-keyword chips) — each was verified
@@ -250,6 +251,7 @@ export default function Home() {
   }, [setFoundHistory, foundDomainsRef]);
 
   const isRunning = runStatus === "running";
+  useAutoUpdate(isRunning);
 
   // The Footer (see below) only renders while isRunning — its own "Stop"
   // button unmounts the instant a run ends, whether from actually finishing

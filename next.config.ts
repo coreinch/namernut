@@ -1,9 +1,19 @@
 import type { NextConfig } from "next";
 
+// One id per build, shared by the server (/api/version) and the client
+// bundle (inlined via `env`), so an open tab can tell when the server it
+// talks to has been redeployed. `??=` keeps it stable if this config is
+// evaluated more than once during a single build.
+process.env.APP_BUILD_ID ??= Date.now().toString(36);
+const buildId = process.env.APP_BUILD_ID;
+
 // Fast Refresh (HMR) in `next dev` needs 'unsafe-eval'; production doesn't.
-const isDev = process.env.NODE_ENV !== "production";
+const isDev = process.env.NODE_ENV === "development";
 
 const nextConfig: NextConfig = {
+  generateBuildId: async () => buildId,
+  env: { NEXT_PUBLIC_BUILD_ID: buildId },
+
   // Next.js blocks cross-origin requests to the dev server by default,
   // accepting only the hostname it was started with (localhost) — needed
   // here so a LAN device hitting this machine's IP directly isn't rejected.
