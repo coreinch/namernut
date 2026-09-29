@@ -23,7 +23,7 @@ vi.mock("./dictionary", () => ({
 
 // Static imports receive the mocked modules above, since vi.mock is hoisted
 // by Vitest's transform above every other statement in this file.
-import { checkBrandability, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
+import { checkBrandability, clearBrandabilityCache, DEFAULT_REGION, splitIntoWords, validateParts } from "./brandability";
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { title: "t", description: "d", url: "https://example.test", ...overrides };
@@ -33,6 +33,7 @@ const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
 describe("checkBrandability", () => {
   beforeEach(() => {
+    clearBrandabilityCache();
     searchMock.mockReset();
     completeChatMock.mockReset();
     // Every test needs a real LLM verdict now — there's no heuristic
@@ -184,6 +185,29 @@ describe("checkBrandability", () => {
   it("omits the Google signals section when the provider gave no context", async () => {
     await checkBrandability("fluidfew");
     expect(completeChatMock.mock.calls[0][0]).not.toContain("Google signals:");
+  });
+
+  it("serves a repeat check for the same name and region from cache, without another search or LLM call", async () => {
+    const first = await checkBrandability("fluidfew");
+    const second = await checkBrandability("fluidfew");
+    expect(second).toEqual(first);
+    expect(searchMock).toHaveBeenCalledTimes(1);
+    expect(completeChatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches per region, and per two-word split (a different query)", async () => {
+    await checkBrandability("fluidfew", undefined, undefined, "us");
+    await checkBrandability("fluidfew", undefined, undefined, "gb");
+    await checkBrandability("poetapps", ["poet", "apps"]);
+    await checkBrandability("poetapps");
+    expect(searchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("does not cache a failed check", async () => {
+    completeChatMock.mockRejectedValueOnce(new Error("llm down"));
+    await expect(checkBrandability("fluidfew")).rejects.toThrow("llm down");
+    await expect(checkBrandability("fluidfew")).resolves.toMatchObject({ brandabilityScore: 50 });
+    expect(completeChatMock).toHaveBeenCalledTimes(2);
   });
 
   it("propagates a missing-key error from completeChat rather than falling back", async () => {

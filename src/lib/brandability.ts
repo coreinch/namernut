@@ -1,6 +1,7 @@
 import { search, type SearchContext, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool, type WordEntry } from "@/lib/dictionary";
+import { TtlCache } from "@/lib/ttlCache";
 import { DEFAULT_REGION, REGION_OPTIONS, type ProviderOption, type RegionOption } from "@/lib/searchConfig";
 
 export type Region = RegionOption;
@@ -71,6 +72,29 @@ export interface BrandabilityResult {
   twoWordSplit?: string;
   /** Top results from the merged query. */
   topResults: SearchResult[];
+}
+
+// Finished verdicts, remembered per (region, query) — the query already
+// encodes the name and its two-word split, which together with the region
+// are everything that determines the search and so the verdict. Each miss
+// costs a search-provider call plus an LLM call, and autoCheck fires one per
+// found result, so repeated searches and different visitors landing on the
+// same candidate names would otherwise pay for it again every time. A day is
+// long enough to matter and short enough that a name that gets a real brand
+// tomorrow isn't stuck with a stale "wide open" score for long. Only
+// successful results are stored (a thrown error never is), and it's
+// deliberately a plain get/set rather than TtlCache.getOrCompute's shared
+// in-flight promise: that would tie every concurrent caller to the first
+// caller's abort signal, so one visitor closing their tab would fail
+// everyone else's identical check. Per-process, like the availability
+// caches in discoveryChecks.ts.
+const BRANDABILITY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const BRANDABILITY_CACHE_MAX_ENTRIES = 5000;
+const brandabilityCache = new TtlCache<BrandabilityResult>(BRANDABILITY_CACHE_TTL_MS, BRANDABILITY_CACHE_MAX_ENTRIES);
+
+/** Drops every remembered brandability verdict (used by tests). */
+export function clearBrandabilityCache() {
+  brandabilityCache.clear();
 }
 
 // getWordPool() itself is cached (see dictionary.ts), but every call here
@@ -384,6 +408,10 @@ export async function checkBrandability(
   // Parenthesized, not quoted — see this function's own doc comment above
   // for why both the grouping and the no-quotes-anywhere choice matter.
   const query = twoWordSplitStr ? `${name} OR (${twoWordSplitStr})` : name;
+  const cacheKey = `${region}:${query}`;
+  const cached = brandabilityCache.get(cacheKey);
+  if (cached) return cached;
+
   const { results, context, provider } = await searchWithFallback(query, region, signal);
 
   const raw = await completeChat(buildPrompt(name, results, context, twoWordSplitStr, region), signal);
@@ -391,7 +419,7 @@ export async function checkBrandability(
   if (!parsed) throw new KilocodeParseError();
   const { brandabilityScore, summary } = parsed;
 
-  return {
+  const result: BrandabilityResult = {
     name,
     brandabilityScore,
     summary,
@@ -401,4 +429,6 @@ export async function checkBrandability(
     ...(twoWordSplitStr ? { twoWordSplit: twoWordSplitStr } : {}),
     topResults: results.slice(0, 5),
   };
+  brandabilityCache.set(cacheKey, result);
+  return result;
 }
