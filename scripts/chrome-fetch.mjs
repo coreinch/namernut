@@ -7,6 +7,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import assert from "node:assert/strict";
@@ -22,6 +23,36 @@ function findChrome() {
   return path.join(root, dirs[0], "chrome-linux64/chrome");
 }
 
+// Local CONNECT forwarder that adds Proxy-Authorization, so Chrome never has to answer an auth challenge.
+function startAuthForwarder(upstream) {
+  const u = new URL(upstream);
+  const auth = Buffer.from(`${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`).toString("base64");
+  const server = http.createServer((_, res) => { res.statusCode = 405; res.end(); });
+  server.on("connect", (req, client, head) => {
+    const up = net.connect(Number(u.port) || 80, u.hostname, () => {
+      up.write(`CONNECT ${req.url} HTTP/1.1\r\nHost: ${req.url}\r\nProxy-Authorization: Basic ${auth}\r\n\r\n`);
+    });
+    let buf = Buffer.alloc(0);
+    const onData = (d) => {
+      buf = Buffer.concat([buf, d]);
+      const end = buf.indexOf("\r\n\r\n");
+      if (end < 0) return;
+      up.off("data", onData);
+      if (/^HTTP\/1\.[01] 200/.test(buf.toString("latin1", 0, 15))) {
+        client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
+        if (head.length) up.write(head);
+        const rest = buf.subarray(end + 4);
+        if (rest.length) client.write(rest);
+        up.pipe(client); client.pipe(up);
+      } else { client.end(buf.subarray(0, end + 4)); up.destroy(); }
+    };
+    up.on("data", onData);
+    up.on("error", () => client.destroy());
+    client.on("error", () => up.destroy());
+  });
+  return new Promise((r) => server.listen(0, "127.0.0.1", () => r(server)));
+}
+
 async function fetchHtml(url, { proxy, headful } = {}) {
   const port = 9400 + Math.floor(Math.random() * 500);
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "chrome-fetch-"));
@@ -31,11 +62,12 @@ async function fetchHtml(url, { proxy, headful } = {}) {
     "--no-first-run", "--no-default-browser-check", "--no-sandbox",
     ...(headful ? [] : ["--headless=new"]),
   ];
-  let creds;
+  let forwarder;
   if (proxy) {
-    const u = new URL(proxy);
-    cli.push(`--proxy-server=${u.protocol}//${u.host}`);
-    if (u.username) creds = { username: decodeURIComponent(u.username), password: decodeURIComponent(u.password) };
+    if (new URL(proxy).username) {
+      forwarder = await startAuthForwarder(proxy);
+      cli.push(`--proxy-server=http://127.0.0.1:${forwarder.address().port}`);
+    } else cli.push(`--proxy-server=${proxy}`);
   }
   const proc = spawn(findChrome(), [...cli, "about:blank"], { stdio: "ignore" });
   try {
@@ -61,26 +93,27 @@ async function fetchHtml(url, { proxy, headful } = {}) {
     const { result: t } = await send("Target.createTarget", { url: "about:blank" });
     const { result: a } = await send("Target.attachToTarget", { targetId: t.targetId, flatten: true });
     const sid = a.sessionId;
-    if (creds) {
-      await send("Fetch.enable", { handleAuthRequests: true }, sid);
-      listeners.push((d) => {
-        if (d.method === "Fetch.authRequired")
-          send("Fetch.continueWithAuth", { requestId: d.params.requestId, authChallengeResponse: { response: "ProvideCredentials", ...creds } }, sid);
-        else if (d.method === "Fetch.requestPaused")
-          send("Fetch.continueRequest", { requestId: d.params.requestId }, sid);
-      });
-    }
+    const realUa = (await send("Runtime.evaluate", { expression: "navigator.userAgent", returnByValue: true }, sid)).result.result.value;
+    await send("Network.setUserAgentOverride", { userAgent: realUa.replace("HeadlessChrome", "Chrome") }, sid);
     await send("Page.enable", {}, sid);
     const loaded = new Promise((r) => listeners.push((d) => d.method === "Page.loadEventFired" && r()));
-    await send("Page.navigate", { url }, sid);
+    const nav = await send("Page.navigate", { url }, sid);
+    if (nav.result?.errorText) console.error("navigate error:", nav.result.errorText);
     await Promise.race([loaded, new Promise((r) => setTimeout(r, 30000))]);
-    await new Promise((r) => setTimeout(r, 1500)); // let late scripts / redirects settle
+    // let late scripts / redirects settle: wait for a real document at the target (not about:blank)
+    for (let i = 0; i < 40; i++) {
+      const r = await send("Runtime.evaluate", { expression: "location.href !== 'about:blank' && document.readyState === 'complete' && document.body?.innerText.length > 0", returnByValue: true }, sid);
+      if (r.result?.result?.value) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    await new Promise((r) => setTimeout(r, 1000));
     const ua = await send("Runtime.evaluate", { expression: "navigator.userAgent", returnByValue: true }, sid);
     const html = await send("Runtime.evaluate", { expression: "document.documentElement.outerHTML", returnByValue: true }, sid);
     ws.close();
     return { html: html.result.result.value, ua: ua.result.result.value };
   } finally {
     proc.kill();
+    forwarder?.close();
     fs.rmSync(userDir, { recursive: true, force: true });
   }
 }
