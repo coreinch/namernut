@@ -76,6 +76,33 @@ describe("checkBrandability", () => {
     expect(res.provider).toBe("serpent");
   });
 
+  it("tries the opt-in chrome provider last, with a longer timeout, when CHROME_BIN is set and both API providers fail", async () => {
+    vi.stubEnv("CHROME_BIN", "/usr/bin/chrome");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockRejectedValueOnce(new Error("serpent down"));
+      searchMock.mockResolvedValueOnce({ results: [result({ title: "chrome hit" })] });
+      const res = await checkBrandability("fluidfew");
+      expect(searchMock).toHaveBeenCalledTimes(3);
+      expect(searchMock).toHaveBeenNthCalledWith(3, "fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "chrome");
+      expect(res.provider).toBe("chrome");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never tries chrome when CHROME_BIN is unset — the serpent error propagates", async () => {
+    vi.stubEnv("CHROME_BIN", "");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockRejectedValueOnce(new Error("serpent down"));
+      await expect(checkBrandability("fluidfew")).rejects.toThrow("serpent down");
+      expect(searchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("doesn't fall back to serpent, and propagates the error, when the caller's own signal was what aborted", async () => {
     const controller = new AbortController();
     searchMock.mockImplementationOnce(async () => {

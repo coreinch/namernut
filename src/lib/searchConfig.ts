@@ -89,4 +89,4 @@ export const DEFAULT_REGION: RegionOption = "us";
 // PRIMARY_PROVIDER/FALLBACK_PROVIDER pick and, on failure, retry between
 // these entirely server-side (see searchWithFallback there), which is the
 // only place left that imports this type (as its own `Provider` alias).
-export type ProviderOption = "serpent" | "serper";
+export type ProviderOption = "serpent" | "serper" | "chrome";

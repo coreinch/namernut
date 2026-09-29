@@ -1,5 +1,6 @@
 import { serperSearch } from "@/lib/serperSearch";
 import { serpentSearch } from "@/lib/serpentSearch";
+import { chromeSearch } from "@/lib/chromeSearch";
 
 /**
  * Shared result shape for every search provider (see serperSearch.ts,
@@ -41,6 +42,7 @@ type SearchFn = (query: string, region: string, signal?: AbortSignal) => Promise
 const PROVIDERS: Record<string, SearchFn> = {
   serper: serperSearch,
   serpent: serpentSearch,
+  chrome: chromeSearch,
 };
 
 /**
@@ -61,6 +63,9 @@ const PROVIDERS: Record<string, SearchFn> = {
  * https://apiserpent.com/faq) — but it's the one that's actually
  * demonstrated reproducing Google's real silent query-override behavior in
  * testing, which Serper never has (see serperSearch.ts's docstring).
+ * A third, "chrome" (chromeSearch.ts: a real Chrome scraping google.com
+ * itself), exists but is opt-in via CHROME_BIN and only ever the last resort
+ * in searchWithFallback.
  * Neither one is strictly better — that's the whole reason
  * searchWithFallback tries both rather than picking one fixed provider.
  */
@@ -72,7 +77,7 @@ export function search(
 ): Promise<SearchResponse> {
   const provider = PROVIDERS[providerOverride];
   if (!provider) {
-    throw new Error(`Unknown search provider "${providerOverride}" — expected "serper" or "serpent"`);
+    throw new Error(`Unknown search provider "${providerOverride}" — expected "serper", "serpent" or "chrome"`);
   }
   return provider(query, region, signal);
 }

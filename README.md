@@ -49,6 +49,8 @@ Open [http://localhost:3000](http://localhost:3000).
 | `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the pinned model `kilo-auto/small` |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |
 | `INSTAGRAM_PROXY_URL` | No | HTTP proxy (ideally residential) used only for Instagram checks; Instagram blocks datacenter IPs |
+| `CHROME_BIN` | No | Path to a Chrome/Chromium binary. Enables a last-resort search provider that scrapes google.com with a real headless Chrome, tried only after Serper and Serpent both fail. Slow (~20s) and heavy; not available in the default Docker image |
+| `GOOGLE_PROXY_URL` | No | HTTP proxy (`http://user:pass@host:port`, ideally residential) used only by the Chrome provider; Google challenges datacenter IPs |
 
 ## Scripts
 

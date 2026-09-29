@@ -1,6 +1,7 @@
 import { search, type SearchContext, type SearchResult } from "@/lib/searchProvider";
 import { completeChat } from "@/lib/kilocode";
 import { getWordPool, type WordEntry } from "@/lib/dictionary";
+import { CHROME_SEARCH_TIMEOUT_MS, isChromeSearchEnabled } from "@/lib/chromeSearch";
 import { TtlCache } from "@/lib/ttlCache";
 import { DEFAULT_REGION, REGION_OPTIONS, type ProviderOption, type RegionOption } from "@/lib/searchConfig";
 
@@ -13,6 +14,9 @@ export type Provider = ProviderOption;
  * https://apiserpent.com/faq), so it's the fallback, not the primary. */
 const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
+/** Opt-in last resort (only when CHROME_BIN is set — see chromeSearch.ts):
+ * a real Chrome scraping google.com, tried after both API providers fail. */
+const LAST_RESORT_PROVIDER: Provider = "chrome";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -321,6 +325,8 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 const SEARCH_TIMEOUT_MS = 12000;
 
 /** Tries PRIMARY_PROVIDER first, falls back to FALLBACK_PROVIDER once on
+ * any failure, and — only when CHROME_BIN is set — to LAST_RESORT_PROVIDER
+ * (with its own, longer timeout) after that. Each step falls through on
  * any failure — including a timeout (see SEARCH_TIMEOUT_MS) — except when
  * the caller's own `signal` is what aborted: that's a real cancellation
  * (the client disconnected, or checkBrandability's own outer `signal` was
@@ -332,8 +338,8 @@ async function searchWithFallback(
   region: Region,
   signal: AbortSignal | undefined
 ): Promise<{ results: SearchResult[]; context: SearchContext | undefined; provider: Provider }> {
-  const withTimeout = (s: AbortSignal | undefined) => {
-    const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+  const withTimeout = (s: AbortSignal | undefined, ms = SEARCH_TIMEOUT_MS) => {
+    const timeoutSignal = AbortSignal.timeout(ms);
     return s ? AbortSignal.any([s, timeoutSignal]) : timeoutSignal;
   };
   try {
@@ -341,9 +347,20 @@ async function searchWithFallback(
     return { results, context, provider: PRIMARY_PROVIDER };
   } catch (err) {
     if (signal?.aborted) throw err;
+  }
+  try {
     const { results, context } = await search(query, region, withTimeout(signal), FALLBACK_PROVIDER);
     return { results, context, provider: FALLBACK_PROVIDER };
+  } catch (err) {
+    if (signal?.aborted || !isChromeSearchEnabled()) throw err;
   }
+  const { results, context } = await search(
+    query,
+    region,
+    withTimeout(signal, CHROME_SEARCH_TIMEOUT_MS),
+    LAST_RESORT_PROVIDER
+  );
+  return { results, context, provider: LAST_RESORT_PROVIDER };
 }
 
 /**
