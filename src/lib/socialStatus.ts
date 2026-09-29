@@ -37,6 +37,35 @@ export function fetchWithTimeout(url: string, init: RequestInit, signal?: AbortS
   });
 }
 
+const proxyAgents = new Map<string, unknown>();
+
+/** Like fetchWithTimeout, but routed through an HTTP(S) proxy. Used only by
+ * instagram.ts (see INSTAGRAM_PROXY_URL there) — Instagram walls datacenter
+ * IPs like the production VPS's but answers residential ones. Uses undici's
+ * own fetch rather than the global one: a ProxyAgent from the npm package
+ * isn't guaranteed compatible with the copy of undici bundled in Node's
+ * built-in fetch. Imported lazily so the package is never loaded when no
+ * proxy is configured. */
+export async function fetchViaProxy(
+  url: string,
+  init: RequestInit,
+  proxyUrl: string,
+  signal?: AbortSignal
+): Promise<Response> {
+  const { fetch: undiciFetch, ProxyAgent } = await import("undici");
+  let agent = proxyAgents.get(proxyUrl) as InstanceType<typeof ProxyAgent> | undefined;
+  if (!agent) {
+    agent = new ProxyAgent(proxyUrl);
+    proxyAgents.set(proxyUrl, agent);
+  }
+  const timeoutSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+  return (await undiciFetch(url, {
+    ...(init as object),
+    dispatcher: agent,
+    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+  } as Parameters<typeof undiciFetch>[1])) as unknown as Response;
+}
+
 /** Shared by every platform checker's 429/rate-limit branch — the checker
  * runner in discovery.ts distinguishes rate limiting from other failures by
  * this `name`, not by message content, so the message itself just needs to

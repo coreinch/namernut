@@ -25,8 +25,18 @@
  * risks that account being flagged or challenged by Instagram's automated-
  * behavior detection, which anonymous requests (just an inconclusive login
  * page) don't risk. Falls back to the unauthenticated path when unset.
+ *
+ * If INSTAGRAM_PROXY_URL is set (e.g. http://user:pass@host:port, a
+ * residential proxy — never committed), the request goes through it. The
+ * login wall is IP-based, not username- or User-Agent-based: from the
+ * production VPS's datacenter IP every profile, taken or free, redirects to
+ * the login page, while the identical request through a residential IP
+ * returns the real profile (tested 2026-09-29). The User-Agent stays
+ * honest either way. Residential proxies typically bill per GB and each
+ * check downloads a full profile page, so this is meant to be paired with
+ * the check staying off by default.
  */
-import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
+import { fetchViaProxy, fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
 
 export type InstagramStatus = "available" | "taken" | "unknown";
 
@@ -39,7 +49,11 @@ export async function checkInstagramUsername(
     headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;
   }
 
-  const res = await fetchWithTimeout(`https://www.instagram.com/${encodeURIComponent(username)}/`, { headers }, signal);
+  const url = `https://www.instagram.com/${encodeURIComponent(username)}/`;
+  const proxyUrl = process.env.INSTAGRAM_PROXY_URL;
+  const res = proxyUrl
+    ? await fetchViaProxy(url, { headers }, proxyUrl, signal)
+    : await fetchWithTimeout(url, { headers }, signal);
 
   if (res.status === 429) throwRateLimited("instagram_rate_limited");
 
