@@ -33,6 +33,20 @@ describe("completeChat", () => {
     await expect(completeChat("hi")).resolves.toBe("hello there");
   });
 
+  it("retries when the gateway returns 200 with an upstream error body", async () => {
+    const overloaded = mockResponse(200, {
+      error: { code: 503, message: "Upstream error from Nvidia: Service temporarily overloaded" },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(overloaded)
+      .mockResolvedValueOnce(overloaded)
+      .mockResolvedValueOnce(mockResponse(200, { choices: [{ message: { content: "ok" } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(completeChat("hi")).resolves.toBe("ok");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("defaults to the free auto-router model when KILOCODE_MODEL is unset", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       mockResponse(200, { choices: [{ message: { content: "ok" } }] })

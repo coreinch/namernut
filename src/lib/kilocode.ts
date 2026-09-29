@@ -25,6 +25,9 @@ export class KilocodeApiKeyMissingError extends Error {
 
 interface KilocodeResponse {
   choices?: Array<{ message?: { content?: string } }>;
+  // The gateway reports upstream failures (e.g. a free provider being
+  // overloaded) as HTTP 200 with this body instead of a non-200 status.
+  error?: { message?: string; code?: number };
 }
 
 // kilo-auto/free (the default model — see DEFAULT_MODEL above) can pick a
@@ -57,13 +60,18 @@ interface KilocodeResponse {
 // upstream succeed.
 const REQUEST_TIMEOUT_MS = 30000;
 
+// Overloaded-upstream errors come back fast, so several attempts are cheap.
+// Timeouts cost the full REQUEST_TIMEOUT_MS each, so they get only one retry.
+const MAX_UPSTREAM_ATTEMPTS = 4;
+const MAX_TIMEOUTS = 2;
+
 async function completeChatOnce(
   prompt: string,
   apiKey: string,
   model: string,
   temperature: number,
   signal?: AbortSignal
-): Promise<{ content: string } | { timedOut: true }> {
+): Promise<{ content: string } | { timedOut: true } | { upstreamError: true }> {
   const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   let res: Response;
   try {
@@ -101,6 +109,15 @@ async function completeChatOnce(
   }
 
   const data = (await res.json()) as KilocodeResponse;
+  // Confirmed live (2026-09-29): kilo-auto/free routinely answers 200 with
+  // {"error":{"code":503,"message":"Upstream error from Nvidia: Service
+  // temporarily overloaded"}} and no choices. Without this check that fell
+  // through to kilocode_empty_response below, un-retried, and every AI
+  // feature silently degraded to its no-AI fallback. Another attempt gets
+  // routed afresh, so treat overload/5xx upstream errors like a timeout.
+  if (data.error && (data.error.code === undefined || data.error.code >= 500 || data.error.code === 429)) {
+    return { upstreamError: true };
+  }
   const content = data.choices?.[0]?.message?.content;
   if (!content || content.trim() === "") {
     const err = new Error("kilocode_empty_response");
@@ -111,7 +128,7 @@ async function completeChatOnce(
 }
 
 /**
- * Retries exactly once, and only on our own REQUEST_TIMEOUT_MS firing — the
+ * Retries (MAX_TIMEOUTS / MAX_UPSTREAM_ATTEMPTS) on our own REQUEST_TIMEOUT_MS firing or a 200-with-error upstream failure — the
  * specific, empirically-confirmed failure mode of kilo-auto/free (see
  * REQUEST_TIMEOUT_MS's own comment): a rotated-through free upstream model
  * hanging with zero response, not an error. A retry gets a fresh shot at the
@@ -133,11 +150,12 @@ export async function completeChat(prompt: string, signal?: AbortSignal, tempera
   if (!apiKey) throw new KilocodeApiKeyMissingError();
   const model = process.env.KILOCODE_MODEL || DEFAULT_MODEL;
 
-  const first = await completeChatOnce(prompt, apiKey, model, temperature, signal);
-  if ("content" in first) return first.content;
-
-  const second = await completeChatOnce(prompt, apiKey, model, temperature, signal);
-  if ("content" in second) return second.content;
+  let timeouts = 0;
+  for (let attempt = 0; attempt < MAX_UPSTREAM_ATTEMPTS && timeouts < MAX_TIMEOUTS; attempt++) {
+    const result = await completeChatOnce(prompt, apiKey, model, temperature, signal);
+    if ("content" in result) return result.content;
+    if ("timedOut" in result) timeouts++;
+  }
 
   const err = new Error("kilocode_timeout");
   err.name = "KilocodeError";
