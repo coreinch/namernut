@@ -13,6 +13,14 @@
  * never committed) routes it; without one, Google will very likely
  * challenge a datacenter IP, which the retry/cooldown below absorbs.
  *
+ * Headless vs headful: tested 2026-09-29, Google served its reCAPTCHA
+ * ("unusual traffic") page to headless Chrome from every network tried
+ * (home IP without a proxy, residential proxy, production server), while the
+ * same Chrome build run headful from the same home IP got real results. So
+ * CHROME_HEADFUL=1 runs it headful — on the existing DISPLAY if there is
+ * one, otherwise on a private Xvfb virtual display started here (the
+ * production container has no display; the image ships xvfb).
+ *
  * Speed: one headless Chrome is launched lazily and kept warm (reused
  * TLS/proxy connections and cookies; closed after IDLE_MS unused), each
  * search is just a new tab, and the page is read as soon as the results
@@ -220,6 +228,34 @@ function release() {
   waiting.shift()?.();
 }
 
+/** Starts a private virtual display and resolves its name (":N"). Xvfb picks
+ * a free display number itself (-displayfd) and prints it on fd 1, so a
+ * stale lock file from a crashed earlier run can't collide. */
+function startXvfb(): Promise<{ proc: ReturnType<typeof spawn>; display: string }> {
+  const proc = spawn(process.env.XVFB_BIN ?? "Xvfb", ["-screen", "0", "1280x800x24", "-nolisten", "tcp", "-displayfd", "1"], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return new Promise((resolve, reject) => {
+    const fail = () => {
+      clearTimeout(timer);
+      proc.kill();
+      reject(new ChromeSearchError("chrome_search_xvfb_failed"));
+    };
+    const timer = setTimeout(fail, 5000);
+    let out = "";
+    proc.stdout?.on("data", (d: Buffer) => {
+      out += String(d);
+      const m = out.match(/^(\d+)\n/);
+      if (m) {
+        clearTimeout(timer);
+        resolve({ proc, display: `:${m[1]}` });
+      }
+    });
+    proc.on("error", fail);
+    proc.on("exit", fail);
+  });
+}
+
 interface CdpReply {
   result?: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   error?: unknown;
@@ -239,13 +275,18 @@ async function launchBrowser(): Promise<Browser> {
   const chromeBin = process.env.CHROME_BIN;
   if (!chromeBin) throw new ChromeSearchError("chrome_search_disabled");
 
+  const headful = process.env.CHROME_HEADFUL === "1";
+  let display = process.env.DISPLAY;
+  const xvfb = headful && !display ? await startXvfb() : undefined;
+  if (xvfb) display = xvfb.display;
+
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "namernut-chrome-"));
   const args = [
     // Port 0 + DevToolsActivePort file: no port collisions between
     // concurrent processes / dev-server reloads.
     "--remote-debugging-port=0",
     `--user-data-dir=${userDir}`,
-    "--headless=new",
+    ...(headful ? ["--window-size=1280,800"] : ["--headless=new"]),
     "--no-first-run",
     "--no-default-browser-check",
     "--no-sandbox",
@@ -263,7 +304,10 @@ async function launchBrowser(): Promise<Browser> {
       args.push(`--proxy-server=${proxy}`);
     }
   }
-  const proc = spawn(chromeBin, [...args, "about:blank"], { stdio: "ignore" });
+  const proc = spawn(chromeBin, [...args, "about:blank"], {
+    stdio: "ignore",
+    env: display ? { ...process.env, DISPLAY: display } : process.env,
+  });
   if (!exitHookInstalled) {
     exitHookInstalled = true;
     process.once("exit", () => {
@@ -278,6 +322,7 @@ async function launchBrowser(): Promise<Browser> {
     if (idleTimer) clearTimeout(idleTimer);
     if (browserPromise === thisBrowser) browserPromise = undefined;
     proc.kill();
+    xvfb?.proc.kill();
     forwarder?.close();
     // Chrome may still be flushing into its profile for a moment after the
     // kill (ENOTEMPTY), and cleanup failing must never mask a search

@@ -49,8 +49,10 @@ COPY --from=builder /app/public ./public
 # the binary is baked into the image and ansible/templates/env.j2 points
 # CHROME_BIN at it (GOOGLE_PROXY_URL is a separate, optional setting that
 # only routes Chrome through a proxy). The font package is what keeps
-# rendered text/metrics sane on a bare alpine image.
-RUN apk add --no-cache chromium font-noto
+# rendered text/metrics sane on a bare alpine image. xvfb is the virtual
+# display Chrome runs headful on (CHROME_HEADFUL=1): Google serves its bot
+# challenge to headless Chrome but not to a headful one — see chromeSearch.ts.
+RUN apk add --no-cache chromium xvfb font-noto
 
 # Official node images ship a non-root "node" user (uid 1000) for this
 # purpose — the runtime stage never needs root.

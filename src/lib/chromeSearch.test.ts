@@ -177,6 +177,26 @@ const killMock = vi.fn();
 let procHandlers: Record<string, () => void> = {};
 let writeEndpoint = true;
 
+let xvfbMode: "ok" | "silent" | "error" | "exit" = "ok";
+const xvfbKill = vi.fn();
+/** Stands in for the Xvfb child: prints its display number on stdout. */
+function fakeXvfb() {
+  const handlers: Record<string, (...a: unknown[]) => void> = {};
+  const stdoutHandlers: Array<(d: Buffer) => void> = [];
+  queueMicrotask(() => {
+    if (xvfbMode === "ok") {
+      stdoutHandlers.forEach((h) => h(Buffer.from("9")));
+      stdoutHandlers.forEach((h) => h(Buffer.from("9\n"))); // number arrives in pieces
+    } else if (xvfbMode === "error") handlers.error?.(new Error("ENOENT"));
+    else if (xvfbMode === "exit") handlers.exit?.(1);
+  });
+  return {
+    kill: xvfbKill,
+    on: (ev: string, cb: (...a: unknown[]) => void) => (handlers[ev] = cb),
+    stdout: { on: (_: string, cb: (d: Buffer) => void) => stdoutHandlers.push(cb) },
+  };
+}
+
 const sent = (m: string) => FakeWebSocket.sent.filter((x) => x.method === m);
 const spawnArgs = (i = 0) => spawnMock.mock.calls[i][1] as string[];
 
@@ -195,7 +215,10 @@ describe("chromeSearch", () => {
     procHandlers = {};
     writeEndpoint = true;
     killMock.mockReset();
-    spawnMock.mockReset().mockImplementation((_bin: string, args: string[]) => {
+    xvfbMode = "ok";
+    xvfbKill.mockReset();
+    spawnMock.mockReset().mockImplementation((bin: string, args: string[]) => {
+      if (bin === "Xvfb") return fakeXvfb();
       const dir = args.find((a) => a.startsWith("--user-data-dir="))!.split("=")[1];
       if (writeEndpoint) fs.writeFileSync(path.join(dir, "DevToolsActivePort"), "12345\n/devtools/browser/abc\n");
       return { kill: killMock, on: (ev: string, cb: () => void) => (procHandlers[ev] = cb) };
@@ -203,6 +226,7 @@ describe("chromeSearch", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubEnv("CHROME_BIN", "/x/chrome");
     vi.stubEnv("GOOGLE_PROXY_URL", "");
+    vi.stubEnv("CHROME_HEADFUL", "");
     resetChromeCooldown();
   });
   afterEach(async () => {
@@ -217,6 +241,53 @@ describe("chromeSearch", () => {
     vi.stubEnv("CHROME_BIN", "");
     await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_disabled");
     expect(isChromeSearchAvailable()).toBe(false);
+  });
+
+  it("runs headless by default", async () => {
+    await chromeSearch("q", "us");
+    expect(spawnArgs()).toContain("--headless=new");
+    expect(spawnArgs()).not.toContain("--window-size=1280,800");
+  });
+
+  it("CHROME_HEADFUL=1 runs headful on the existing DISPLAY without starting Xvfb", async () => {
+    vi.stubEnv("CHROME_HEADFUL", "1");
+    vi.stubEnv("DISPLAY", ":0");
+    await chromeSearch("q", "us");
+    expect(spawnArgs()).not.toContain("--headless=new");
+    expect(spawnArgs()).toContain("--window-size=1280,800");
+    expect(spawnMock.mock.calls.map((c) => c[0])).toEqual(["/x/chrome"]);
+    expect(spawnMock.mock.calls[0][2].env.DISPLAY).toBe(":0");
+  });
+
+  it("CHROME_HEADFUL=1 without a DISPLAY starts a private Xvfb, points Chrome at it, and stops it with Chrome", async () => {
+    vi.stubEnv("CHROME_HEADFUL", "1");
+    vi.stubEnv("DISPLAY", "");
+    await chromeSearch("q", "us");
+    const [xvfbCall, chromeCall] = spawnMock.mock.calls;
+    expect(xvfbCall[0]).toBe("Xvfb");
+    expect(xvfbCall[1]).toEqual(expect.arrayContaining(["-displayfd", "1", "-nolisten", "tcp"]));
+    expect(chromeCall[0]).toBe("/x/chrome");
+    expect(chromeCall[1]).not.toContain("--headless=new");
+    expect(chromeCall[2].env.DISPLAY).toBe(":99");
+    await chromeSearch("q2", "us");
+    expect(spawnMock).toHaveBeenCalledTimes(2); // Xvfb + Chrome, both stay warm
+    expect(xvfbKill).not.toHaveBeenCalled();
+    await shutdownChrome();
+    expect(xvfbKill).toHaveBeenCalled();
+  });
+
+  it("fails cleanly when Xvfb can't start, errors out, or never reports a display", async () => {
+    vi.stubEnv("CHROME_HEADFUL", "1");
+    vi.stubEnv("DISPLAY", "");
+    xvfbMode = "error";
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_xvfb_failed");
+    xvfbMode = "exit";
+    await expect(chromeSearch("q", "us")).rejects.toThrow("chrome_search_xvfb_failed");
+    xvfbMode = "silent";
+    vi.useFakeTimers();
+    await expect(settle(chromeSearch("q", "us"))).rejects.toThrow("chrome_search_xvfb_failed");
+    expect(xvfbKill).toHaveBeenCalled();
+    expect(spawnMock.mock.calls.every((c) => c[0] === "Xvfb")).toBe(true); // Chrome never launched
   });
 
   it("launches headless Chrome once, keeps it warm across searches, and opens/closes one tab per search", async () => {
