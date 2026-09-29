@@ -127,7 +127,18 @@ export function SearchBar({
           // happens.
           id="primary-search-action"
           type={isRunning ? "button" : "submit"}
-          onClick={isRunning ? onStop : undefined}
+          onClick={
+            isRunning
+              ? (e) => {
+                  // onStop flips isRunning synchronously, re-rendering this
+                  // button as type="submit" before the click's default
+                  // action runs — which would submit the form and start a
+                  // new search. Cancel that default.
+                  e.preventDefault();
+                  onStop();
+                }
+              : undefined
+          }
           className={`min-h-12 shrink-0 whitespace-nowrap rounded-full px-6 text-base font-semibold text-white transition-all active:scale-95 ${
             mode === "hero" ? "sm:min-h-14 sm:px-8 sm:text-lg" : ""
           } ${
