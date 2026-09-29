@@ -7,6 +7,9 @@ import type { NextConfig } from "next";
 process.env.APP_BUILD_ID ??= Date.now().toString(36);
 const buildId = process.env.APP_BUILD_ID;
 
+// Fast Refresh (HMR) in `next dev` needs 'unsafe-eval'; production doesn't.
+const isDev = process.env.NODE_ENV !== "production";
+
 const nextConfig: NextConfig = {
   generateBuildId: async () => buildId,
   env: { NEXT_PUBLIC_BUILD_ID: buildId },
@@ -42,11 +45,11 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline'",
+              `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data:",
               "font-src 'self' data:",
-              "connect-src 'self'",
+              isDev ? "connect-src 'self' ws: wss:" : "connect-src 'self'",
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "form-action 'self'",
