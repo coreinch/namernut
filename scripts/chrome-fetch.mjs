@@ -114,7 +114,7 @@ async function fetchHtml(url, { proxy, headful } = {}) {
   } finally {
     proc.kill();
     forwarder?.close();
-    fs.rmSync(userDir, { recursive: true, force: true });
+    fs.promises.rm(userDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(() => {});
   }
 }
 
