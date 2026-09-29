@@ -536,7 +536,8 @@ export async function runDiscovery(
     platforms: SocialPlatform[],
     name: string,
     social: Record<string, SocialStatus>,
-    socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>>
+    socialForName: Partial<Record<string, ReturnType<typeof checkSocialOne>>>,
+    blockedForName: Set<string>
   ): Promise<"ok" | "aborted"> {
     const active = platforms.filter((p) => !gateDisabled[p.key]);
     const results = await Promise.all(
@@ -551,6 +552,10 @@ export async function runDiscovery(
 
     for (const { platform, result } of results) {
       if (result === "blocked") {
+        // A blocked check (e.g. Instagram's login-wall redirect) says
+        // nothing about whether the handle is free, so it must not count
+        // as "unavailable" for this name — see the gate checks below.
+        blockedForName.add(platform.key);
         blockedStreaks[platform.key]++;
         // Guarded on !gateDisabled[platform.key] too: several workers can
         // have a check for this platform in flight when its streak first
@@ -675,6 +680,7 @@ export async function runDiscovery(
         // carries all six (see its own doc comment), so a disabled
         // platform reports the same "unknown" a genuinely inconclusive
         // check would.
+        const blockedForName = new Set<string>();
         const social: Record<string, SocialStatus> = {
           instagram: "unknown",
           github: "unknown",
@@ -689,7 +695,7 @@ export async function runDiscovery(
         // rather than here — awaiting it now just picks up results that
         // have often already arrived while later TLDs in this candidate
         // were still being domain-checked.
-        const eagerOutcome = await checkPlatformGroup(EAGER_PLATFORMS, name, social, socialForName);
+        const eagerOutcome = await checkPlatformGroup(EAGER_PLATFORMS, name, social, socialForName, blockedForName);
         if (eagerOutcome === "aborted") return;
 
         // Only a domain match plus every *currently* required eager
@@ -699,7 +705,7 @@ export async function runDiscovery(
         // point spending a request against a rate-limited, off-by-default
         // deferred platform for a name that can't be a result anyway.
         const anyEagerUnavailable = EAGER_PLATFORMS.some(
-          (p) => !gateDisabled[p.key] && social[p.key] !== "available"
+          (p) => !gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available"
         );
         if (anyEagerUnavailable) {
           onEvent({ type: "filtered", name: domain, checkedCount });
@@ -716,11 +722,11 @@ export async function runDiscovery(
         // passed — see DEFERRED_PLATFORMS above for why these run
         // last, unlike EAGER_PLATFORMS these were never started eagerly, so
         // this is the first await for any of them.
-        const deferredOutcome = await checkPlatformGroup(DEFERRED_PLATFORMS, name, social, socialForName);
+        const deferredOutcome = await checkPlatformGroup(DEFERRED_PLATFORMS, name, social, socialForName, blockedForName);
         if (deferredOutcome === "aborted") return;
 
         const anyDeferredUnavailable = DEFERRED_PLATFORMS.some(
-          (p) => !gateDisabled[p.key] && social[p.key] !== "available"
+          (p) => !gateDisabled[p.key] && !blockedForName.has(p.key) && social[p.key] !== "available"
         );
         if (anyDeferredUnavailable) {
           onEvent({ type: "filtered", name: domain, checkedCount });

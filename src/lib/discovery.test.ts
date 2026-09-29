@@ -277,6 +277,28 @@ describe("runDiscovery", () => {
     expect(vi.mocked(checkInstagramUsername).mock.calls.length).toBeLessThanOrEqual(4);
   });
 
+  it("does not filter a name out just because Instagram redirected to its login wall", async () => {
+    const pool: WordEntry[] = [
+      { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "dog", langs: ["english"], definition: "", common: false, noun: true },
+      { word: "fox", langs: ["english"], definition: "", common: false, noun: true },
+    ];
+    vi.mocked(checkDomain).mockResolvedValue("available");
+    vi.mocked(checkDomainWhois).mockResolvedValue("unknown");
+    const loginWallError = new Error("instagram_login_wall");
+    loginWallError.name = "LoginWallError";
+    vi.mocked(checkInstagramUsername).mockRejectedValue(loginWallError);
+
+    const events: DiscoveryEvent[] = [];
+    const controller = new AbortController();
+    await runDiscovery(pool, undefined, ["com"], 3, (e) => events.push(e), controller.signal, 20, ALL_GATES_ON);
+
+    // An inconclusive (blocked) Instagram check is not "unavailable": no
+    // name may be filtered on its account, even before the breaker trips.
+    expect(events.filter((e) => e.type === "filtered").length).toBe(0);
+    expect(events.filter((e) => e.type === "found").length).toBe(3);
+  });
+
   it("stops requiring Instagram availability once checking it looks structurally blocked, rather than producing zero results forever", async () => {
     const pool: WordEntry[] = [
       { word: "cat", langs: ["english"], definition: "", common: false, noun: true },
