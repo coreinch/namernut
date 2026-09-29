@@ -11,8 +11,7 @@
  * Off unless CHROME_BIN points at a Chrome/Chromium binary. Optional
  * GOOGLE_PROXY_URL (http://user:pass@host:port — a residential proxy,
  * never committed) routes it; without one, Google will very likely
- * challenge a datacenter IP (deploy only sets CHROME_BIN when a proxy is
- * configured — see ansible/templates/env.j2).
+ * challenge a datacenter IP, which the retry/cooldown below absorbs.
  *
  * Speed: one headless Chrome is launched lazily and kept warm (reused
  * TLS/proxy connections and cookies; closed after IDLE_MS unused), each

@@ -46,11 +46,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
 # Chromium for the real-browser search provider (src/lib/chromeSearch.ts) —
-# the binary is baked into the image, but the provider stays OFF until
-# CHROME_BIN is set at runtime, and ansible/templates/env.j2 only sets it
-# when a GOOGLE_PROXY_URL is configured (Google challenges datacenter IPs,
-# so Chrome without a residential proxy would just fail slowly). The font
-# package is what keeps rendered text/metrics sane on a bare alpine image.
+# the binary is baked into the image and ansible/templates/env.j2 points
+# CHROME_BIN at it (GOOGLE_PROXY_URL is a separate, optional setting that
+# only routes Chrome through a proxy). The font package is what keeps
+# rendered text/metrics sane on a bare alpine image.
 RUN apk add --no-cache chromium font-noto
 
 # Official node images ship a non-root "node" user (uid 1000) for this
