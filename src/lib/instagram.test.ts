@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkInstagramUsername } from "./instagram";
 
+const undiciMock = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  ProxyAgent: vi.fn(function (this: { url: string }, url: string) {
+    this.url = url;
+  }),
+}));
+vi.mock("undici", () => undiciMock);
+
 function mockResponse(status: number, url: string, html = "") {
   return {
     status,
@@ -16,6 +24,21 @@ describe("checkInstagramUsername", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.INSTAGRAM_SESSION_ID;
+    delete process.env.INSTAGRAM_PROXY_URL;
+    undiciMock.fetch.mockReset();
+  });
+
+  it("routes through the proxy via undici (and never the global fetch) when INSTAGRAM_PROXY_URL is set", async () => {
+    process.env.INSTAGRAM_PROXY_URL = "http://user:pass@proxy.example:1234";
+    const globalFetch = vi.fn();
+    vi.stubGlobal("fetch", globalFetch);
+    undiciMock.fetch.mockResolvedValue(mockResponse(200, PROFILE_URL, '<meta property="og:title" content="nike">'));
+    await expect(checkInstagramUsername("nike")).resolves.toBe("taken");
+    await checkInstagramUsername("nike");
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(undiciMock.fetch.mock.calls[0][1].dispatcher.url).toBe("http://user:pass@proxy.example:1234");
+    // The ProxyAgent is created once per proxy URL and reused.
+    expect(undiciMock.ProxyAgent).toHaveBeenCalledTimes(1);
   });
 
   it("maps a page with og:title metadata to 'taken'", async () => {
