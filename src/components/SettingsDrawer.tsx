@@ -24,12 +24,20 @@ export function SettingsDrawer({
 }) {
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Parents pass an inline onClose (new identity every render). Keeping it
+  // out of the effect's deps stops any re-render while open (e.g. toggling a
+  // platform in the panel) from re-running the effect, which would re-focus
+  // the close button at the top and scroll the drawer back to the top.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       // Focus trap: everything in SettingsPanel's form controls is still a
@@ -80,7 +88,7 @@ export function SettingsDrawer({
       // focus handoff for the same failure mode elsewhere in this app).
       previouslyFocused?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
