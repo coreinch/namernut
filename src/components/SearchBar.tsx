@@ -67,10 +67,10 @@ export function SearchBar({
     <div className="flex flex-col gap-4">
       {mode === "hero" && (
         <>
-          <h1 className="text-center font-display text-xl font-semibold leading-tight sm:text-2xl">
+          <h1 className="text-center font-display text-2xl font-semibold leading-tight text-balance sm:text-3xl">
             {HOOK}
           </h1>
-          <p className="text-center text-sm text-muted">{MECHANISM}</p>
+          <p className="text-center text-sm text-muted text-balance sm:text-base">{MECHANISM}</p>
           <p className="mt-2 text-center text-xs font-medium uppercase tracking-wide text-muted">
             What&rsquo;s your keyword?
           </p>

@@ -421,7 +421,7 @@ export default function Home() {
           // isFirstVisit's own comment above for why every other section
           // (tabs, style chips, advanced filters, results, log) is left out
           // rather than rendered empty.
-          <div className={`mx-auto flex h-full w-full flex-col justify-center gap-5 ${CONTENT_WIDTH}`}>
+          <div className={`mx-auto flex h-full w-full flex-col justify-start gap-5 pt-2 sm:justify-center sm:pt-0 ${CONTENT_WIDTH}`}>
             <SearchBar mode="hero" {...searchBarProps} />
           </div>
         ) : (
