@@ -112,7 +112,7 @@ describe("checkBrandability", () => {
     await checkBrandability("catdog");
     const prompt = completeChatMock.mock.calls[0][0];
     expect(prompt).toContain("cat dog hit");
-    expect(prompt).toContain("also reads as the two real dictionary words");
+    expect(prompt).toContain("also reads as the two real words");
   });
 
   it("uses the LLM's score and summary verbatim", async () => {
@@ -135,8 +135,8 @@ describe("checkBrandability", () => {
   it("instructs the LLM to detect Google's silent query-override from the results themselves, noting region-dependence", async () => {
     await checkBrandability("sadpitch");
     const prompt = completeChatMock.mock.calls[0][0];
-    expect(prompt).toContain("silently substitutes");
-    expect(prompt).toContain("region-dependent");
+    expect(prompt).toContain("Silent substitution");
+    expect(prompt).toContain("clean result doesn't rule out an override elsewhere");
   });
 
   it("instructs the LLM to check its own brand knowledge independently of the search results", async () => {
