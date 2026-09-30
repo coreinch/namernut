@@ -50,6 +50,39 @@
         pull: always
         state: present
 
+    # Every deploy pulls a new tag (main-<sha>) and nothing removes the old
+    # ones, so the VPS disk fills up over time (it hit 100% once — Chrome-era
+    # images were ~1GB each — and everything on the box, including the
+    # other sites, started failing). This box is SHARED with other stacks
+    # (cicd-lab, wordpress, ...), so this deliberately does NOT run a
+    # blanket `docker image prune -a`, which would delete any image that
+    # happens not to be running right now, including their stopped ones.
+    # Instead: (1) remove only THIS app's older tags beyond the newest
+    # `keep_app_images` (kept for a quick rollback), and (2) prune dangling
+    # (untagged) images, which nothing can be using. Runs after the stack
+    # is up, so the image in use is always the newest tag and is protected
+    # twice over (never in the removal list; docker refuses to remove an
+    # image a container is using anyway).
+    - name: List this app's image tags, newest first
+      ansible.builtin.command: docker image ls {{ ghcr_image }} --format "{{ '{{.Repository}}:{{.Tag}}' }}"
+      register: app_image_refs
+      changed_when: false
+
+    - name: Remove this app's image tags older than the newest {{ keep_app_images }}
+      ansible.builtin.command: docker rmi {{ item }}
+      loop: "{{ (app_image_refs.stdout_lines | reject('search', ':<none>$') | list)[keep_app_images:] }}"
+      register: rmi_result
+      changed_when: rmi_result.rc == 0
+      # Cleanup must never fail a deploy that already succeeded: an image
+      # can be in use (rollback container) or already gone.
+      failed_when: false
+
+    - name: Prune dangling images
+      ansible.builtin.command: docker image prune -f
+      register: prune_result
+      changed_when: "'Total reclaimed space: 0B' not in prune_result.stdout"
+      failed_when: false
+
     # Touches nginx config shared with every other site on this VPS
     # (cicd-lab, wordpress, and others) — only a new file is written, no
     # existing vhost is touched, and the reload handler refuses to

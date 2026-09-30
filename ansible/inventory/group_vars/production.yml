@@ -41,3 +41,10 @@ image_tag: main
 # proxy kept on) is a Cloudflare-dashboard change outside ansible's/this
 # repo's reach, and has to happen before this vhost does anything.
 custom_domain: namernut.com
+
+# How many of this app's most recent image tags to keep on the VPS after a
+# deploy (the newest is the running one; the rest are for a quick rollback).
+# Older tags are removed by the "Remove this app's image tags" task in
+# playbooks/deploy.yml — see the comment there for why it's scoped to this
+# image only.
+keep_app_images: 3
