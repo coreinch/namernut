@@ -237,8 +237,16 @@ Bands:
   dominates the results.
 - 16-40: several real companies/products/people use it or an obvious
   variant, or many different products share the same topic.
-- 41-70: one or two minor real users, or a common dictionary word.
-- 71-100: nothing real found; results are unrelated.
+- 41-70: one or two minor real users of the exact name (or a half of it).
+- 71-84: no real collision, but the name is a plain phrase of ordinary
+  words that a few unrelated small sites happen to use.
+- 85-100: nothing real found: no company, product, or person uses it, and
+  the results are unrelated or empty. Use the full range: a clean, unique
+  name should score 90-100, not stop at the middle of the scale.
+
+Do not lower a score just because the name is built from dictionary words,
+and do not hedge toward the middle: only a real collision found in step 1
+or 4 justifies going below 85.
 
 Follow these steps:
 1. Read the results. A REAL collision is an existing company, product,
@@ -269,7 +277,7 @@ Examples of the output format:
 SCORE: 8
 SUMMARY: Sounds exactly like the major brand "Duck Brand" (duct tape), which Google substitutes for this query.
 
-SCORE: 88
+SCORE: 94
 SUMMARY: Clean — results are unrelated to the name.
 
 BROAD-MATCH (unquoted) search results for ${name}${twoWordSplit ? ` OR ${twoWordSplit}` : ""} (region: ${region}).
