@@ -13,11 +13,10 @@ export type Provider = ProviderOption;
  * https://apiserpent.com/faq), so it's the fallback, not the primary. */
 const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
-/** The default provider whenever TWOCAPTCHA_API_KEY is set (see
- * twocaptchaSearch.ts): tried first, with PRIMARY_PROVIDER and
- * FALLBACK_PROVIDER above as its fallbacks. Without the key it's skipped
- * entirely and the order is unchanged. */
-const DEFAULT_PROVIDER: Provider = "twocaptcha";
+/** Optional middle tier: when TWOCAPTCHA_API_KEY is set (see
+ * twocaptchaSearch.ts) it's tried after PRIMARY_PROVIDER fails and before
+ * FALLBACK_PROVIDER. Without the key it's skipped entirely. */
+const SECOND_PROVIDER: Provider = "twocaptcha";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -328,16 +327,16 @@ const SEARCH_TIMEOUT_MS = 12000;
 // cut its slower calls off and waste them, so it gets a longer budget.
 const TWOCAPTCHA_TIMEOUT_MS = 20000;
 
-/** Tries DEFAULT_PROVIDER first when TWOCAPTCHA_API_KEY is set, then
- * PRIMARY_PROVIDER, then FALLBACK_PROVIDER, moving on at the first success.
- * Each step falls through on any failure — including a timeout (see
- * SEARCH_TIMEOUT_MS / TWOCAPTCHA_TIMEOUT_MS) — except when the caller's own
- * `signal` is what aborted: that's a real cancellation (the client
- * disconnected, or checkBrandability's own outer `signal` was aborted for
- * some other reason upstream), not a provider problem, so retrying with a
- * different provider would be pointless and just add latency to a request
- * nobody's waiting on anymore. The last provider tried is the one whose
- * error is thrown. */
+/** Tries PRIMARY_PROVIDER first, then — only when TWOCAPTCHA_API_KEY is
+ * set — SECOND_PROVIDER, then FALLBACK_PROVIDER, moving on at the first
+ * success. Each step falls through on any failure — including a timeout
+ * (see SEARCH_TIMEOUT_MS / TWOCAPTCHA_TIMEOUT_MS) — except when the
+ * caller's own `signal` is what aborted: that's a real cancellation (the
+ * client disconnected, or checkBrandability's own outer `signal` was
+ * aborted for some other reason upstream), not a provider problem, so
+ * retrying with a different provider would be pointless and just add
+ * latency to a request nobody's waiting on anymore. The last provider
+ * tried is the one whose error is thrown. */
 async function searchWithFallback(
   query: string,
   region: Region,
@@ -352,7 +351,7 @@ async function searchWithFallback(
     { provider: FALLBACK_PROVIDER, timeoutMs: SEARCH_TIMEOUT_MS },
   ];
   if (process.env.TWOCAPTCHA_API_KEY) {
-    providers.unshift({ provider: DEFAULT_PROVIDER, timeoutMs: TWOCAPTCHA_TIMEOUT_MS });
+    providers.splice(1, 0, { provider: SECOND_PROVIDER, timeoutMs: TWOCAPTCHA_TIMEOUT_MS });
   }
 
   let lastErr: unknown;

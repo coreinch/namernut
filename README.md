@@ -45,7 +45,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | --- | --- | --- |
 | `SERPER_API_KEY` | Yes (primary provider) | Web search backing the brandability check ([serper.dev](https://serper.dev)) |
 | `SERPENT_API_KEY` | Recommended | Automatic fallback search provider, used only if the primary fails — not a settable choice |
-| `TWOCAPTCHA_API_KEY` | No | Optional. When set, [2captcha's Scraper API](https://scraper.2captcha.com) is the **default** search provider (tried first; Serper then Serpent are its fallbacks). Returns organic results only — no spelling-correction or knowledge-panel signals — in ~4-10s; unset keeps Serper first |
+| `TWOCAPTCHA_API_KEY` | No | Optional. When set, [2captcha's Scraper API](https://scraper.2captcha.com) is the first fallback: Serper, then 2captcha, then Serpent. Returns organic results only — no spelling-correction or knowledge-panel signals — in ~4-10s; unset skips it |
 | `KILOCODE_API_KEY` | Yes | LLM calls for AI synonyms/invented names/brandability summaries |
 | `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the pinned model `kilo-auto/small` |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |

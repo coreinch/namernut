@@ -64,8 +64,8 @@ const PROVIDERS: Record<string, SearchFn> = {
  * demonstrated reproducing Google's real silent query-override behavior in
  * testing, which Serper never has (see serperSearch.ts's docstring).
  * A third, "twocaptcha" (twocaptchaSearch.ts: 2captcha's Scraper API, ~4s),
- * is opt-in via TWOCAPTCHA_API_KEY and, when set, the DEFAULT — tried
- * first in searchWithFallback, with serper and serpent as its fallbacks.
+ * is opt-in via TWOCAPTCHA_API_KEY and, when set, the middle tier in
+ * searchWithFallback: serper first, then this, then serpent.
  * Neither one is strictly better — that's the whole reason
  * searchWithFallback tries both rather than picking one fixed provider.
  */

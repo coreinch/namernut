@@ -45,7 +45,7 @@ server {
 
     # Worst-case latency budget: two searchWithFallback attempts (12s each,
     # see SEARCH_TIMEOUT_MS in brandability.ts; a third, when
-    # TWOCAPTCHA_API_KEY is set, it goes first with its own 20s, see
+    # TWOCAPTCHA_API_KEY is set, it goes in the middle with its own 20s, see
     # TWOCAPTCHA_TIMEOUT_MS) plus completeChat's own two attempts (30s each,
     # see REQUEST_TIMEOUT_MS in kilocode.ts — retries once on
     # kilo-auto/free's documented hang) is up to 84s (104s with the third
