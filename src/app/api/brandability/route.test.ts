@@ -122,7 +122,7 @@ describe("GET /api/brandability", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ score: 72, summary: "solid" });
-    expect(checkBrandability).toHaveBeenCalledWith("glowhut", ["glow", "hut"], expect.anything(), expect.any(String));
+    expect(checkBrandability).toHaveBeenCalledWith("glowhut", ["glow", "hut"], expect.anything(), expect.any(String), false);
   });
 
   it("returns 400 when name sanitizes down to nothing (e.g. all punctuation)", async () => {
@@ -134,6 +134,6 @@ describe("GET /api/brandability", () => {
   it("passes through a region query param that's in the allowed REGIONS list", async () => {
     checkBrandability.mockResolvedValue({ score: 50, summary: "ok" });
     await GET(req("name=glowhut&region=gb"));
-    expect(checkBrandability).toHaveBeenCalledWith("glowhut", undefined, expect.anything(), "gb");
+    expect(checkBrandability).toHaveBeenCalledWith("glowhut", undefined, expect.anything(), "gb", false);
   });
 });
