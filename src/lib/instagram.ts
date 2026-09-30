@@ -35,15 +35,47 @@
  * honest either way. Residential proxies typically bill per GB and each
  * check downloads a full profile page, so this is meant to be paired with
  * the check staying off by default.
+ *
+ * If INSTAGRAM_TWOCAPTCHA=1 and TWOCAPTCHA_API_KEY is set, the check goes
+ * through 2captcha's Scraper API instead (task_type "scrape"), which does
+ * get past the login wall — but only for the /embed/ page (tested
+ * 2026-09-30: the plain profile URL returns the login page for every
+ * username, and the web_profile_info API returns "useragent mismatch").
+ * A public profile's embed page carries `"contextJSON":"{\"context\":
+ * {\"username\":...` while a private or nonexistent one carries
+ * `"contextJSON":null`, and the two are otherwise indistinguishable — so
+ * this path can prove "taken" but never "available"; anything else is
+ * "unknown". Opt-in because each check is a metered ~230KB scrape (~4.5s).
  */
 import { fetchViaProxy, fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
 
 export type InstagramStatus = "available" | "taken" | "unknown";
 
+async function checkViaTwocaptcha(username: string, signal?: AbortSignal): Promise<InstagramStatus> {
+  const res = await fetch("https://scraper.2captcha.com/tasks/sync", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.TWOCAPTCHA_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      task_type: "scrape",
+      url: `https://www.instagram.com/${encodeURIComponent(username)}/embed/`,
+      data_format: "raw",
+      format: "raw",
+    }),
+    signal,
+  });
+  if (res.status === 429) throwRateLimited("instagram_rate_limited");
+  if (res.status !== 200) return "unknown";
+  const html = await res.text();
+  return /"contextJSON":"\{\\"context\\":\{\\"username\\"/.test(html) ? "taken" : "unknown";
+}
+
 export async function checkInstagramUsername(
   username: string,
   signal?: AbortSignal
 ): Promise<InstagramStatus> {
+  if (process.env.INSTAGRAM_TWOCAPTCHA === "1" && process.env.TWOCAPTCHA_API_KEY) {
+    return checkViaTwocaptcha(username, signal);
+  }
   const headers: Record<string, string> = { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "text/html" };
   if (process.env.INSTAGRAM_SESSION_ID) {
     headers["Cookie"] = `sessionid=${process.env.INSTAGRAM_SESSION_ID}`;

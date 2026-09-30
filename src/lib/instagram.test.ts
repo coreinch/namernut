@@ -25,6 +25,8 @@ describe("checkInstagramUsername", () => {
     vi.unstubAllGlobals();
     delete process.env.INSTAGRAM_SESSION_ID;
     delete process.env.INSTAGRAM_PROXY_URL;
+    delete process.env.INSTAGRAM_TWOCAPTCHA;
+    delete process.env.TWOCAPTCHA_API_KEY;
     undiciMock.fetch.mockReset();
   });
 
@@ -39,6 +41,20 @@ describe("checkInstagramUsername", () => {
     expect(undiciMock.fetch.mock.calls[0][1].dispatcher.url).toBe("http://user:pass@proxy.example:1234");
     // The ProxyAgent is created once per proxy URL and reused.
     expect(undiciMock.ProxyAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("via 2captcha: public embed is 'taken', null contextJSON is 'unknown' (never 'available')", async () => {
+    process.env.INSTAGRAM_TWOCAPTCHA = "1";
+    process.env.TWOCAPTCHA_API_KEY = "k";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockResponse(200, "", '..."contextJSON":"{\\"context\\":{\\"username\\":\\"nike\\"}}"...'))
+      .mockResolvedValueOnce(mockResponse(200, "", '..."contextJSON":null...'));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(checkInstagramUsername("nike")).resolves.toBe("taken");
+    await expect(checkInstagramUsername("zzqxv")).resolves.toBe("unknown");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://scraper.2captcha.com/tasks/sync");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).url).toBe("https://www.instagram.com/nike/embed/");
   });
 
   it("maps a page with og:title metadata to 'taken'", async () => {
