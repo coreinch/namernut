@@ -33,6 +33,9 @@ const DEFAULT_LLM_RESPONSE = "SCORE: 50\nSUMMARY: default verdict";
 
 describe("checkBrandability", () => {
   beforeEach(() => {
+    // A real key exported in CI or a dev shell would put 2captcha first in
+    // every test; tests that want it opt in.
+    vi.stubEnv("TWOCAPTCHA_API_KEY", "");
     clearBrandabilityCache();
     searchMock.mockReset();
     completeChatMock.mockReset();
@@ -76,39 +79,44 @@ describe("checkBrandability", () => {
     expect(res.provider).toBe("serpent");
   });
 
-  it("adds twocaptcha as a third, last-resort provider only when TWOCAPTCHA_API_KEY is set", async () => {
+  it("makes twocaptcha the default provider, tried first, when TWOCAPTCHA_API_KEY is set", async () => {
     vi.stubEnv("TWOCAPTCHA_API_KEY", "k");
     try {
-      searchMock.mockRejectedValueOnce(new Error("serper down"));
-      searchMock.mockRejectedValueOnce(new Error("serpent down"));
       searchMock.mockResolvedValueOnce({ results: [result({ title: "2captcha hit" })] });
       const res = await checkBrandability("fluidfew");
-      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["serper", "serpent", "twocaptcha"]);
+      expect(searchMock).toHaveBeenCalledTimes(1);
+      expect(searchMock).toHaveBeenCalledWith("fluidfew", DEFAULT_REGION, expect.any(AbortSignal), "twocaptcha");
       expect(res.provider).toBe("twocaptcha");
     } finally {
       vi.unstubAllEnvs();
     }
   });
 
-  it("propagates twocaptcha's error when all three providers fail", async () => {
+  it("falls from twocaptcha to serper to serpent, and the last error propagates if all three fail", async () => {
     vi.stubEnv("TWOCAPTCHA_API_KEY", "k");
     try {
-      searchMock.mockRejectedValueOnce(new Error("serper down"));
-      searchMock.mockRejectedValueOnce(new Error("serpent down"));
       searchMock.mockRejectedValueOnce(new Error("twocaptcha down"));
-      await expect(checkBrandability("fluidfew")).rejects.toThrow("twocaptcha down");
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockResolvedValueOnce({ results: [] });
+      expect((await checkBrandability("fluidfew")).provider).toBe("serpent");
+      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["twocaptcha", "serper", "serpent"]);
+
+      clearBrandabilityCache();
+      searchMock.mockReset();
+      searchMock.mockRejectedValue(new Error("all down"));
+      await expect(checkBrandability("otherword")).rejects.toThrow("all down");
     } finally {
       vi.unstubAllEnvs();
     }
   });
 
-  it("never tries twocaptcha when TWOCAPTCHA_API_KEY is unset — the serpent error propagates", async () => {
+  it("doesn't try twocaptcha at all when TWOCAPTCHA_API_KEY is unset — serper stays first", async () => {
     vi.stubEnv("TWOCAPTCHA_API_KEY", "");
     try {
       searchMock.mockRejectedValueOnce(new Error("serper down"));
       searchMock.mockRejectedValueOnce(new Error("serpent down"));
       await expect(checkBrandability("fluidfew")).rejects.toThrow("serpent down");
-      expect(searchMock).toHaveBeenCalledTimes(2);
+      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["serper", "serpent"]);
     } finally {
       vi.unstubAllEnvs();
     }

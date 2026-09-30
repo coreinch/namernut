@@ -13,9 +13,11 @@ export type Provider = ProviderOption;
  * https://apiserpent.com/faq), so it's the fallback, not the primary. */
 const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
-/** Opt-in last resort — only tried when TWOCAPTCHA_API_KEY is set (see
- * twocaptchaSearch.ts), after both providers above have failed. */
-const LAST_RESORT_PROVIDER: Provider = "twocaptcha";
+/** The default provider whenever TWOCAPTCHA_API_KEY is set (see
+ * twocaptchaSearch.ts): tried first, with PRIMARY_PROVIDER and
+ * FALLBACK_PROVIDER above as its fallbacks. Without the key it's skipped
+ * entirely and the order is unchanged. */
+const DEFAULT_PROVIDER: Provider = "twocaptcha";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -322,32 +324,41 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 // custom-domain.conf.j2; keep that override in sync if either timeout here
 // changes.
 const SEARCH_TIMEOUT_MS = 12000;
+// 2captcha's Scraper API measured 3.7-9.5s live (2026-09-30) — 12s would
+// cut its slower calls off and waste them, so it gets a longer budget.
+const TWOCAPTCHA_TIMEOUT_MS = 20000;
 
-/** Tries PRIMARY_PROVIDER first, then FALLBACK_PROVIDER, then — only when
- * TWOCAPTCHA_API_KEY is set — LAST_RESORT_PROVIDER, moving on at the first
- * success. Each step falls through on any failure — including a timeout
- * (see SEARCH_TIMEOUT_MS) — except when the caller's own `signal` is what
- * aborted: that's a real cancellation (the client disconnected, or
- * checkBrandability's own outer `signal` was aborted for some other reason
- * upstream), not a provider problem, so retrying with a different provider
- * would be pointless and just add latency to a request nobody's waiting on
- * anymore. The last provider tried is the one whose error is thrown. */
+/** Tries DEFAULT_PROVIDER first when TWOCAPTCHA_API_KEY is set, then
+ * PRIMARY_PROVIDER, then FALLBACK_PROVIDER, moving on at the first success.
+ * Each step falls through on any failure — including a timeout (see
+ * SEARCH_TIMEOUT_MS / TWOCAPTCHA_TIMEOUT_MS) — except when the caller's own
+ * `signal` is what aborted: that's a real cancellation (the client
+ * disconnected, or checkBrandability's own outer `signal` was aborted for
+ * some other reason upstream), not a provider problem, so retrying with a
+ * different provider would be pointless and just add latency to a request
+ * nobody's waiting on anymore. The last provider tried is the one whose
+ * error is thrown. */
 async function searchWithFallback(
   query: string,
   region: Region,
   signal: AbortSignal | undefined
 ): Promise<{ results: SearchResult[]; context: SearchContext | undefined; provider: Provider }> {
-  const withTimeout = (s: AbortSignal | undefined) => {
-    const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
+  const withTimeout = (s: AbortSignal | undefined, ms: number) => {
+    const timeoutSignal = AbortSignal.timeout(ms);
     return s ? AbortSignal.any([s, timeoutSignal]) : timeoutSignal;
   };
-  const providers: Provider[] = [PRIMARY_PROVIDER, FALLBACK_PROVIDER];
-  if (process.env.TWOCAPTCHA_API_KEY) providers.push(LAST_RESORT_PROVIDER);
+  const providers: Array<{ provider: Provider; timeoutMs: number }> = [
+    { provider: PRIMARY_PROVIDER, timeoutMs: SEARCH_TIMEOUT_MS },
+    { provider: FALLBACK_PROVIDER, timeoutMs: SEARCH_TIMEOUT_MS },
+  ];
+  if (process.env.TWOCAPTCHA_API_KEY) {
+    providers.unshift({ provider: DEFAULT_PROVIDER, timeoutMs: TWOCAPTCHA_TIMEOUT_MS });
+  }
 
   let lastErr: unknown;
-  for (const provider of providers) {
+  for (const { provider, timeoutMs } of providers) {
     try {
-      const { results, context } = await search(query, region, withTimeout(signal), provider);
+      const { results, context } = await search(query, region, withTimeout(signal, timeoutMs), provider);
       return { results, context, provider };
     } catch (err) {
       if (signal?.aborted) throw err;
