@@ -43,29 +43,19 @@ describe("checkInstagramUsername", () => {
     expect(undiciMock.ProxyAgent).toHaveBeenCalledTimes(1);
   });
 
-  it("via 2captcha: public embed is 'taken', null contextJSON is 'unknown' (never 'available')", async () => {
+  it("via 2captcha: rechecks login pages, then reads og:title (taken) or its absence (available)", async () => {
     process.env.INSTAGRAM_TWOCAPTCHA = "1";
     process.env.TWOCAPTCHA_API_KEY = "k";
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(mockResponse(200, "", '..."contextJSON":"{\\"context\\":{\\"username\\":\\"nike\\"}}"...'))
-      .mockResolvedValueOnce(mockResponse(200, "", '..."contextJSON":null...'));
-    vi.stubGlobal("fetch", fetchMock);
-    await expect(checkInstagramUsername("nike")).resolves.toBe("taken");
-    await expect(checkInstagramUsername("zzqxv")).resolves.toBe("unknown");
-    expect(fetchMock.mock.calls[0][0]).toBe("https://scraper.2captcha.com/tasks/sync");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).url).toBe("https://www.instagram.com/nike/embed/");
-  });
-
-  it("via 2captcha: rechecks on a login page, then succeeds or throws LoginWallError", async () => {
-    process.env.INSTAGRAM_TWOCAPTCHA = "1";
-    process.env.TWOCAPTCHA_API_KEY = "k";
-    const login = mockResponse(200, "", '<link href="https://www.instagram.com/accounts/login/?next=x">');
-    const ok = mockResponse(200, "", '"contextJSON":"{\\"context\\":{\\"username\\":\\"nike\\"}}"');
-    const fetchMock = vi.fn().mockResolvedValueOnce(login).mockResolvedValueOnce(ok);
+    const login = mockResponse(200, "", '<link href="https://www.instagram.com/accounts/login/?next=x"><meta property="og:title" content="Instagram">');
+    const profile = mockResponse(200, "", '<meta property="og:title" content="nike">');
+    const free = mockResponse(200, "", "<html></html>");
+    const fetchMock = vi.fn().mockResolvedValueOnce(login).mockResolvedValueOnce(profile).mockResolvedValueOnce(free);
     vi.stubGlobal("fetch", fetchMock);
     await expect(checkInstagramUsername("nike")).resolves.toBe("taken");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(checkInstagramUsername("zzqxv")).resolves.toBe("available");
+    expect(fetchMock.mock.calls[0][0]).toBe("https://scraper.2captcha.com/tasks/sync");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).url).toBe("https://www.instagram.com/nike/");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(login));
     await expect(checkInstagramUsername("nike")).rejects.toMatchObject({ name: "LoginWallError" });
   });

@@ -36,16 +36,13 @@
  * check downloads a full profile page, so this is meant to be paired with
  * the check staying off by default.
  *
- * If INSTAGRAM_TWOCAPTCHA=1 and TWOCAPTCHA_API_KEY is set, the check goes
- * through 2captcha's Scraper API instead (task_type "scrape"), which does
- * get past the login wall — but only for the /embed/ page (tested
- * 2026-09-30: the plain profile URL returns the login page for every
- * username, and the web_profile_info API returns "useragent mismatch").
- * A public profile's embed page carries `"contextJSON":"{\"context\":
- * {\"username\":...` while a private or nonexistent one carries
- * `"contextJSON":null`, and the two are otherwise indistinguishable — so
- * this path can prove "taken" but never "available"; anything else is
- * "unknown". Opt-in because each check is a metered ~230KB scrape (~4.5s).
+ * If INSTAGRAM_TWOCAPTCHA=1 and TWOCAPTCHA_API_KEY are set, the profile page
+ * is fetched through 2captcha's Scraper API (task_type "scrape") and read
+ * with the same og:title rule. Each scrape exits from a different IP and
+ * only some get the real profile page rather than the login wall (tested
+ * 2026-09-30: ~1 in 3 for the same username), so a login page is rechecked
+ * up to TWOCAPTCHA_LOGIN_WALL_ATTEMPTS times before throwing LoginWallError.
+ * Opt-in because each attempt is a metered ~500KB scrape (~4.5s).
  */
 import { fetchViaProxy, fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
 
@@ -53,7 +50,7 @@ export type InstagramStatus = "available" | "taken" | "unknown";
 
 // Each scrape may exit from a different IP, so a login-wall page on one
 // attempt doesn't mean the next will get one too — recheck before giving up.
-const TWOCAPTCHA_LOGIN_WALL_ATTEMPTS = 3;
+const TWOCAPTCHA_LOGIN_WALL_ATTEMPTS = 5;
 
 async function checkViaTwocaptcha(username: string, signal?: AbortSignal): Promise<InstagramStatus> {
   for (let attempt = 1; ; attempt++) {
@@ -62,7 +59,7 @@ async function checkViaTwocaptcha(username: string, signal?: AbortSignal): Promi
       headers: { Authorization: `Bearer ${process.env.TWOCAPTCHA_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         task_type: "scrape",
-        url: `https://www.instagram.com/${encodeURIComponent(username)}/embed/`,
+        url: `https://www.instagram.com/${encodeURIComponent(username)}/`,
         data_format: "raw",
         format: "raw",
       }),
@@ -71,10 +68,9 @@ async function checkViaTwocaptcha(username: string, signal?: AbortSignal): Promi
     if (res.status === 429) throwRateLimited("instagram_rate_limited");
     if (res.status !== 200) return "unknown";
     const html = await res.text();
-    if (/"contextJSON":"\{\\"context\\":\{\\"username\\"/.test(html)) return "taken";
-    // The login page's canonical/alternate links point at /accounts/login/;
-    // a real embed page (public or not) doesn't.
-    if (!html.includes("/accounts/login/")) return "unknown";
+    // The login page's alternate links point at /accounts/login/ and it
+    // carries a generic og:title, so check for it before reading og:title.
+    if (!html.includes("/accounts/login/")) return /property="og:title"/.test(html) ? "taken" : "available";
     if (attempt >= TWOCAPTCHA_LOGIN_WALL_ATTEMPTS) {
       const err = new Error("instagram_login_wall");
       err.name = "LoginWallError";
