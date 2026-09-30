@@ -57,6 +57,19 @@ describe("checkInstagramUsername", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).url).toBe("https://www.instagram.com/nike/embed/");
   });
 
+  it("via 2captcha: rechecks on a login page, then succeeds or throws LoginWallError", async () => {
+    process.env.INSTAGRAM_TWOCAPTCHA = "1";
+    process.env.TWOCAPTCHA_API_KEY = "k";
+    const login = mockResponse(200, "", '<link href="https://www.instagram.com/accounts/login/?next=x">');
+    const ok = mockResponse(200, "", '"contextJSON":"{\\"context\\":{\\"username\\":\\"nike\\"}}"');
+    const fetchMock = vi.fn().mockResolvedValueOnce(login).mockResolvedValueOnce(ok);
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(checkInstagramUsername("nike")).resolves.toBe("taken");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(login));
+    await expect(checkInstagramUsername("nike")).rejects.toMatchObject({ name: "LoginWallError" });
+  });
+
   it("maps a page with og:title metadata to 'taken'", async () => {
     vi.stubGlobal(
       "fetch",

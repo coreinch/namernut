@@ -51,22 +51,36 @@ import { fetchViaProxy, fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimi
 
 export type InstagramStatus = "available" | "taken" | "unknown";
 
+// Each scrape may exit from a different IP, so a login-wall page on one
+// attempt doesn't mean the next will get one too — recheck before giving up.
+const TWOCAPTCHA_LOGIN_WALL_ATTEMPTS = 3;
+
 async function checkViaTwocaptcha(username: string, signal?: AbortSignal): Promise<InstagramStatus> {
-  const res = await fetch("https://scraper.2captcha.com/tasks/sync", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.TWOCAPTCHA_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      task_type: "scrape",
-      url: `https://www.instagram.com/${encodeURIComponent(username)}/embed/`,
-      data_format: "raw",
-      format: "raw",
-    }),
-    signal,
-  });
-  if (res.status === 429) throwRateLimited("instagram_rate_limited");
-  if (res.status !== 200) return "unknown";
-  const html = await res.text();
-  return /"contextJSON":"\{\\"context\\":\{\\"username\\"/.test(html) ? "taken" : "unknown";
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch("https://scraper.2captcha.com/tasks/sync", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${process.env.TWOCAPTCHA_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        task_type: "scrape",
+        url: `https://www.instagram.com/${encodeURIComponent(username)}/embed/`,
+        data_format: "raw",
+        format: "raw",
+      }),
+      signal,
+    });
+    if (res.status === 429) throwRateLimited("instagram_rate_limited");
+    if (res.status !== 200) return "unknown";
+    const html = await res.text();
+    if (/"contextJSON":"\{\\"context\\":\{\\"username\\"/.test(html)) return "taken";
+    // The login page's canonical/alternate links point at /accounts/login/;
+    // a real embed page (public or not) doesn't.
+    if (!html.includes("/accounts/login/")) return "unknown";
+    if (attempt >= TWOCAPTCHA_LOGIN_WALL_ATTEMPTS) {
+      const err = new Error("instagram_login_wall");
+      err.name = "LoginWallError";
+      throw err;
+    }
+  }
 }
 
 export async function checkInstagramUsername(
