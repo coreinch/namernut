@@ -88,8 +88,8 @@ export async function GET(request: Request) {
       );
     }
     if (err instanceof Error && err.name === "RateLimitError") {
-      // Shared name across serperSearch.ts, serpentSearch.ts, and
-      // kilocode.ts (see src/lib/rdap.ts, instagram.ts for the same
+      // Shared name across serperSearch.ts, serpentSearch.ts,
+      // twocaptchaSearch.ts, and kilocode.ts (see src/lib/rdap.ts, instagram.ts for the same
       // convention) — the message each one sets identifies which service
       // actually hit its limit, so the response doesn't misattribute it.
       const service =
@@ -97,7 +97,9 @@ export async function GET(request: Request) {
           ? "Kilo Gateway"
           : err.message === "serpent_rate_limited"
             ? "apiserpent.com"
-            : "Serper.dev";
+            : err.message === "twocaptcha_rate_limited"
+              ? "2captcha"
+              : "Serper.dev";
       return Response.json({ error: `${service} rate limit hit — try again shortly.` }, { status: 429 });
     }
     // AbortSignal.timeout() (see SEARCH_TIMEOUT_MS in brandability.ts and

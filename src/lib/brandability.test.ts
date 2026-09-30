@@ -76,6 +76,44 @@ describe("checkBrandability", () => {
     expect(res.provider).toBe("serpent");
   });
 
+  it("adds twocaptcha as a third, last-resort provider only when TWOCAPTCHA_API_KEY is set", async () => {
+    vi.stubEnv("TWOCAPTCHA_API_KEY", "k");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockRejectedValueOnce(new Error("serpent down"));
+      searchMock.mockResolvedValueOnce({ results: [result({ title: "2captcha hit" })] });
+      const res = await checkBrandability("fluidfew");
+      expect(searchMock.mock.calls.map((c) => c[3])).toEqual(["serper", "serpent", "twocaptcha"]);
+      expect(res.provider).toBe("twocaptcha");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("propagates twocaptcha's error when all three providers fail", async () => {
+    vi.stubEnv("TWOCAPTCHA_API_KEY", "k");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockRejectedValueOnce(new Error("serpent down"));
+      searchMock.mockRejectedValueOnce(new Error("twocaptcha down"));
+      await expect(checkBrandability("fluidfew")).rejects.toThrow("twocaptcha down");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never tries twocaptcha when TWOCAPTCHA_API_KEY is unset — the serpent error propagates", async () => {
+    vi.stubEnv("TWOCAPTCHA_API_KEY", "");
+    try {
+      searchMock.mockRejectedValueOnce(new Error("serper down"));
+      searchMock.mockRejectedValueOnce(new Error("serpent down"));
+      await expect(checkBrandability("fluidfew")).rejects.toThrow("serpent down");
+      expect(searchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("doesn't fall back to serpent, and propagates the error, when the caller's own signal was what aborted", async () => {
     const controller = new AbortController();
     searchMock.mockImplementationOnce(async () => {

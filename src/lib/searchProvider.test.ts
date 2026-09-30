@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchResponse } from "./searchProvider";
 
 const serperSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>>();
+const twocaptchaSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>>();
 const serpentSearchMock = vi.fn<(query: string, region: string, signal?: AbortSignal) => Promise<SearchResponse>>();
 
 vi.mock("./serperSearch", () => ({
@@ -9,6 +10,10 @@ vi.mock("./serperSearch", () => ({
 }));
 vi.mock("./serpentSearch", () => ({
   serpentSearch: (...args: Parameters<typeof serpentSearchMock>) => serpentSearchMock(...args),
+}));
+
+vi.mock("./twocaptchaSearch", () => ({
+  twocaptchaSearch: (...args: Parameters<typeof twocaptchaSearchMock>) => twocaptchaSearchMock(...args),
 }));
 
 // Static import receives the mocked modules above, since vi.mock is hoisted
@@ -48,6 +53,13 @@ describe("search", () => {
     const controller = new AbortController();
     await search("foo", "us", controller.signal, "serpent");
     expect(serpentSearchMock).toHaveBeenCalledWith("foo", "us", controller.signal);
+  });
+
+  it("uses twocaptcha when providerOverride is \"twocaptcha\"", async () => {
+    twocaptchaSearchMock.mockResolvedValue({ results: [] });
+    await search("foo", "gb", undefined, "twocaptcha");
+    expect(twocaptchaSearchMock).toHaveBeenCalledWith("foo", "gb", undefined);
+    expect(serperSearchMock).not.toHaveBeenCalled();
   });
 
   it("throws on an unrecognized providerOverride value", () => {

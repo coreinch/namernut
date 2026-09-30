@@ -13,6 +13,9 @@ export type Provider = ProviderOption;
  * https://apiserpent.com/faq), so it's the fallback, not the primary. */
 const PRIMARY_PROVIDER: Provider = "serper";
 const FALLBACK_PROVIDER: Provider = "serpent";
+/** Opt-in last resort — only tried when TWOCAPTCHA_API_KEY is set (see
+ * twocaptchaSearch.ts), after both providers above have failed. */
+const LAST_RESORT_PROVIDER: Provider = "twocaptcha";
 /**
  * Regions selectable for the brandability check — see the region dropdown in
  * SettingsPanel (page.tsx), which owns the canonical list (REGION_OPTIONS
@@ -320,13 +323,15 @@ function parseLlmResponse(raw: string): { brandabilityScore: number; summary: st
 // changes.
 const SEARCH_TIMEOUT_MS = 12000;
 
-/** Tries PRIMARY_PROVIDER first, falls back to FALLBACK_PROVIDER once on
- * any failure — including a timeout (see SEARCH_TIMEOUT_MS) — except when
- * the caller's own `signal` is what aborted: that's a real cancellation
- * (the client disconnected, or checkBrandability's own outer `signal` was
- * aborted for some other reason upstream), not a provider problem, so
- * retrying with a different provider would be pointless and just add
- * latency to a request nobody's waiting on anymore. */
+/** Tries PRIMARY_PROVIDER first, then FALLBACK_PROVIDER, then — only when
+ * TWOCAPTCHA_API_KEY is set — LAST_RESORT_PROVIDER, moving on at the first
+ * success. Each step falls through on any failure — including a timeout
+ * (see SEARCH_TIMEOUT_MS) — except when the caller's own `signal` is what
+ * aborted: that's a real cancellation (the client disconnected, or
+ * checkBrandability's own outer `signal` was aborted for some other reason
+ * upstream), not a provider problem, so retrying with a different provider
+ * would be pointless and just add latency to a request nobody's waiting on
+ * anymore. The last provider tried is the one whose error is thrown. */
 async function searchWithFallback(
   query: string,
   region: Region,
@@ -336,14 +341,20 @@ async function searchWithFallback(
     const timeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
     return s ? AbortSignal.any([s, timeoutSignal]) : timeoutSignal;
   };
-  try {
-    const { results, context } = await search(query, region, withTimeout(signal), PRIMARY_PROVIDER);
-    return { results, context, provider: PRIMARY_PROVIDER };
-  } catch (err) {
-    if (signal?.aborted) throw err;
-    const { results, context } = await search(query, region, withTimeout(signal), FALLBACK_PROVIDER);
-    return { results, context, provider: FALLBACK_PROVIDER };
+  const providers: Provider[] = [PRIMARY_PROVIDER, FALLBACK_PROVIDER];
+  if (process.env.TWOCAPTCHA_API_KEY) providers.push(LAST_RESORT_PROVIDER);
+
+  let lastErr: unknown;
+  for (const provider of providers) {
+    try {
+      const { results, context } = await search(query, region, withTimeout(signal), provider);
+      return { results, context, provider };
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      lastErr = err;
+    }
   }
+  throw lastErr;
 }
 
 /**

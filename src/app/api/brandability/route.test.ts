@@ -99,6 +99,15 @@ describe("GET /api/brandability", () => {
     expect(body.error).toMatch(/apiserpent\.com/);
   });
 
+  it("names 2captcha when that's the provider that hit its rate limit", async () => {
+    const err = new Error("twocaptcha_rate_limited");
+    err.name = "RateLimitError";
+    checkBrandability.mockRejectedValue(err);
+    const res = await GET(req("name=glowhut"));
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toMatch(/2captcha/);
+  });
+
   it("maps an AbortSignal timeout to 504", async () => {
     checkBrandability.mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
     const res = await GET(req("name=glowhut"));

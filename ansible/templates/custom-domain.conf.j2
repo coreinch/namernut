@@ -44,10 +44,11 @@ server {
     }
 
     # Worst-case latency budget: two searchWithFallback attempts (12s each,
-    # see SEARCH_TIMEOUT_MS in brandability.ts) plus completeChat's own two
-    # attempts (30s each, see REQUEST_TIMEOUT_MS in kilocode.ts — retries
-    # once on kilo-auto/free's documented hang) is up to 84s, over nginx's
-    # 60s default proxy_read_timeout. This route previously fit under that
+    # see SEARCH_TIMEOUT_MS in brandability.ts; a third, when
+    # TWOCAPTCHA_API_KEY is set) plus completeChat's own two attempts (30s
+    # each, see REQUEST_TIMEOUT_MS in kilocode.ts — retries once on
+    # kilo-auto/free's documented hang) is up to 84s (96s with the third
+    # provider), over nginx's 60s default proxy_read_timeout. This route previously fit under that
     # default (54s worst case) before completeChat gained its retry; without
     # this override, a slow-but-eventually-successful check now risks nginx
     # cutting the connection with a raw 504 before the app's own clean
