@@ -159,6 +159,8 @@ export function useDiscoveryRun({
       delete next[name];
       return next;
     });
+    // Already scored = this is a Rescore, so bypass the server's verdict cache.
+    const freshParam = scoredNamesRef.current.has(name) ? "&fresh=1" : "";
     (async () => {
       try {
         const partsParam = parts
@@ -168,7 +170,7 @@ export function useDiscoveryRun({
         // decided and, on failure, retried with the other one entirely
         // server-side now (see searchWithFallback in brandability.ts).
         const res = await fetch(
-          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}`
+          `/api/brandability?name=${encodeURIComponent(name)}${partsParam}&region=${encodeURIComponent(region)}${freshParam}`
         );
         const body = await res.json();
         if (!res.ok) throw new Error(body?.error || `Request failed (${res.status})`);

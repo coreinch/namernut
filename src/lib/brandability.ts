@@ -422,7 +422,8 @@ export async function checkBrandability(
   name: string,
   parts?: [string, string],
   signal?: AbortSignal,
-  region: Region = DEFAULT_REGION
+  region: Region = DEFAULT_REGION,
+  fresh = false
 ): Promise<BrandabilityResult> {
   const twoWordSplit = validateParts(name, parts) ?? splitIntoWords(name);
   const twoWordSplitStr = twoWordSplit ? twoWordSplit.join(" ") : null;
@@ -430,7 +431,9 @@ export async function checkBrandability(
   // for why both the grouping and the no-quotes-anywhere choice matter.
   const query = twoWordSplitStr ? `${name} OR (${twoWordSplitStr})` : name;
   const cacheKey = `${region}:${query}`;
-  const cached = brandabilityCache.get(cacheKey);
+  // `fresh` (the "Rescore" button) skips the read but still refreshes the
+  // cached entry below — otherwise a rescore just replays the same verdict.
+  const cached = fresh ? undefined : brandabilityCache.get(cacheKey);
   if (cached) return cached;
 
   const { results, context, provider } = await searchWithFallback(query, region, signal);

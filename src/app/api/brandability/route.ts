@@ -63,7 +63,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const result = await checkBrandability(name, parts, request.signal, region);
+    const result = await checkBrandability(name, parts, request.signal, region, searchParams.get("fresh") === "1");
     return Response.json(result);
   } catch (err) {
     if (err instanceof Error && err.name === "SerperApiKeyMissingError") {
