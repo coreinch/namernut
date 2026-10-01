@@ -137,7 +137,7 @@ jobs:
           KILOCODE_API_KEY: ${{ secrets.KILOCODE_API_KEY }}
           KILOCODE_MODEL: ${{ secrets.KILOCODE_MODEL }}
           INSTAGRAM_SESSION_ID: ${{ secrets.INSTAGRAM_SESSION_ID }}
-          INSTAGRAM_PROXY_URL: ${{ secrets.INSTAGRAM_PROXY_URL }}
+          PROXY_URL: ${{ secrets.PROXY_URL || secrets.INSTAGRAM_PROXY_URL }}
           TWOCAPTCHA_API_KEY: ${{ secrets.TWOCAPTCHA_API_KEY }}
         run: |
           # Built via jq rather than interpolated straight into the
@@ -153,7 +153,7 @@ jobs:
             --arg kilocode_api_key "$KILOCODE_API_KEY" \
             --arg kilocode_model "$KILOCODE_MODEL" \
             --arg instagram_session_id "$INSTAGRAM_SESSION_ID" \
-            --arg instagram_proxy_url "$INSTAGRAM_PROXY_URL" \
+            --arg proxy_url "$PROXY_URL" \
             --arg twocaptcha_api_key "$TWOCAPTCHA_API_KEY" \
             '$ARGS.named' > /tmp/extra-vars.json
 

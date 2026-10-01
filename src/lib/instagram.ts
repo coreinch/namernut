@@ -26,7 +26,7 @@
  * behavior detection, which anonymous requests (just an inconclusive login
  * page) don't risk. Falls back to the unauthenticated path when unset.
  *
- * If INSTAGRAM_PROXY_URL is set (e.g. http://user:pass@host:port, a
+ * If PROXY_URL (or the legacy INSTAGRAM_PROXY_URL) is set (e.g. http://user:pass@host:port, a
  * residential proxy — never committed), the request goes through it. The
  * login wall is IP-based, not username- or User-Agent-based: from the
  * production VPS's datacenter IP every profile, taken or free, redirects to
@@ -44,7 +44,7 @@
  * up to TWOCAPTCHA_LOGIN_WALL_ATTEMPTS times before throwing LoginWallError.
  * Opt-in because each attempt is a metered ~500KB scrape (~4.5s).
  */
-import { fetchViaProxy, fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
+import { fetchMaybeProxied, SOCIAL_CHECK_USER_AGENT, throwRateLimited } from "@/lib/socialStatus";
 
 export type InstagramStatus = "available" | "taken" | "unknown";
 
@@ -92,10 +92,7 @@ export async function checkInstagramUsername(
   }
 
   const url = `https://www.instagram.com/${encodeURIComponent(username)}/`;
-  const proxyUrl = process.env.INSTAGRAM_PROXY_URL;
-  const res = proxyUrl
-    ? await fetchViaProxy(url, { headers }, proxyUrl, signal)
-    : await fetchWithTimeout(url, { headers }, signal);
+  const res = await fetchMaybeProxied(url, { headers }, signal);
 
   if (res.status === 429) throwRateLimited("instagram_rate_limited");
 

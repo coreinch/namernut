@@ -17,10 +17,10 @@
  * limit at request #61 within a single search, which is why requireGithub
  * now defaults to off (see DEFAULT_GATES in usePersistedAppState.ts).
  */
-import { fetchWithTimeout, SOCIAL_CHECK_USER_AGENT, throwRateLimited, type SocialStatus } from "@/lib/socialStatus";
+import { fetchMaybeProxied, SOCIAL_CHECK_USER_AGENT, throwRateLimited, type SocialStatus } from "@/lib/socialStatus";
 
 export async function checkGithubUsername(username: string, signal?: AbortSignal): Promise<SocialStatus> {
-  const res = await fetchWithTimeout(
+  const res = await fetchMaybeProxied(
     `https://api.github.com/users/${encodeURIComponent(username)}`,
     { headers: { "User-Agent": SOCIAL_CHECK_USER_AGENT, Accept: "application/vnd.github+json" } },
     signal

@@ -39,9 +39,22 @@ export function fetchWithTimeout(url: string, init: RequestInit, signal?: AbortS
 
 const proxyAgents = new Map<string, unknown>();
 
-/** Like fetchWithTimeout, but routed through an HTTP(S) proxy. Used only by
- * instagram.ts (see INSTAGRAM_PROXY_URL there) — Instagram walls datacenter
- * IPs like the production VPS's but answers residential ones. Uses undici's
+/** The shared outbound proxy for platform checks: PROXY_URL, falling back to
+ * the older INSTAGRAM_PROXY_URL name so existing deployments keep working. */
+export function getProxyUrl(): string | undefined {
+  return process.env.PROXY_URL || process.env.INSTAGRAM_PROXY_URL || undefined;
+}
+
+/** fetchWithTimeout, routed through the shared proxy when one is configured. */
+export function fetchMaybeProxied(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
+  const proxyUrl = getProxyUrl();
+  return proxyUrl ? fetchViaProxy(url, init, proxyUrl, signal) : fetchWithTimeout(url, init, signal);
+}
+
+/** Like fetchWithTimeout, but routed through an HTTP(S) proxy. Used by
+ * instagram.ts and github.ts (see PROXY_URL) — Instagram walls datacenter
+ * IPs like the production VPS's but answers residential ones, and GitHub's
+ * unauthenticated rate limit is per IP. Uses undici's
  * own fetch rather than the global one: a ProxyAgent from the npm package
  * isn't guaranteed compatible with the copy of undici bundled in Node's
  * built-in fetch. Imported lazily so the package is never loaded when no

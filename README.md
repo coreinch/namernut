@@ -49,7 +49,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `KILOCODE_API_KEY` | Yes | LLM calls for AI synonyms/invented names/brandability summaries |
 | `KILOCODE_MODEL` | No | Model id to use via Kilocode; falls back to the pinned model `kilo-auto/small` |
 | `INSTAGRAM_SESSION_ID` | No | Enables live Instagram handle checks |
-| `INSTAGRAM_PROXY_URL` | No | HTTP proxy (ideally residential) used only for Instagram checks; Instagram blocks datacenter IPs |
+| `PROXY_URL` | No | HTTP proxy (ideally residential) used for Instagram and GitHub checks; Instagram blocks datacenter IPs and GitHub rate-limits per IP. `INSTAGRAM_PROXY_URL` is still read as a fallback |
 
 ## Scripts
 

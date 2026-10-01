@@ -24,14 +24,14 @@ describe("checkInstagramUsername", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     delete process.env.INSTAGRAM_SESSION_ID;
-    delete process.env.INSTAGRAM_PROXY_URL;
+    delete process.env.PROXY_URL;
     delete process.env.INSTAGRAM_TWOCAPTCHA;
     delete process.env.TWOCAPTCHA_API_KEY;
     undiciMock.fetch.mockReset();
   });
 
-  it("routes through the proxy via undici (and never the global fetch) when INSTAGRAM_PROXY_URL is set", async () => {
-    process.env.INSTAGRAM_PROXY_URL = "http://user:pass@proxy.example:1234";
+  it("routes through the proxy via undici (and never the global fetch) when PROXY_URL is set", async () => {
+    process.env.PROXY_URL = "http://user:pass@proxy.example:1234";
     const globalFetch = vi.fn();
     vi.stubGlobal("fetch", globalFetch);
     undiciMock.fetch.mockResolvedValue(mockResponse(200, PROFILE_URL, '<meta property="og:title" content="nike">'));
