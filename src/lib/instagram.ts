@@ -26,7 +26,7 @@
  * behavior detection, which anonymous requests (just an inconclusive login
  * page) don't risk. Falls back to the unauthenticated path when unset.
  *
- * If PROXY_URL (or the legacy INSTAGRAM_PROXY_URL) is set (e.g. http://user:pass@host:port, a
+ * If PROXY_URL is set (e.g. http://user:pass@host:port, a
  * residential proxy — never committed), the request goes through it. The
  * login wall is IP-based, not username- or User-Agent-based: from the
  * production VPS's datacenter IP every profile, taken or free, redirects to

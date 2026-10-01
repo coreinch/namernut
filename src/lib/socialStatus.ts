@@ -39,10 +39,9 @@ export function fetchWithTimeout(url: string, init: RequestInit, signal?: AbortS
 
 const proxyAgents = new Map<string, unknown>();
 
-/** The shared outbound proxy for platform checks: PROXY_URL, falling back to
- * the older INSTAGRAM_PROXY_URL name so existing deployments keep working. */
+/** The shared outbound proxy for platform checks (PROXY_URL), if configured. */
 export function getProxyUrl(): string | undefined {
-  return process.env.PROXY_URL || process.env.INSTAGRAM_PROXY_URL || undefined;
+  return process.env.PROXY_URL || undefined;
 }
 
 /** fetchWithTimeout, routed through the shared proxy when one is configured. */
